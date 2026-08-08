@@ -1,1 +1,0 @@
-# tickora-crm-mobile-app
