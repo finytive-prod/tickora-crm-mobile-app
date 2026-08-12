@@ -1,3 +1,4 @@
+import 'dart:convert';
 import '../../domain/entities/user.dart';
 
 class UserModel extends User {
@@ -12,14 +13,32 @@ class UserModel extends User {
   });
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
+    final accessToken = json['accessToken'] ?? '';
+    final expiresIn = json['expiresIn'] ?? 0;
+    final tokenType = json['tokenType'] ?? '';
+
+    Map<String, dynamic> decoded = {};
+    if (accessToken.isNotEmpty) {
+      try {
+        final parts = accessToken.split('.');
+        if (parts.length == 3) {
+          final payload = parts[1];
+          var normalized = base64Url.normalize(payload);
+          final resp = utf8.decode(base64Url.decode(normalized));
+          decoded = jsonDecode(resp);
+        }
+      } catch (_) {}
+    }
+
     return UserModel(
-      accessToken: json['accessToken'] ?? '',
-      expiresIn: json['expiresIn'] ?? 0,
-      tokenType: json['tokenType'] ?? '',
-      userId: json['userId'] ?? '',
-      userName: json['userName'] ?? '',
-      role: json['role'] ?? '',
-      privileges: (json['privileges'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],
+      accessToken: accessToken,
+      expiresIn: expiresIn,
+      tokenType: tokenType,
+      userId: json['userId'] ?? decoded['userId'] ?? decoded['sub'] ?? '',
+      userName: json['userName'] ?? decoded['name'] ?? '',
+      role: json['role'] ?? decoded['role'] ?? '',
+      privileges: (json['privileges'] as List<dynamic>?)?.map((e) => e.toString()).toList() ??
+                  (decoded['privileges'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],
     );
   }
 

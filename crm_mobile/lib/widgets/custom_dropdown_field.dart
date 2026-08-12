@@ -1,0 +1,80 @@
+import 'package:flutter/material.dart';
+import '../core/theme/app_colors.dart';
+
+class CustomDropdownField<T> extends StatelessWidget {
+  final String label;
+  final bool isRequired;
+  final List<DropdownMenuItem<T>> items;
+  final T? value;
+  final void Function(T?)? onChanged;
+  final String? Function(T?)? validator;
+
+  const CustomDropdownField({
+    super.key,
+    required this.label,
+    required this.items,
+    this.isRequired = false,
+    this.value,
+    this.onChanged,
+    this.validator,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8.0, left: 4.0),
+          child: RichText(
+            text: TextSpan(
+              text: label,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textLabel,
+              ),
+              children: [
+                if (isRequired)
+                  const TextSpan(
+                    text: ' *',
+                    style: TextStyle(color: Colors.red),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        DropdownButtonFormField<T>(
+          isExpanded: true,
+          value: items.any((item) => item.value == value) ? value : null,
+          icon: const Icon(Icons.keyboard_arrow_down, color: AppColors.textHint),
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.white,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: AppColors.borderEnabled),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: AppColors.borderEnabled),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: AppColors.primary),
+            ),
+          ),
+          items: items,
+          onChanged: onChanged,
+          validator: validator ?? (val) {
+            if (isRequired && val == null) {
+              return 'Required';
+            }
+            return null;
+          },
+        ),
+      ],
+    );
+  }
+}

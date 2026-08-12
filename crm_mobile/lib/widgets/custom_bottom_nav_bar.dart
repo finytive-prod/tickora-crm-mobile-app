@@ -36,9 +36,9 @@ class CustomBottomNavBar extends StatelessWidget {
           label: 'Leads',
         ),
         BottomNavigationBarItem(
-          icon: Icon(Icons.check_circle_outline),
-          activeIcon: Icon(Icons.check_circle),
-          label: 'Tasks',
+          icon: Icon(Icons.reply_outlined),
+          activeIcon: Icon(Icons.reply),
+          label: 'Follow ups',
         ),
         BottomNavigationBarItem(
           icon: Icon(Icons.calendar_today_outlined),

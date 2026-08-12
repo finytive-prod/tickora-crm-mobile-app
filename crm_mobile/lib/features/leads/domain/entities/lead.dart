@@ -23,6 +23,7 @@ class LeadStatus extends Equatable {
   final String color;
   final bool isDefault;
   final bool isClosed;
+  final int displayOrder;
 
   const LeadStatus({
     required this.id,
@@ -30,10 +31,11 @@ class LeadStatus extends Equatable {
     required this.color,
     required this.isDefault,
     required this.isClosed,
+    required this.displayOrder,
   });
 
   @override
-  List<Object?> get props => [id, statusName, color, isDefault, isClosed];
+  List<Object?> get props => [id, statusName, color, isDefault, isClosed, displayOrder];
 }
 
 class Lead extends Equatable {

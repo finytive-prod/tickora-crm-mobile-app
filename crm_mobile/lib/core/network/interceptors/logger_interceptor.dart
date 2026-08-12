@@ -25,7 +25,14 @@ class LoggerInterceptor extends Interceptor {
 
       if (options.data != null) {
         if (options.data is FormData) {
-          components.add('--data-binary "@[FormData]"');
+          final formData = options.data as FormData;
+          for (var field in formData.fields) {
+            components.add('-F "${field.key}=${field.value.replaceAll('"', '\\"')}"');
+          }
+          for (var file in formData.files) {
+            final fileName = file.value.filename ?? 'unnamed_file';
+            components.add('-F "${file.key}=@$fileName"');
+          }
         } else {
           final data = json.encode(options.data).replaceAll('"', '\\"');
           components.add('-d "$data"');
@@ -48,6 +55,28 @@ class LoggerInterceptor extends Interceptor {
       
       logger.d('*** API Request - Start ***\nURL: ${options.uri}');
       debugPrint('cURL: $curlCommand');
+
+      if (options.data != null) {
+        if (options.data is FormData) {
+          final formData = options.data as FormData;
+          debugPrint('--- FormData Payload ---');
+          for (var field in formData.fields) {
+            debugPrint('${field.key}: ${field.value}');
+          }
+          for (var file in formData.files) {
+            debugPrint('${file.key}: File(${file.value.filename}, contentType: ${file.value.contentType})');
+          }
+          debugPrint('------------------------');
+        } else {
+          debugPrint('--- Request Payload ---');
+          try {
+            debugPrint(const JsonEncoder.withIndent('  ').convert(options.data));
+          } catch (_) {
+            debugPrint(options.data.toString());
+          }
+          debugPrint('-----------------------');
+        }
+      }
     }
     super.onRequest(options, handler);
   }

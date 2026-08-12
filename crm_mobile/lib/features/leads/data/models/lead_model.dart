@@ -25,6 +25,7 @@ class LeadStatusModel extends LeadStatus {
     required super.color,
     required super.isDefault,
     required super.isClosed,
+    required super.displayOrder,
   });
 
   factory LeadStatusModel.fromJson(Map<String, dynamic> json) {
@@ -34,6 +35,7 @@ class LeadStatusModel extends LeadStatus {
       color: json['color'] ?? '',
       isDefault: json['isDefault'] ?? false,
       isClosed: json['isClosed'] ?? false,
+      displayOrder: json['displayOrder'] ?? 0,
     );
   }
 }

@@ -3,213 +3,354 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/theme/app_colors.dart';
 import '../../injection/injection.dart';
 import '../login_screen.dart';
+import '../home_screen.dart';
+import '../settings/settings_screen.dart';
 
-class MoreScreen extends StatelessWidget {
+class MoreScreen extends StatefulWidget {
   const MoreScreen({super.key});
 
-  void _handleLogout(BuildContext context) async {
+  @override
+  State<MoreScreen> createState() => _MoreScreenState();
+}
+
+class _MoreScreenState extends State<MoreScreen> {
+  String _userName = 'Ezhil Kumar';
+  String _userEmail = 'admin@lumen.io';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserData();
+  }
+
+  void _loadUserData() async {
     final prefs = sl<SharedPreferences>();
-    await prefs.remove('token');
-    
-    if (context.mounted) {
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (context) => const LoginScreen()),
-        (Route<dynamic> route) => false,
-      );
+    setState(() {
+      _userName = prefs.getString('userName') ?? 'Ezhil Kumar';
+      _userEmail = prefs.getString('userEmail') ?? 'admin@lumen.io';
+    });
+  }
+
+  void _handleLogout(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.logout, color: Color(0xFFDB222A)),
+              SizedBox(width: 8),
+              Text(
+                'Logout',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: const Text('Are you sure you want to log out of the application?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text(
+                'Cancel',
+                style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.bold),
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFDB222A),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () async {
+                Navigator.of(dialogContext).pop();
+                
+                final prefs = sl<SharedPreferences>();
+                await prefs.remove('token');
+                await prefs.remove('userName');
+                await prefs.remove('userEmail');
+                
+                if (context.mounted) {
+                  Navigator.of(context).pushAndRemoveUntil(
+                    MaterialPageRoute(builder: (context) => const LoginScreen()),
+                    (Route<dynamic> route) => false,
+                  );
+                }
+              },
+              child: const Text('Logout', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _changeTab(BuildContext context, int index) {
+    final homeState = context.findAncestorStateOfType<HomeScreenState>();
+    if (homeState != null) {
+      homeState.changeTab(index);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    const brandColor = Color(0xFFDB222A);
+    final activeTabColor = const Color(0xFFFEE2E2);
+
     return Scaffold(
-      backgroundColor: AppColors.secondary,
-      body: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
-              child: Text(
-                'My Profile',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textPrimary,
-                ),
+      backgroundColor: Colors.white,
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Red Header Section
+          Container(
+            width: double.infinity,
+            decoration: const BoxDecoration(
+              color: brandColor,
+              borderRadius: BorderRadius.only(
+                bottomLeft: Radius.circular(20),
+                bottomRight: Radius.circular(20),
               ),
             ),
-            
-            Expanded(
-              child: SingleChildScrollView(
-                child: Column(
+            padding: const EdgeInsets.only(top: 50, left: 20, right: 20, bottom: 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Logo & Close row
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const SizedBox(height: 10),
-                    // Profile Info
-                    const CircleAvatar(
-                      radius: 40,
-                      backgroundColor: Colors.white,
-                      // Since we don't have the image, we just show a placeholder
-                      child: Icon(Icons.person, size: 40, color: Colors.grey),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(5),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Icon(Icons.trending_up, color: brandColor, size: 20),
+                        ),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'TICKORA',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 12),
-                    const Text(
-                      'Ezhil Kumar',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textPrimary,
+                    GestureDetector(
+                      onTap: () => _changeTab(context, 1), // Close switches to Leads tab
+                      child: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.close, color: Colors.white, size: 18),
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'Sales Manager',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.green, // Close to the design's green
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'ezhil.kumar@tickora.io',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: AppColors.textLabel,
-                      ),
-                    ),
-                    const SizedBox(height: 30),
+                  ],
+                ),
+                const SizedBox(height: 24),
 
-                    // Menu Card
+                // Profile row
+                Row(
+                  children: [
+                    // Avatar
                     Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 20.0),
                       decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 2),
                       ),
+                      child: const CircleAvatar(
+                        radius: 28,
+                        backgroundColor: Colors.white,
+                        child: Icon(Icons.person, color: brandColor, size: 32),
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+
+                    // User name & email
+                    Expanded(
                       child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          _buildMenuItem(
-                            icon: Icons.edit_outlined,
-                            title: 'Edit Profile',
-                            onTap: () {},
-                          ),
-                          _buildDivider(),
-                          _buildMenuItem(
-                            icon: Icons.domain,
-                            title: 'Organization',
-                            onTap: () {},
-                          ),
-                          _buildDivider(),
-                          _buildMenuItem(
-                            icon: Icons.credit_card_outlined,
-                            title: 'Subscription',
-                            onTap: () {},
-                          ),
-                          _buildDivider(),
-                          _buildMenuItem(
-                            icon: Icons.language,
-                            title: 'Language',
-                            onTap: () {},
-                          ),
-                          _buildDivider(),
-                          _buildMenuItem(
-                            icon: Icons.dark_mode_outlined,
-                            title: 'Theme (Light/Dark)',
-                            trailing: Switch(
-                              value: false, // Would be hooked up to a ThemeController
-                              onChanged: (val) {},
-                              activeColor: Colors.white,
-                              activeTrackColor: Colors.green,
-                              inactiveThumbColor: Colors.white,
-                              inactiveTrackColor: Colors.grey.shade300,
+                          Text(
+                            _userName,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
                             ),
-                            onTap: null, // Switch handles tap
                           ),
-                          _buildDivider(),
-                          _buildMenuItem(
-                            icon: Icons.security,
-                            title: 'Security',
-                            onTap: () {},
-                          ),
-                          _buildDivider(),
-                          _buildMenuItem(
-                            icon: Icons.lock_outline,
-                            title: 'Change Password',
-                            onTap: () {},
-                          ),
-                          _buildDivider(),
-                          _buildMenuItem(
-                            icon: Icons.visibility_outlined,
-                            title: 'Privacy',
-                            onTap: () {},
-                          ),
-                          _buildDivider(),
-                          _buildMenuItem(
-                            icon: Icons.logout,
-                            title: 'Logout',
-                            isDestructive: true,
-                            onTap: () => _handleLogout(context),
+                          const SizedBox(height: 2),
+                          Text(
+                            _userEmail,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.white.withOpacity(0.85),
+                            ),
                           ),
                         ],
                       ),
                     ),
-                    const SizedBox(height: 30),
+
+                    // Edit Icon
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.edit, color: Colors.white, size: 18),
+                    ),
                   ],
                 ),
-              ),
+              ],
             ),
-          ],
-        ),
-      ),
-    );
-  }
+          ),
 
-  Widget _buildDivider() {
-    return const Divider(
-      height: 1,
-      thickness: 1,
-      color: Color(0xFFE2E8F0),
-      indent: 16,
-      endIndent: 16,
+          // Menu List Section
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              children: [
+                _buildMenuItem(
+                  icon: Icons.grid_view_outlined,
+                  title: 'Dashboard',
+                  isSelected: true,
+                  activeTabColor: activeTabColor,
+                  brandColor: brandColor,
+                  onTap: () => _changeTab(context, 0),
+                ),
+                _buildMenuItem(
+                  icon: Icons.person_add_alt_1_outlined,
+                  title: 'Leads',
+                  brandColor: brandColor,
+                  onTap: () => _changeTab(context, 1),
+                ),
+                _buildMenuItem(
+                  icon: Icons.people_outline,
+                  title: 'Customers',
+                  brandColor: brandColor,
+                  onTap: () => _showComingSoon('Customers'),
+                ),
+                _buildMenuItem(
+                  icon: Icons.phone_in_talk_outlined,
+                  title: 'Follow-ups',
+                  brandColor: brandColor,
+                  onTap: () => _changeTab(context, 2),
+                ),
+                _buildMenuItem(
+                  icon: Icons.business_center_outlined,
+                  title: 'Staff',
+                  brandColor: brandColor,
+                  onTap: () => _showComingSoon('Staff'),
+                ),
+                _buildMenuItem(
+                  icon: Icons.check_box_outlined,
+                  title: 'Tasks',
+                  brandColor: brandColor,
+                  onTap: () => _showComingSoon('Tasks'),
+                ),
+                _buildMenuItem(
+                  icon: Icons.calendar_today_outlined,
+                  title: 'Calendar',
+                  brandColor: brandColor,
+                  onTap: () => _changeTab(context, 3),
+                ),
+                _buildMenuItem(
+                  icon: Icons.bar_chart_outlined,
+                  title: 'Reports',
+                  brandColor: brandColor,
+                  onTap: () => _showComingSoon('Reports'),
+                ),
+                
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                  child: Divider(color: Color(0xFFF3F4F6), thickness: 1, height: 1),
+                ),
+
+                _buildMenuItem(
+                  icon: Icons.settings_outlined,
+                  title: 'Settings',
+                  brandColor: brandColor,
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const SettingsScreen()),
+                    );
+                  },
+                ),
+                _buildMenuItem(
+                  icon: Icons.person_outline,
+                  title: 'Profile',
+                  brandColor: brandColor,
+                  onTap: () => _showComingSoon('Profile'),
+                ),
+                _buildMenuItem(
+                  icon: Icons.logout,
+                  title: 'Logout',
+                  brandColor: brandColor,
+                  isDestructive: true,
+                  onTap: () => _handleLogout(context),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildMenuItem({
     required IconData icon,
     required String title,
-    required VoidCallback? onTap,
-    Widget? trailing,
+    required Color brandColor,
+    required VoidCallback onTap,
+    bool isSelected = false,
+    Color? activeTabColor,
     bool isDestructive = false,
   }) {
-    final color = isDestructive ? Colors.red : AppColors.textPrimary;
-    
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-        child: Row(
-          children: [
-            Icon(icon, color: color, size: 22),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Text(
-                title,
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w500,
-                  color: color,
-                ),
-              ),
-            ),
-            if (trailing != null) 
-              trailing
-            else
-              Icon(Icons.chevron_right, color: color, size: 20),
-          ],
+    final color = isDestructive 
+        ? brandColor 
+        : (isSelected ? brandColor : AppColors.textPrimary);
+        
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+      decoration: BoxDecoration(
+        color: isSelected ? activeTabColor : Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: ListTile(
+        leading: Icon(icon, color: color, size: 22),
+        title: Text(
+          title,
+          style: TextStyle(
+            color: color,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+            fontSize: 15,
+          ),
         ),
+        trailing: isSelected 
+            ? Icon(Icons.chevron_right, color: color, size: 20) 
+            : null,
+        onTap: onTap,
+        dense: true,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+      ),
+    );
+  }
+
+  void _showComingSoon(String pageName) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$pageName coming soon.'),
+        duration: const Duration(seconds: 2),
       ),
     );
   }

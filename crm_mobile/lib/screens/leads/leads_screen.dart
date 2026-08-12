@@ -6,6 +6,10 @@ import '../../injection/injection.dart';
 import '../../features/leads/presentation/bloc/leads_bloc.dart';
 import '../../features/leads/presentation/bloc/leads_event.dart';
 import '../../features/leads/presentation/bloc/leads_state.dart';
+import 'add_lead_screen.dart';
+import 'lead_details_screen.dart';
+import 'widgets/expandable_fab.dart';
+import '../../widgets/spinning_logo.dart';
 
 class LeadsScreen extends StatelessWidget {
   const LeadsScreen({super.key});
@@ -15,6 +19,9 @@ class LeadsScreen extends StatelessWidget {
     return BlocProvider(
       create: (_) => sl<LeadsBloc>()
         ..add(FetchLeadStatuses())
+        ..add(FetchLeadSources())
+        ..add(FetchLeadPriorities())
+        ..add(const FetchStaffUsers())
         ..add(const FetchLeads()),
       child: const LeadsScreenView(),
     );
@@ -40,6 +47,10 @@ class LeadsScreenView extends StatelessWidget {
       backgroundColor: AppColors.secondary,
       body: SafeArea(
         child: BlocBuilder<LeadsBloc, LeadsState>(
+          buildWhen: (previous, current) =>
+              current is LeadsLoaded ||
+              current is LeadsLoading ||
+              current is LeadsError,
           builder: (context, state) {
             final statuses = state is LeadsLoaded ? state.statuses : [];
             final selectedStatusId = state is LeadsLoaded ? state.selectedStatusId : null;
@@ -56,14 +67,14 @@ class LeadsScreenView extends StatelessWidget {
                         style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
                       ),
                       const Spacer(),
-                      IconButton(
-                        icon: const Icon(Icons.filter_alt_outlined, color: AppColors.textPrimary),
-                        onPressed: () {},
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.sort, color: AppColors.textPrimary),
-                        onPressed: () {},
-                      ),
+                      // IconButton(
+                      //   icon: const Icon(Icons.filter_alt_outlined, color: AppColors.textPrimary),
+                      //   onPressed: () {},
+                      // ),
+                      // IconButton(
+                      //   icon: const Icon(Icons.sort, color: AppColors.textPrimary),
+                      //   onPressed: () {},
+                      // ),
                     ],
                   ),
                 ),
@@ -122,18 +133,13 @@ class LeadsScreenView extends StatelessWidget {
           },
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: AppColors.primary,
-        shape: const CircleBorder(),
-        onPressed: () {},
-        child: const Icon(Icons.add, color: Colors.white, size: 28),
-      ),
+      floatingActionButton: const ExpandableFab(),
     );
   }
 
   Widget _buildLeadsContent(LeadsState state) {
     if (state is LeadsLoading) {
-      return const Center(child: CircularProgressIndicator(color: AppColors.primary));
+      return const Center(child: SpinningLogo(size: 60));
     } else if (state is LeadsError) {
       return Center(
         child: Text(
@@ -142,6 +148,9 @@ class LeadsScreenView extends StatelessWidget {
         ),
       );
     } else if (state is LeadsLoaded) {
+      if (!state.isLeadsLoaded) {
+        return const Center(child: SpinningLogo(size: 60));
+      }
       if (state.leads.isEmpty) {
         return const Center(child: Text('No leads found.'));
       }
@@ -166,22 +175,32 @@ class LeadsScreenView extends StatelessWidget {
           if (lead.priority == 'MEDIUM') priorityColor = Colors.orange;
           if (lead.priority == 'LOW') priorityColor = Colors.green;
 
-          return LeadCard(
-            initials: initials.toUpperCase(),
-            avatarColor: statusColor.withOpacity(0.2),
-            avatarTextColor: statusColor,
-            name: '${lead.firstName} ${lead.lastName}',
-            company: lead.companyName,
-            status: lead.status?.statusName ?? 'Unknown',
-            statusBgColor: statusColor.withOpacity(0.2),
-            statusTextColor: statusColor,
-            description: lead.source?.description ?? 'No description available.',
-            priority: lead.priority != null ? '${lead.priority} Priority' : 'No Priority',
-            priorityColor: priorityColor,
-            assignee: (lead.ownerUserName != null && lead.ownerUserName!.isNotEmpty) 
-                ? lead.ownerUserName! 
-                : 'Unassigned',
-            phone: lead.phone,
+          return GestureDetector(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => LeadDetailsScreen(leadId: lead.id),
+                ),
+              );
+            },
+            child: LeadCard(
+              initials: initials.toUpperCase(),
+              avatarColor: statusColor.withOpacity(0.2),
+              avatarTextColor: statusColor,
+              name: '${lead.firstName} ${lead.lastName}',
+              company: lead.companyName,
+              status: lead.status?.statusName ?? 'Unknown',
+              statusBgColor: statusColor.withOpacity(0.2),
+              statusTextColor: statusColor,
+              description: lead.source?.description ?? 'No description available.',
+              priority: lead.priority != null ? '${lead.priority} Priority' : 'No Priority',
+              priorityColor: priorityColor,
+              assignee: (lead.ownerUserName != null && lead.ownerUserName!.isNotEmpty) 
+                  ? lead.ownerUserName! 
+                  : 'Unassigned',
+              phone: lead.phone,
+            ),
           );
         },
       );
