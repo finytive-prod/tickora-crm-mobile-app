@@ -1,27 +1,70 @@
+import 'package:crm_mobile/features/leads/domain/entities/lead.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../domain/usecases/get_leads_usecase.dart';
 import '../../domain/usecases/get_lead_statuses_usecase.dart';
+import '../../domain/usecases/get_lead_sources_usecase.dart';
+import '../../domain/usecases/get_lead_priorities_usecase.dart';
+import '../../domain/usecases/get_staff_users_usecase.dart';
+import '../../domain/usecases/get_custom_fields_usecase.dart';
+import '../../domain/usecases/create_lead_usecase.dart';
+import '../../domain/usecases/get_lead_details_usecase.dart';
+import '../../domain/usecases/get_lead_audit_logs_usecase.dart';
+import '../../domain/usecases/get_lead_attachments_usecase.dart';
+import '../../domain/usecases/upload_lead_attachment_usecase.dart';
 import 'leads_event.dart';
 import 'leads_state.dart';
 
 class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
   final GetLeadsUseCase getLeadsUseCase;
   final GetLeadStatusesUseCase getLeadStatusesUseCase;
+  final GetLeadSourcesUseCase getLeadSourcesUseCase;
+  final GetLeadPrioritiesUseCase getLeadPrioritiesUseCase;
+  final GetStaffUsersUseCase getStaffUsersUseCase;
+  final GetCustomFieldsUseCase getCustomFieldsUseCase;
+  final CreateLeadUseCase createLeadUseCase;
+  final GetLeadDetailsUseCase getLeadDetailsUseCase;
+  final GetLeadAuditLogsUseCase getLeadAuditLogsUseCase;
+  final GetLeadAttachmentsUseCase getLeadAttachmentsUseCase;
+  final UploadLeadAttachmentUseCase uploadLeadAttachmentUseCase;
 
   LeadsBloc({
     required this.getLeadsUseCase,
     required this.getLeadStatusesUseCase,
+    required this.getLeadSourcesUseCase,
+    required this.getLeadPrioritiesUseCase,
+    required this.getStaffUsersUseCase,
+    required this.getCustomFieldsUseCase,
+    required this.createLeadUseCase,
+    required this.getLeadDetailsUseCase,
+    required this.getLeadAuditLogsUseCase,
+    required this.getLeadAttachmentsUseCase,
+    required this.uploadLeadAttachmentUseCase,
   }) : super(LeadsInitial()) {
     on<FetchLeads>(_onFetchLeads);
     on<FetchLeadStatuses>(_onFetchLeadStatuses);
+    on<FetchLeadSources>(_onFetchLeadSources);
+    on<FetchLeadPriorities>(_onFetchLeadPriorities);
+    on<FetchStaffUsers>(_onFetchStaffUsers);
+    on<FetchCustomFieldsForm>(_onFetchCustomFieldsForm);
+    on<CreateLead>(_onCreateLead);
+    on<FetchLeadDetails>(_onFetchLeadDetails);
+    on<FetchLeadAuditLogs>(_onFetchLeadAuditLogs);
+    on<FetchLeadAttachments>(_onFetchLeadAttachments);
+    on<UploadLeadAttachment>(_onUploadLeadAttachment);
   }
 
   Future<void> _onFetchLeads(FetchLeads event, Emitter<LeadsState> emit) async {
     final currentState = state;
     List<dynamic>? currentStatuses;
+    List<LeadSource>? currentSources;
+    List<String>? currentPriorities;
+    List<dynamic>? currentOwners;
     
     if (currentState is LeadsLoaded) {
       currentStatuses = currentState.statuses;
+      currentSources = currentState.sources;
+      currentPriorities = currentState.priorities;
+      currentOwners = currentState.owners;
     }
 
     emit(LeadsLoading());
@@ -31,14 +74,24 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
       (failure) => emit(LeadsError(failure.message)),
       (leads) {
         List<dynamic> finalStatuses = currentStatuses ?? [];
+        List<LeadSource> finalSources = currentSources ?? [];
+        List<String> finalPriorities = currentPriorities ?? [];
+        List<dynamic> finalOwners = currentOwners ?? [];
         if (state is LeadsLoaded) {
           finalStatuses = (state as LeadsLoaded).statuses;
+          finalSources = (state as LeadsLoaded).sources;
+          finalPriorities = (state as LeadsLoaded).priorities;
+          finalOwners = (state as LeadsLoaded).owners;
         }
 
         emit(LeadsLoaded(
           leads, 
           statuses: finalStatuses.cast(),
+          sources: finalSources,
+          priorities: finalPriorities,
+          owners: finalOwners.cast(),
           selectedStatusId: event.statusId,
+          isLeadsLoaded: true,
         ));
       },
     );
@@ -64,4 +117,129 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
       },
     );
   }
+
+  Future<void> _onFetchLeadSources(FetchLeadSources event, Emitter<LeadsState> emit) async {
+    final result = await getLeadSourcesUseCase();
+    result.fold(
+      (failure) {
+        if (state is LeadsLoaded) {}
+      },
+      (sources) {
+        if (state is LeadsLoaded) {
+          emit((state as LeadsLoaded).copyWith(sources: sources));
+        } else {
+          emit(LeadsLoaded(const [], sources: sources));
+        }
+      },
+    );
+  }
+
+  Future<void> _onFetchLeadPriorities(FetchLeadPriorities event, Emitter<LeadsState> emit) async {
+    final result = await getLeadPrioritiesUseCase();
+    result.fold(
+      (failure) {
+        if (state is LeadsLoaded) {}
+      },
+      (priorities) {
+        if (state is LeadsLoaded) {
+          emit((state as LeadsLoaded).copyWith(priorities: priorities));
+        } else {
+          emit(LeadsLoaded(const [], priorities: priorities));
+        }
+      },
+    );
+  }
+
+  Future<void> _onFetchStaffUsers(FetchStaffUsers event, Emitter<LeadsState> emit) async {
+    final result = await getStaffUsersUseCase(search: event.search);
+    result.fold(
+      (failure) {
+        if (state is LeadsLoaded) {}
+      },
+      (owners) {
+        if (state is LeadsLoaded) {
+          emit((state as LeadsLoaded).copyWith(owners: owners));
+        } else {
+          emit(LeadsLoaded(const [], owners: owners));
+        }
+      },
+    );
+  }
+
+  Future<void> _onFetchCustomFieldsForm(FetchCustomFieldsForm event, Emitter<LeadsState> emit) async {
+    final result = await getCustomFieldsUseCase();
+    result.fold(
+      (failure) {
+        if (state is LeadsLoaded) {}
+      },
+      (customFields) {
+        if (state is LeadsLoaded) {
+          emit((state as LeadsLoaded).copyWith(customFields: customFields));
+        } else {
+          emit(LeadsLoaded(const [], customFields: customFields));
+        }
+      },
+    );
+  }
+
+  Future<void> _onCreateLead(CreateLead event, Emitter<LeadsState> emit) async {
+    emit(LeadActionLoading());
+    final result = await createLeadUseCase(event.leadData, event.filePaths, leadFileName: event.leadFileName);
+    
+    result.fold(
+      (failure) => emit(LeadActionError(failure.message)),
+      (_) {
+        emit(const LeadActionSuccess("Lead created successfully."));
+        add(const FetchLeads());
+      },
+    );
+  }
+
+  Future<void> _onFetchLeadDetails(FetchLeadDetails event, Emitter<LeadsState> emit) async {
+    emit(LeadDetailsLoading());
+    final result = await getLeadDetailsUseCase(event.id);
+    result.fold(
+      (failure) => emit(LeadDetailsError(failure.message)),
+      (leadDetail) => emit(LeadDetailsLoaded(leadDetail)),
+    );
+  }
+
+  Future<void> _onFetchLeadAuditLogs(FetchLeadAuditLogs event, Emitter<LeadsState> emit) async {
+    final currentState = state;
+    if (currentState is LeadDetailsLoaded) {
+      emit(currentState.copyWith(isAuditLogsLoading: true, auditLogsError: null));
+      final result = await getLeadAuditLogsUseCase(event.id);
+      result.fold(
+        (failure) => emit(currentState.copyWith(isAuditLogsLoading: false, auditLogsError: failure.message)),
+        (auditLogs) => emit(currentState.copyWith(isAuditLogsLoading: false, auditLogs: auditLogs)),
+      );
+    }
+  }
+
+  Future<void> _onFetchLeadAttachments(FetchLeadAttachments event, Emitter<LeadsState> emit) async {
+    final currentState = state;
+    if (currentState is LeadDetailsLoaded) {
+      emit(currentState.copyWith(isAttachmentsLoading: true, attachmentsError: null));
+      final result = await getLeadAttachmentsUseCase(event.id);
+      result.fold(
+        (failure) => emit(currentState.copyWith(isAttachmentsLoading: false, attachmentsError: failure.message)),
+        (attachments) => emit(currentState.copyWith(isAttachmentsLoading: false, attachments: attachments)),
+      );
+    }
+  }
+
+  Future<void> _onUploadLeadAttachment(UploadLeadAttachment event, Emitter<LeadsState> emit) async {
+    final currentState = state;
+    if (currentState is LeadDetailsLoaded) {
+      emit(currentState.copyWith(isAttachmentsLoading: true, attachmentsError: null));
+      final result = await uploadLeadAttachmentUseCase(event.leadId, event.filePath);
+      result.fold(
+        (failure) => emit(currentState.copyWith(isAttachmentsLoading: false, attachmentsError: failure.message)),
+        (_) {
+          add(FetchLeadAttachments(event.leadId));
+        },
+      );
+    }
+  }
 }
+
