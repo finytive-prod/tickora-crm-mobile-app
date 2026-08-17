@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import '../../core/theme/app_colors.dart';
-import '../../widgets/spinning_logo.dart';
-import '../../injection/injection.dart';
-import '../../features/leads/presentation/bloc/followups_bloc.dart';
-import '../../features/leads/presentation/bloc/followups_event.dart';
-import '../../features/leads/presentation/bloc/followups_state.dart';
-import '../../features/leads/domain/entities/follow_up.dart';
+import 'package:crm_mobile/core/theme/app_colors.dart';
+import 'package:crm_mobile/widgets/spinning_logo.dart';
+import 'package:crm_mobile/injection/injection.dart';
+import 'package:crm_mobile/blocs/followups_bloc.dart';
+import 'package:crm_mobile/blocs/followups_event.dart';
+import 'package:crm_mobile/blocs/followups_state.dart';
+import 'package:crm_mobile/models/follow_up.dart';
 import 'lead_followup_details_screen.dart';
 
 class FollowUpsScreen extends StatelessWidget {

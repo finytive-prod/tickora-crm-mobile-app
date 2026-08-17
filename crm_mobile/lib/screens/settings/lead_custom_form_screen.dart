@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import '../../core/theme/app_colors.dart';
-import '../../features/leads/presentation/bloc/settings_bloc.dart';
-import '../../features/leads/presentation/bloc/settings_event.dart';
-import '../../features/leads/presentation/bloc/settings_state.dart';
-import '../../injection/injection.dart';
-import '../../widgets/spinning_logo.dart';
+import 'package:crm_mobile/core/theme/app_colors.dart';
+import 'package:crm_mobile/blocs/settings_bloc.dart';
+import 'package:crm_mobile/blocs/settings_event.dart';
+import 'package:crm_mobile/blocs/settings_state.dart';
+import 'package:crm_mobile/injection/injection.dart';
+import 'package:crm_mobile/widgets/spinning_logo.dart';
 
 class LeadCustomFormScreen extends StatelessWidget {
   const LeadCustomFormScreen({super.key});

@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import '../../core/theme/app_colors.dart';
-import '../../features/leads/domain/entities/lead.dart';
-import '../../features/leads/presentation/bloc/settings_bloc.dart';
-import '../../features/leads/presentation/bloc/settings_event.dart';
-import '../../features/leads/presentation/bloc/settings_state.dart';
-import '../../injection/injection.dart';
-import '../../widgets/spinning_logo.dart';
+import 'package:crm_mobile/core/theme/app_colors.dart';
+import 'package:crm_mobile/models/lead.dart';
+import 'package:crm_mobile/blocs/settings_bloc.dart';
+import 'package:crm_mobile/blocs/settings_event.dart';
+import 'package:crm_mobile/blocs/settings_state.dart';
+import 'package:crm_mobile/injection/injection.dart';
+import 'package:crm_mobile/widgets/spinning_logo.dart';
+import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 
 class LeadStatusesScreen extends StatelessWidget {
   const LeadStatusesScreen({super.key});
@@ -40,16 +41,7 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
   bool _isDefault = false;
   String _selectedColor = '#3B82F6'; // Default color Blue
 
-  // Hex colors palette mapping
-  final List<String> _colorPalette = [
-    '#3B82F6', // Blue
-    '#F59E0B', // Orange
-    '#10B981', // Emerald Green
-    '#8B5CF6', // Purple
-    '#06B6D4', // Cyan
-    '#EF4444', // Red
-    '#6B7280', // Grey
-  ];
+
 
   @override
   void dispose() {
@@ -350,47 +342,64 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
                                   style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textLabel),
                                 ),
                                 const SizedBox(height: 8),
-                                SizedBox(
-                                  height: 36,
-                                  child: ListView.separated(
-                                    scrollDirection: Axis.horizontal,
-                                    itemCount: _colorPalette.length,
-                                    separatorBuilder: (context, idx) => const SizedBox(width: 10),
-                                    itemBuilder: (context, idx) {
-                                      final hexColor = _colorPalette[idx];
-                                      final color = _hexToColor(hexColor);
-                                      final isSelected = _selectedColor == hexColor;
-
-                                      return GestureDetector(
-                                        onTap: _isLocalLoading ? null : () {
-                                          setState(() {
-                                            _selectedColor = hexColor;
-                                          });
-                                        },
-                                        child: Container(
-                                          width: 32,
-                                          height: 32,
-                                          decoration: BoxDecoration(
-                                            color: color,
-                                            shape: BoxShape.circle,
-                                            border: isSelected
-                                                ? Border.all(color: AppColors.textPrimary, width: 2.5)
-                                                : Border.all(color: Colors.transparent),
-                                            boxShadow: isSelected
-                                                ? [
-                                                    BoxShadow(
-                                                        color: color.withOpacity(0.4),
-                                                        blurRadius: 6,
-                                                        spreadRadius: 1)
-                                                  ]
-                                                : null,
+                                GestureDetector(
+                                  onTap: _isLocalLoading ? null : () {
+                                    showDialog(
+                                      context: context,
+                                      builder: (BuildContext context) {
+                                        return AlertDialog(
+                                          title: const Text('Pick a color'),
+                                          content: SingleChildScrollView(
+                                            child: ColorPicker(
+                                              pickerColor: _hexToColor(_selectedColor),
+                                              onColorChanged: (color) {
+                                                setState(() {
+                                                  _selectedColor = '#${color.value.toRadixString(16).substring(2, 8).toUpperCase()}';
+                                                });
+                                              },
+                                              pickerAreaHeightPercent: 0.8,
+                                              enableAlpha: false,
+                                              displayThumbColor: true,
+                                            ),
                                           ),
-                                          child: isSelected
-                                              ? const Icon(Icons.check, color: Colors.white, size: 16)
-                                              : null,
+                                          actions: <Widget>[
+                                            TextButton(
+                                              child: const Text('Done'),
+                                              onPressed: () {
+                                                Navigator.of(context).pop();
+                                              },
+                                            ),
+                                          ],
+                                        );
+                                      },
+                                    );
+                                  },
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 40,
+                                        height: 40,
+                                        decoration: BoxDecoration(
+                                          color: _hexToColor(_selectedColor),
+                                          shape: BoxShape.circle,
+                                          border: Border.all(color: AppColors.borderEnabled, width: 2),
+                                          boxShadow: [
+                                            BoxShadow(
+                                                color: _hexToColor(_selectedColor).withOpacity(0.4),
+                                                blurRadius: 6,
+                                                spreadRadius: 1)
+                                          ],
                                         ),
-                                      );
-                                    },
+                                      ),
+                                      const SizedBox(width: 16),
+                                      const Text(
+                                        'Tap to pick any color',
+                                        style: TextStyle(
+                                          color: AppColors.primary,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                                 const SizedBox(height: 20),

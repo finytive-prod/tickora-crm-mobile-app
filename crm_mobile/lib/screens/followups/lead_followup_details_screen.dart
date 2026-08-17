@@ -2,14 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_phone_direct_caller/flutter_phone_direct_caller.dart';
-import '../../core/theme/app_colors.dart';
-import '../../features/leads/domain/entities/follow_up.dart';
-import '../../features/leads/domain/entities/lead_detail.dart';
-import '../../features/leads/presentation/bloc/followups_bloc.dart';
-import '../../features/leads/presentation/bloc/followups_event.dart';
-import '../../features/leads/presentation/bloc/followups_state.dart';
-import '../../injection/injection.dart';
-import '../../widgets/spinning_logo.dart';
+import 'package:crm_mobile/core/theme/app_colors.dart';
+import 'package:crm_mobile/models/follow_up.dart';
+import 'package:crm_mobile/models/lead_detail.dart';
+import 'package:crm_mobile/blocs/followups_bloc.dart';
+import 'package:crm_mobile/blocs/followups_event.dart';
+import 'package:crm_mobile/blocs/followups_state.dart';
+import 'package:crm_mobile/injection/injection.dart';
+import 'package:crm_mobile/widgets/spinning_logo.dart';
 import 'edit_followup_screen.dart';
 
 class LeadFollowUpDetailsScreen extends StatelessWidget {
@@ -475,19 +475,22 @@ class _LeadFollowUpDetailsViewState extends State<LeadFollowUpDetailsView> {
       children: [
         Icon(icon, size: 20, color: AppColors.textSecondary),
         const SizedBox(width: 12),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              label,
-              style: const TextStyle(fontSize: 12, color: AppColors.textHint, fontWeight: FontWeight.w500),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              value,
-              style: const TextStyle(fontSize: 14, color: AppColors.textPrimary, fontWeight: FontWeight.w600),
-            ),
-          ],
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(fontSize: 12, color: AppColors.textHint, fontWeight: FontWeight.w500),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: const TextStyle(fontSize: 14, color: AppColors.textPrimary, fontWeight: FontWeight.w600),
+                softWrap: true,
+              ),
+            ],
+          ),
         ),
       ],
     );

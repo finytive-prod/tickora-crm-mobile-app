@@ -9,6 +9,14 @@ class LoggerInterceptor extends Interceptor {
 
   LoggerInterceptor(this.logger);
 
+  void _printLog(String message) {
+    if (kDebugMode) {
+      for (var line in message.split('\n')) {
+        print(line);
+      }
+    }
+  }
+
   String _getCurlCommand(RequestOptions options) {
     try {
       List<String> components = ['curl -i'];
@@ -40,7 +48,7 @@ class LoggerInterceptor extends Interceptor {
       }
 
       components.add('"${options.uri.toString()}"');
-      return components.join(' ');
+      return components.join(' \\\n  ');
     } catch (e) {
       return 'Failed to generate cURL: $e';
     }
@@ -53,30 +61,32 @@ class LoggerInterceptor extends Interceptor {
       
       final curlCommand = _getCurlCommand(options);
       
-      logger.d('*** API Request - Start ***\nURL: ${options.uri}');
-      debugPrint('cURL: $curlCommand');
+      _printLog('========== API REQUEST ==========');
+      _printLog('URL: ${options.uri}');
+      _printLog('cURL Command:\n$curlCommand');
 
       if (options.data != null) {
         if (options.data is FormData) {
           final formData = options.data as FormData;
-          debugPrint('--- FormData Payload ---');
+          _printLog('--- FormData Payload ---');
           for (var field in formData.fields) {
-            debugPrint('${field.key}: ${field.value}');
+            _printLog('${field.key}: ${field.value}');
           }
           for (var file in formData.files) {
-            debugPrint('${file.key}: File(${file.value.filename}, contentType: ${file.value.contentType})');
+            _printLog('${file.key}: File(${file.value.filename}, contentType: ${file.value.contentType})');
           }
-          debugPrint('------------------------');
+          _printLog('------------------------');
         } else {
-          debugPrint('--- Request Payload ---');
+          _printLog('--- Request Payload ---');
           try {
-            debugPrint(const JsonEncoder.withIndent('  ').convert(options.data));
+            _printLog(const JsonEncoder.withIndent('  ').convert(options.data));
           } catch (_) {
-            debugPrint(options.data.toString());
+            _printLog(options.data.toString());
           }
-          debugPrint('-----------------------');
+          _printLog('-----------------------');
         }
       }
+      _printLog('=================================\n');
     }
     super.onRequest(options, handler);
   }
@@ -87,13 +97,24 @@ class LoggerInterceptor extends Interceptor {
       final requestTime = _requestTimers[response.requestOptions.uri.toString()];
       final duration = requestTime != null ? DateTime.now().difference(requestTime).inMilliseconds : -1;
       
-      logger.i(
-        '*** API Response - End ***\n'
-        'URL: ${response.requestOptions.uri}\n'
-        'Status Code: ${response.statusCode}\n'
-        'Response Time: $duration ms\n'
-        'Response Data: ${response.data}\n',
-      );
+      _printLog('========== API RESPONSE ==========');
+      _printLog('URL: ${response.requestOptions.uri}');
+      _printLog('Status Code: ${response.statusCode}');
+      _printLog('Response Time: $duration ms');
+
+      _printLog('--- Response Payload ---');
+      try {
+        if (response.data is Map || response.data is List) {
+          _printLog(const JsonEncoder.withIndent('  ').convert(response.data));
+        } else {
+          _printLog(response.data.toString());
+        }
+      } catch (_) {
+        _printLog(response.data.toString());
+      }
+      _printLog('------------------------');
+      _printLog('==================================\n');
+
       _requestTimers.remove(response.requestOptions.uri.toString());
     }
     super.onResponse(response, handler);
@@ -105,15 +126,28 @@ class LoggerInterceptor extends Interceptor {
       final requestTime = _requestTimers[err.requestOptions.uri.toString()];
       final duration = requestTime != null ? DateTime.now().difference(requestTime).inMilliseconds : -1;
 
-      logger.e(
-        '*** API Error - End ***\n'
-        'URL: ${err.requestOptions.uri}\n'
-        'Method: ${err.requestOptions.method}\n'
-        'Status Code: ${err.response?.statusCode}\n'
-        'Response Time: $duration ms\n'
-        'Error: ${err.message}\n'
-        'Response Data: ${err.response?.data}\n',
-      );
+      _printLog('========== API ERROR ==========');
+      _printLog('URL: ${err.requestOptions.uri}');
+      _printLog('Method: ${err.requestOptions.method}');
+      _printLog('Status Code: ${err.response?.statusCode}');
+      _printLog('Response Time: $duration ms');
+      _printLog('Error: ${err.message}');
+
+      if (err.response?.data != null) {
+        _printLog('--- Error Response Payload ---');
+        try {
+          if (err.response!.data is Map || err.response!.data is List) {
+            _printLog(const JsonEncoder.withIndent('  ').convert(err.response!.data));
+          } else {
+            _printLog(err.response!.data.toString());
+          }
+        } catch (_) {
+          _printLog(err.response!.data.toString());
+        }
+        _printLog('------------------------------');
+      }
+      _printLog('===============================\n');
+
       _requestTimers.remove(err.requestOptions.uri.toString());
     }
     super.onError(err, handler);

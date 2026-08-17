@@ -1,65 +1,87 @@
 import 'package:get_it/get_it.dart';
 import 'package:logger/logger.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../core/network/api_client.dart';
-import '../core/network/dio_client.dart';
-import '../core/network/interceptors/auth_interceptor.dart';
-import '../core/network/interceptors/error_interceptor.dart';
-import '../core/network/interceptors/logger_interceptor.dart';
-import '../features/auth/login/data/repositories/login_repository_impl.dart';
-import '../features/auth/login/domain/repositories/login_repository.dart';
-import '../features/auth/login/domain/usecases/login_usecase.dart';
-import '../features/auth/login/presentation/bloc/login_bloc.dart';
-import '../features/leads/domain/repositories/leads_repository.dart';
-import '../features/leads/domain/usecases/get_leads_usecase.dart';
-import '../features/leads/domain/usecases/get_lead_statuses_usecase.dart';
-import '../features/leads/domain/usecases/get_lead_sources_usecase.dart';
-import '../features/leads/domain/usecases/get_lead_priorities_usecase.dart';
-import '../features/leads/domain/usecases/get_staff_users_usecase.dart';
-import '../features/leads/domain/usecases/get_custom_fields_usecase.dart';
-import '../features/leads/domain/usecases/create_lead_usecase.dart';
-import '../features/leads/domain/usecases/get_followups_usecase.dart';
-import '../features/leads/domain/usecases/get_lead_followups_usecase.dart';
-import '../features/leads/domain/usecases/update_followup_usecase.dart';
-import '../features/leads/domain/usecases/get_lead_details_usecase.dart';
-import '../features/leads/domain/usecases/get_lead_audit_logs_usecase.dart';
-import '../features/leads/domain/usecases/get_lead_attachments_usecase.dart';
-import '../features/leads/domain/usecases/upload_lead_attachment_usecase.dart';
-import '../features/leads/domain/usecases/get_custom_fields_list_usecase.dart';
-import '../features/leads/domain/usecases/create_custom_fields_usecase.dart';
-import '../features/leads/domain/usecases/get_custom_field_types_usecase.dart';
-import '../features/leads/domain/usecases/update_custom_fields_usecase.dart';
-import '../features/leads/domain/usecases/reorder_lead_status_usecase.dart';
-import '../features/leads/domain/usecases/set_default_lead_status_usecase.dart';
-import '../features/leads/domain/usecases/create_lead_status_usecase.dart';
-import '../features/leads/data/repositories/leads_repository_impl.dart';
-import '../features/leads/domain/repositories/followups_repository.dart';
-import '../features/leads/data/repositories/followups_repository_impl.dart';
-import '../features/leads/presentation/bloc/leads_bloc.dart';
-import '../features/leads/presentation/bloc/followups_bloc.dart';
-import '../features/leads/presentation/bloc/settings_bloc.dart';
+import 'package:crm_mobile/core/network/api_client.dart';
+import 'package:crm_mobile/core/network/dio_client.dart';
+import 'package:crm_mobile/core/network/interceptors/auth_interceptor.dart';
+import 'package:crm_mobile/core/network/interceptors/error_interceptor.dart';
+import 'package:crm_mobile/core/network/interceptors/logger_interceptor.dart';
+
+// BLoC Imports
+import 'package:crm_mobile/blocs/login_bloc.dart';
+import 'package:crm_mobile/blocs/leads_bloc.dart';
+import 'package:crm_mobile/blocs/followups_bloc.dart';
+import 'package:crm_mobile/blocs/settings_bloc.dart';
+import 'package:crm_mobile/blocs/staff_bloc.dart';
+import 'package:crm_mobile/blocs/calendar_bloc.dart';
+
+// Repository Imports
+import 'package:crm_mobile/repositories/login_repository.dart';
+import 'package:crm_mobile/repositories/leads_repository.dart';
+import 'package:crm_mobile/repositories/followups_repository.dart';
+import 'package:crm_mobile/repositories/settings_repository.dart';
+import 'package:crm_mobile/repositories/calendar_repository.dart';
+
+// Usecase Imports
+import 'package:crm_mobile/usecases/login_usecase.dart';
+import 'package:crm_mobile/usecases/get_calendar_categories_usecase.dart';
+import 'package:crm_mobile/usecases/create_calendar_event_usecase.dart';
+import 'package:crm_mobile/usecases/update_calendar_event_usecase.dart';
+import 'package:crm_mobile/usecases/get_calendar_events_usecase.dart';
+import 'package:crm_mobile/usecases/delete_calendar_event_usecase.dart';
+
+import 'package:crm_mobile/usecases/get_leads_usecase.dart';
+import 'package:crm_mobile/usecases/search_leads_usecase.dart';
+import 'package:crm_mobile/usecases/get_staff_users_usecase.dart';
+import 'package:crm_mobile/usecases/get_lead_priorities_usecase.dart';
+import 'package:crm_mobile/usecases/create_lead_usecase.dart';
+import 'package:crm_mobile/usecases/get_lead_details_usecase.dart';
+import 'package:crm_mobile/usecases/get_lead_audit_logs_usecase.dart';
+import 'package:crm_mobile/usecases/get_lead_attachments_usecase.dart';
+import 'package:crm_mobile/usecases/upload_lead_attachment_usecase.dart';
+import 'package:crm_mobile/usecases/update_lead_usecase.dart';
+
+import 'package:crm_mobile/usecases/get_followups_usecase.dart';
+import 'package:crm_mobile/usecases/get_lead_followups_usecase.dart';
+import 'package:crm_mobile/usecases/update_followup_usecase.dart';
+
+import 'package:crm_mobile/usecases/get_custom_fields_usecase.dart';
+import 'package:crm_mobile/usecases/get_custom_fields_list_usecase.dart';
+import 'package:crm_mobile/usecases/create_custom_fields_usecase.dart';
+import 'package:crm_mobile/usecases/get_custom_field_types_usecase.dart';
+import 'package:crm_mobile/usecases/update_custom_fields_usecase.dart';
+import 'package:crm_mobile/usecases/get_lead_statuses_usecase.dart';
+import 'package:crm_mobile/usecases/reorder_lead_status_usecase.dart';
+import 'package:crm_mobile/usecases/set_default_lead_status_usecase.dart';
+import 'package:crm_mobile/usecases/create_lead_status_usecase.dart';
+import 'package:crm_mobile/usecases/get_lead_sources_usecase.dart';
+import 'package:crm_mobile/usecases/create_lead_source_usecase.dart';
+import 'package:crm_mobile/usecases/delete_lead_source_usecase.dart';
+import 'package:crm_mobile/usecases/get_lead_source_categories_usecase.dart';
+import 'package:crm_mobile/usecases/get_permission_modules_usecase.dart';
+import 'package:crm_mobile/usecases/get_roles_dropdown_usecase.dart';
+import 'package:crm_mobile/usecases/get_role_details_usecase.dart';
+import 'package:crm_mobile/usecases/create_role_usecase.dart';
+import 'package:crm_mobile/usecases/update_role_usecase.dart';
+import 'package:crm_mobile/usecases/get_staff_members_usecase.dart';
+import 'package:crm_mobile/usecases/get_staff_stats_usecase.dart';
+import 'package:crm_mobile/usecases/update_staff_member_usecase.dart';
+import 'package:crm_mobile/usecases/toggle_staff_status_usecase.dart';
 
 final sl = GetIt.instance;
 
 Future<void> init() async {
-  // Core
+  // Core & External Services
   final sharedPreferences = await SharedPreferences.getInstance();
   sl.registerLazySingleton(() => sharedPreferences);
   sl.registerLazySingleton(() => Logger());
 
   // Interceptors
-  sl.registerLazySingleton(
-    () => AuthInterceptor(
-      sl(),
-      onSessionExpired: () {
- 
-      },
-    ),
-  );
+  sl.registerLazySingleton(() => AuthInterceptor(sl(), onSessionExpired: () {}));
   sl.registerLazySingleton(() => LoggerInterceptor(sl()));
   sl.registerLazySingleton(() => ErrorInterceptor());
 
-  // Network
+  // Network Client
   sl.registerLazySingleton<ApiClient>(
     () => DioClient(
       authInterceptor: sl(),
@@ -68,20 +90,14 @@ Future<void> init() async {
     ),
   );
 
-  // Features - Login
-  // BLoC
+  // Auth BLoC, Usecases & Repositories
   sl.registerFactory(() => LoginBloc(loginUseCase: sl()));
-
-  // Use Cases
   sl.registerLazySingleton(() => LoginUseCase(sl()));
-
-  // Repository
   sl.registerLazySingleton<LoginRepository>(
     () => LoginRepositoryImpl(apiClient: sl(), sharedPreferences: sl()),
   );
 
-  // Features - Leads
-  // BLoC
+  // Leads BLoC, Usecases & Repositories
   sl.registerFactory(
     () => LeadsBloc(
       getLeadsUseCase: sl(),
@@ -95,9 +111,27 @@ Future<void> init() async {
       getLeadAuditLogsUseCase: sl(),
       getLeadAttachmentsUseCase: sl(),
       uploadLeadAttachmentUseCase: sl(),
+      updateLeadUseCase: sl(),
+      searchLeadsUseCase: sl(),
     ),
   );
 
+  sl.registerLazySingleton(() => GetLeadsUseCase(sl()));
+  sl.registerLazySingleton(() => SearchLeadsUseCase(sl()));
+  sl.registerLazySingleton(() => GetLeadPrioritiesUseCase(sl()));
+  sl.registerLazySingleton(() => GetStaffUsersUseCase(sl()));
+  sl.registerLazySingleton(() => CreateLeadUseCase(sl()));
+  sl.registerLazySingleton(() => GetLeadDetailsUseCase(sl()));
+  sl.registerLazySingleton(() => GetLeadAuditLogsUseCase(sl()));
+  sl.registerLazySingleton(() => GetLeadAttachmentsUseCase(sl()));
+  sl.registerLazySingleton(() => UploadLeadAttachmentUseCase(sl()));
+  sl.registerLazySingleton(() => UpdateLeadUseCase(sl()));
+
+  sl.registerLazySingleton<LeadsRepository>(
+    () => LeadsRepositoryImpl(apiClient: sl()),
+  );
+
+  // Follow-ups BLoC, Usecases & Repositories
   sl.registerFactory(
     () => FollowUpsBloc(
       getFollowUpsUseCase: sl(),
@@ -106,6 +140,15 @@ Future<void> init() async {
     ),
   );
 
+  sl.registerLazySingleton(() => GetFollowUpsUseCase(sl()));
+  sl.registerLazySingleton(() => GetLeadFollowUpsUseCase(sl()));
+  sl.registerLazySingleton(() => UpdateFollowUpUseCase(sl()));
+
+  sl.registerLazySingleton<FollowUpsRepository>(
+    () => FollowUpsRepositoryImpl(apiClient: sl()),
+  );
+
+  // Settings BLoC, Usecases & Repositories
   sl.registerFactory(
     () => SettingsBloc(
       getCustomFieldsListUseCase: sl(),
@@ -117,38 +160,73 @@ Future<void> init() async {
       reorderLeadStatusUseCase: sl(),
       setDefaultLeadStatusUseCase: sl(),
       createLeadStatusUseCase: sl(),
+      createLeadSourceUseCase: sl(),
+      deleteLeadSourceUseCase: sl(),
+      getLeadSourceCategoriesUseCase: sl(),
+      getPermissionModulesUseCase: sl(),
+      getRolesDropdownUseCase: sl(),
+      getRoleDetailsUseCase: sl(),
+      createRoleUseCase: sl(),
+      updateRoleUseCase: sl(),
     ),
   );
 
-  // Use Cases
-  sl.registerLazySingleton(() => GetLeadsUseCase(sl()));
-  sl.registerLazySingleton(() => GetLeadStatusesUseCase(sl()));
-  sl.registerLazySingleton(() => GetLeadSourcesUseCase(sl()));
-  sl.registerLazySingleton(() => GetLeadPrioritiesUseCase(sl()));
-  sl.registerLazySingleton(() => GetStaffUsersUseCase(sl()));
   sl.registerLazySingleton(() => GetCustomFieldsUseCase(sl()));
-  sl.registerLazySingleton(() => CreateLeadUseCase(sl()));
-  sl.registerLazySingleton(() => GetFollowUpsUseCase(sl()));
-  sl.registerLazySingleton(() => GetLeadFollowUpsUseCase(sl()));
-  sl.registerLazySingleton(() => UpdateFollowUpUseCase(sl()));
-  sl.registerLazySingleton(() => GetLeadDetailsUseCase(sl()));
-  sl.registerLazySingleton(() => GetLeadAuditLogsUseCase(sl()));
-  sl.registerLazySingleton(() => GetLeadAttachmentsUseCase(sl()));
-  sl.registerLazySingleton(() => UploadLeadAttachmentUseCase(sl()));
   sl.registerLazySingleton(() => GetCustomFieldsListUseCase(sl()));
   sl.registerLazySingleton(() => CreateCustomFieldsUseCase(sl()));
   sl.registerLazySingleton(() => GetCustomFieldTypesUseCase(sl()));
   sl.registerLazySingleton(() => UpdateCustomFieldsUseCase(sl()));
+  sl.registerLazySingleton(() => GetLeadStatusesUseCase(sl()));
   sl.registerLazySingleton(() => ReorderLeadStatusUseCase(sl()));
   sl.registerLazySingleton(() => SetDefaultLeadStatusUseCase(sl()));
   sl.registerLazySingleton(() => CreateLeadStatusUseCase(sl()));
+  sl.registerLazySingleton(() => GetLeadSourcesUseCase(sl()));
+  sl.registerLazySingleton(() => CreateLeadSourceUseCase(sl()));
+  sl.registerLazySingleton(() => DeleteLeadSourceUseCase(sl()));
+  sl.registerLazySingleton(() => GetLeadSourceCategoriesUseCase(sl()));
+  sl.registerLazySingleton(() => GetPermissionModulesUseCase(sl()));
+  sl.registerLazySingleton(() => GetRolesDropdownUseCase(sl()));
+  sl.registerLazySingleton(() => GetRoleDetailsUseCase(sl()));
+  sl.registerLazySingleton(() => CreateRoleUseCase(sl()));
+  sl.registerLazySingleton(() => UpdateRoleUseCase(sl()));
 
-  // Repository
-  sl.registerLazySingleton<LeadsRepository>(
-    () => LeadsRepositoryImpl(apiClient: sl()),
+  sl.registerLazySingleton<SettingsRepository>(
+    () => SettingsRepositoryImpl(apiClient: sl()),
   );
 
-  sl.registerLazySingleton<FollowUpsRepository>(
-    () => FollowUpsRepositoryImpl(apiClient: sl()),
+  // Staff BLoC & Usecases
+  sl.registerFactory(
+    () => StaffBloc(
+      getStaffMembersUseCase: sl(),
+      getStaffStatsUseCase: sl(),
+      updateStaffMemberUseCase: sl(),
+      toggleStaffStatusUseCase: sl(),
+    ),
+  );
+
+  sl.registerLazySingleton(() => GetStaffMembersUseCase(sl()));
+  sl.registerLazySingleton(() => GetStaffStatsUseCase(sl()));
+  sl.registerLazySingleton(() => UpdateStaffMemberUseCase(sl()));
+  sl.registerLazySingleton(() => ToggleStaffStatusUseCase(sl()));
+
+  // Calendar BLoC, Usecases & Repositories
+  sl.registerFactory(
+    () => CalendarBloc(
+      getCalendarCategoriesUseCase: sl(),
+      createCalendarEventUseCase: sl(),
+      updateCalendarEventUseCase: sl(),
+      getCalendarEventsUseCase: sl(),
+      deleteCalendarEventUseCase: sl(),
+    ),
+  );
+
+  sl.registerLazySingleton(() => GetCalendarCategoriesUseCase(sl()));
+  sl.registerLazySingleton(() => CreateCalendarEventUseCase(sl()));
+  sl.registerLazySingleton(() => UpdateCalendarEventUseCase(sl()));
+  sl.registerLazySingleton(() => GetCalendarEventsUseCase(sl()));
+  sl.registerLazySingleton(() => DeleteCalendarEventUseCase(sl()));
+
+  sl.registerLazySingleton<CalendarRepository>(
+    () => CalendarRepositoryImpl(apiClient: sl()),
   );
 }

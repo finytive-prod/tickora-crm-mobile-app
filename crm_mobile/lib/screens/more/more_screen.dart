@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../core/theme/app_colors.dart';
-import '../../injection/injection.dart';
-import '../login_screen.dart';
-import '../home_screen.dart';
-import '../settings/settings_screen.dart';
+import 'package:crm_mobile/core/theme/app_colors.dart';
+import 'package:crm_mobile/injection/injection.dart';
+import 'package:crm_mobile/screens/auth/login_screen.dart';
+import 'package:crm_mobile/screens/home_screen.dart';
+import 'package:crm_mobile/screens/settings/settings_screen.dart';
+import 'package:crm_mobile/screens/staff/staff_list_screen.dart';
 
 class MoreScreen extends StatefulWidget {
   const MoreScreen({super.key});
@@ -249,7 +250,12 @@ class _MoreScreenState extends State<MoreScreen> {
                   icon: Icons.business_center_outlined,
                   title: 'Staff',
                   brandColor: brandColor,
-                  onTap: () => _showComingSoon('Staff'),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const StaffListScreen()),
+                    );
+                  },
                 ),
                 _buildMenuItem(
                   icon: Icons.check_box_outlined,

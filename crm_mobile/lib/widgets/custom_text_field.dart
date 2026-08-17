@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../core/theme/app_colors.dart';
+import 'package:crm_mobile/core/theme/app_colors.dart';
+import 'package:crm_mobile/core/utils/validators.dart';
 
 class CustomTextField extends StatelessWidget {
   final String label;
@@ -30,6 +31,11 @@ class CustomTextField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final List<TextInputFormatter> effectiveFormatters = [
+      AppInputFormatters.denyEmoji,
+      ...?inputFormatters,
+    ];
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -58,7 +64,7 @@ class CustomTextField extends StatelessWidget {
           keyboardType: keyboardType,
           maxLines: maxLines,
           onChanged: onChanged,
-          inputFormatters: inputFormatters,
+          inputFormatters: effectiveFormatters,
           decoration: InputDecoration(
             hintText: hintText ?? label,
             hintStyle: const TextStyle(color: AppColors.textHint, fontSize: 14),
@@ -79,9 +85,15 @@ class CustomTextField extends StatelessWidget {
               borderSide: const BorderSide(color: AppColors.primary),
             ),
           ),
-          validator: validator ?? (value) {
+          validator: (value) {
             if (isRequired && (value == null || value.trim().isEmpty)) {
-              return 'Required';
+              return '$label is required';
+            }
+            if (AppValidators.hasEmoji(value)) {
+              return '$label cannot contain emojis';
+            }
+            if (validator != null) {
+              return validator!(value);
             }
             return null;
           },

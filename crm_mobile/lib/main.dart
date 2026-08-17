@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'injection/injection.dart' as di;
-import 'screens/login_screen.dart';
 import 'core/theme/app_colors.dart';
 
-import 'screens/splash_screen.dart';
+import 'package:crm_mobile/screens/splash_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();

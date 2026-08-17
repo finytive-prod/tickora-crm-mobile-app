@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
-import '../../core/theme/app_colors.dart';
-import '../../widgets/spinning_logo.dart';
-import '../../injection/injection.dart';
-import '../../features/leads/presentation/bloc/leads_bloc.dart';
-import '../../features/leads/presentation/bloc/leads_event.dart';
-import '../../features/leads/presentation/bloc/leads_state.dart';
+import 'package:crm_mobile/core/theme/app_colors.dart';
+import 'package:crm_mobile/widgets/spinning_logo.dart';
+import 'package:crm_mobile/injection/injection.dart';
+import 'package:crm_mobile/blocs/leads_bloc.dart';
+import 'package:crm_mobile/blocs/leads_event.dart';
+import 'package:crm_mobile/blocs/leads_state.dart';
 import 'package:file_picker/file_picker.dart';
-import '../../features/leads/domain/entities/lead_detail.dart';
-import '../../features/leads/domain/entities/attachment.dart';
+import 'package:crm_mobile/models/lead_detail.dart';
+import 'package:crm_mobile/models/attachment.dart';
+import 'package:crm_mobile/core/services/call_recording_service.dart';
+import 'package:crm_mobile/screens/leads/add_lead_screen.dart';
 
 class LeadDetailsScreen extends StatelessWidget {
   final String leadId;
@@ -33,7 +35,41 @@ class LeadDetailsView extends StatefulWidget {
 
 class _LeadDetailsViewState extends State<LeadDetailsView> {
   int _activeTabIndex = 0;
-  final List<String> _tabs = ['Overview', 'Activities','Documents'];
+  final List<String> _tabs = ['Overview', 'Activities', 'Recordings', 'Documents'];
+  final TextEditingController _noteController = TextEditingController();
+  
+  List<Map<String, dynamic>> _localRecordings = [];
+  bool _isLoadingRecordings = false;
+  bool _wasEdited = false;
+
+  @override
+  void initState() {
+    super.initState();
+  }
+
+  void _fetchLocalRecordings(String phoneNumber) async {
+    if (_isLoadingRecordings) return;
+    setState(() {
+      _isLoadingRecordings = true;
+    });
+    
+    final callRecordingService = CallRecordingService();
+    bool hasPermission = await callRecordingService.hasStoragePermission();
+    if (hasPermission) {
+      final paths = await callRecordingService.getAllSystemRecordings(phoneNumber);
+      if (mounted) {
+        setState(() {
+          _localRecordings = paths;
+        });
+      }
+    }
+    
+    if (mounted) {
+      setState(() {
+        _isLoadingRecordings = false;
+      });
+    }
+  }
 
   Color _hexToColor(String hexString) {
     final buffer = StringBuffer();
@@ -51,21 +87,54 @@ class _LeadDetailsViewState extends State<LeadDetailsView> {
     return formatter.format(value);
   }
 
-  @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.secondary,
-      appBar: AppBar(
+    return WillPopScope(
+      onWillPop: () async {
+        Navigator.pop(context, _wasEdited);
+        return false;
+      },
+      child: Scaffold(
         backgroundColor: AppColors.secondary,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
-          onPressed: () => Navigator.pop(context),
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.more_horiz, color: AppColors.textPrimary),
-            onPressed: () {},
+        appBar: AppBar(
+          backgroundColor: AppColors.secondary,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
+            onPressed: () => Navigator.pop(context, _wasEdited),
+          ),
+          actions: [
+          BlocBuilder<LeadsBloc, LeadsState>(
+            builder: (context, state) {
+              return PopupMenuButton<String>(
+                icon: const Icon(Icons.more_horiz, color: AppColors.textPrimary),
+                onSelected: (value) {
+                  if (value == 'edit') {
+                    if (state is LeadDetailsLoaded) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => BlocProvider(
+                            create: (_) => sl<LeadsBloc>(),
+                            child: AddLeadScreen(leadToEdit: state.leadDetail),
+                          ),
+                        ),
+                      ).then((changed) {
+                        if (changed == true) {
+                          _wasEdited = true;
+                          context.read<LeadsBloc>().add(FetchLeadDetails(state.leadDetail.id));
+                        }
+                      });
+                    }
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'edit',
+                    child: Text('Edit Lead'),
+                  ),
+                ],
+              );
+            }
           ),
         ],
       ),
@@ -208,6 +277,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView> {
                       children: [
                         _buildOverviewTab(lead),
                         _buildActivitiesTab(state),
+                        _buildCallRecordingsTab(state),
                         _buildDocumentsTab(state),
                       ],
                     ),
@@ -219,6 +289,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView> {
           return const SizedBox();
         },
       ),
+    )
     );
   }
 
@@ -249,40 +320,47 @@ class _LeadDetailsViewState extends State<LeadDetailsView> {
       decoration: const BoxDecoration(
         border: Border(bottom: BorderSide(color: AppColors.borderEnabled)),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: List.generate(_tabs.length, (index) {
-          final isSelected = index == _activeTabIndex;
-          return GestureDetector(
-            onTap: () {
-              setState(() => _activeTabIndex = index);
-              if (index == 1 && state.auditLogs == null) {
-                context.read<LeadsBloc>().add(FetchLeadAuditLogs(state.leadDetail.id));
-              } else if (index == 3 && state.attachments == null) {
-                context.read<LeadsBloc>().add(FetchLeadAttachments(state.leadDetail.id));
-              }
-            },
-            child: Container(
-              padding: const EdgeInsets.symmetric(vertical: 12.0),
-              decoration: BoxDecoration(
-                border: Border(
-                  bottom: BorderSide(
-                    color: isSelected ? AppColors.primary : Colors.transparent,
-                    width: 2.0,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.start,
+          children: List.generate(_tabs.length, (index) {
+            final isSelected = index == _activeTabIndex;
+            return GestureDetector(
+              onTap: () {
+                setState(() {
+                  _activeTabIndex = index;
+                });
+                if (index == 1 && state.auditLogs == null) {
+                  context.read<LeadsBloc>().add(FetchLeadAuditLogs(state.leadDetail.id));
+                } else if (index == 2 && _localRecordings.isEmpty && !_isLoadingRecordings) {
+                  _fetchLocalRecordings(state.leadDetail.phone);
+                } else if (index == 3 && state.attachments == null) {
+                  context.read<LeadsBloc>().add(FetchLeadAttachments(state.leadDetail.id));
+                }
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 16.0),
+                decoration: BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(
+                      color: isSelected ? AppColors.primary : Colors.transparent,
+                      width: 2.0,
+                    ),
+                  ),
+                ),
+                child: Text(
+                  _tabs[index],
+                  style: TextStyle(
+                    color: isSelected ? AppColors.primary : AppColors.textHint,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
                   ),
                 ),
               ),
-              child: Text(
-                _tabs[index],
-                style: TextStyle(
-                  color: isSelected ? AppColors.primary : AppColors.textHint,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                ),
-              ),
-            ),
-          );
-        }),
+            );
+          }),
+        ),
       ),
     );
   }
@@ -362,16 +440,112 @@ class _LeadDetailsViewState extends State<LeadDetailsView> {
     );
   }
 
+  Widget _buildCallRecordingsTab(LeadDetailsLoaded state) {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        children: [
+          Expanded(
+            child: _localRecordings.isEmpty 
+              ? const Center(
+                  child: Text(
+                    'No local call recordings found.',
+                    style: TextStyle(color: AppColors.textHint, fontSize: 14),
+                  ),
+                )
+              : ListView.separated(
+                  itemCount: _localRecordings.length,
+                  separatorBuilder: (context, index) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final recording = _localRecordings[index];
+                    final path = recording['path'] as String;
+                    final timestampMs = recording['timestamp'] as int? ?? 0;
+                    final durationMs = recording['durationMs'] as int? ?? 0;
+                    
+                    final dateStr = timestampMs > 0 
+                        ? DateFormat('MMM dd, yyyy - hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(timestampMs))
+                        : 'Unknown Date';
+                        
+                    final durationSec = durationMs ~/ 1000;
+                    final durationMin = durationSec ~/ 60;
+                    final durationRemSec = durationSec % 60;
+                    final durationStr = durationMs > 0 
+                        ? '${durationMin.toString().padLeft(2, '0')}:${durationRemSec.toString().padLeft(2, '0')}'
+                        : '';
+                    
+                    // Display reverse chronological order numbers (e.g. REC 3 for oldest if there are 3 total, REC 1 for newest)
+                    // Wait, the user said "REC 2 ... not random numbers".
+                    // The list is sorted newest first, so index 0 is the newest.
+                    // Let's just number them sequentially: REC 1, REC 2, etc (or inverse)
+                    final recNumber = _localRecordings.length - index;
+
+                    return ListTile(
+                      leading: const Icon(Icons.audiotrack, color: AppColors.primary),
+                      title: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('REC $recNumber', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                          if (durationStr.isNotEmpty)
+                            Text(durationStr, style: const TextStyle(fontSize: 12, color: AppColors.textHint)),
+                        ],
+                      ),
+                      subtitle: Text(dateStr, style: const TextStyle(fontSize: 12, color: AppColors.textHint)),
+                      trailing: const Icon(Icons.play_circle_fill, color: AppColors.primary),
+                      onTap: () {
+                        CallRecordingService().playRecording(path);
+                      },
+                    );
+                  },
+                ),
+          ),
+          const SizedBox(height: 12),
+          // Refresh Local Recordings Button
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                side: const BorderSide(color: AppColors.primary),
+              ),
+              icon: _isLoadingRecordings 
+                  ? const SizedBox(
+                      width: 18, 
+                      height: 18, 
+                      child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2)
+                    )
+                  : const Icon(Icons.sync, color: AppColors.primary),
+              label: Text(
+                _isLoadingRecordings ? 'Scanning...' : 'Scan Local Recordings',
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.primary),
+              ),
+              onPressed: _isLoadingRecordings 
+                  ? null 
+                  : () async {
+                      final service = CallRecordingService();
+                      if (!await service.hasStoragePermission()) {
+                        await service.openStoragePermissionSettings();
+                      } else {
+                        _fetchLocalRecordings(state.leadDetail.phone);
+                      }
+                    },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildDocumentsTab(LeadDetailsLoaded state) {
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Column(
         children: [
-          // List body
           Expanded(
             child: _buildAttachmentsBody(state),
           ),
-          
           const SizedBox(height: 12),
           
           // Upload Button
@@ -447,6 +621,8 @@ class _LeadDetailsViewState extends State<LeadDetailsView> {
     }
 
     return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
       itemCount: attachments.length,
       itemBuilder: (context, index) {
         final doc = attachments[index];
