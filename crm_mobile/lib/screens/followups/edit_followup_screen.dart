@@ -1,19 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import '../../core/theme/app_colors.dart';
-import '../../features/leads/domain/entities/follow_up.dart';
-import '../../features/leads/domain/entities/lead_detail.dart';
-import '../../features/leads/domain/entities/staff_user.dart';
-import '../../features/leads/domain/entities/lead.dart';
-import '../../features/leads/presentation/bloc/followups_bloc.dart';
-import '../../features/leads/presentation/bloc/followups_event.dart';
-import '../../features/leads/presentation/bloc/followups_state.dart';
-import '../../features/leads/presentation/bloc/leads_bloc.dart';
-import '../../features/leads/presentation/bloc/leads_event.dart';
-import '../../features/leads/presentation/bloc/leads_state.dart';
-import '../../injection/injection.dart';
-import '../../widgets/custom_text_field.dart';
-import '../../widgets/custom_dropdown_field.dart';
+import 'package:crm_mobile/core/theme/app_colors.dart';
+import 'package:crm_mobile/models/follow_up.dart';
+import 'package:crm_mobile/models/lead_detail.dart';
+import 'package:crm_mobile/models/staff_user.dart';
+import 'package:crm_mobile/models/lead.dart';
+import 'package:crm_mobile/blocs/followups_bloc.dart';
+import 'package:crm_mobile/blocs/followups_event.dart';
+import 'package:crm_mobile/blocs/followups_state.dart';
+import 'package:crm_mobile/blocs/leads_bloc.dart';
+import 'package:crm_mobile/blocs/leads_event.dart';
+import 'package:crm_mobile/blocs/leads_state.dart';
+import 'package:crm_mobile/injection/injection.dart';
+import 'package:crm_mobile/widgets/custom_text_field.dart';
+import 'package:crm_mobile/widgets/custom_dropdown_field.dart';
 
 class EditFollowUpScreen extends StatelessWidget {
   final FollowUp followUp;

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_phone_direct_caller/flutter_phone_direct_caller.dart';
-import '../core/theme/app_colors.dart';
+import 'package:crm_mobile/core/theme/app_colors.dart';
 
 class LeadCard extends StatelessWidget {
   final String initials;

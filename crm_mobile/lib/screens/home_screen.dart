@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import '../core/theme/app_colors.dart';
-import '../widgets/custom_bottom_nav_bar.dart';
-import 'leads/leads_screen.dart';
-import 'more/more_screen.dart';
-import 'followups/followups_screen.dart';
+import 'package:crm_mobile/widgets/custom_bottom_nav_bar.dart';
+import 'package:crm_mobile/screens/leads/leads_screen.dart';
+import 'package:crm_mobile/screens/more/more_screen.dart';
+import 'package:crm_mobile/screens/followups/followups_screen.dart';
+import 'package:crm_mobile/screens/calendar/calendar_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -25,7 +25,7 @@ class HomeScreenState extends State<HomeScreen> {
     const Center(child: Text('Dashboard Coming Soon', style: TextStyle(fontSize: 18))),
     const LeadsScreen(),
     const FollowUpsScreen(),
-    const Center(child: Text('Calendar Coming Soon', style: TextStyle(fontSize: 18))),
+    const CalendarScreen(),
     const MoreScreen(),
   ];
 
@@ -35,7 +35,11 @@ class HomeScreenState extends State<HomeScreen> {
       body: _screens[_currentIndex],
       bottomNavigationBar: CustomBottomNavBar(
         currentIndex: _currentIndex,
-        onTap: changeTab,
+        onTap: (index) {
+          setState(() {
+            _currentIndex = index;
+          });
+        },
       ),
     );
   }

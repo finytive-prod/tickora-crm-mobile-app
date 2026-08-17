@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import '../../core/theme/app_colors.dart';
-import '../../features/leads/presentation/bloc/leads_bloc.dart';
-import '../../features/leads/presentation/bloc/leads_event.dart';
-import '../../features/leads/presentation/bloc/leads_state.dart';
-import '../../widgets/custom_text_field.dart';
-import '../../widgets/custom_dropdown_field.dart';
-import '../../core/utils/validators.dart';
+import 'package:crm_mobile/core/theme/app_colors.dart';
+import 'package:crm_mobile/blocs/leads_bloc.dart';
+import 'package:crm_mobile/blocs/leads_event.dart';
+import 'package:crm_mobile/blocs/leads_state.dart';
+import 'package:crm_mobile/widgets/custom_text_field.dart';
+import 'package:crm_mobile/widgets/custom_dropdown_field.dart';
+import 'package:crm_mobile/core/utils/validators.dart';
 
 class QuickInviteScreen extends StatefulWidget {
   const QuickInviteScreen({super.key});
@@ -29,6 +29,14 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
   String? _selectedSource;
   String? _selectedStatus;
 
+  final Map<String, dynamic> _customFieldValues = {};
+
+  @override
+  void initState() {
+    super.initState();
+    context.read<LeadsBloc>().add(FetchCustomFieldsForm());
+  }
+
   @override
   void dispose() {
     _firstNameController.dispose();
@@ -43,7 +51,7 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
 
   void _onCreate() {
     if (_formKey.currentState!.validate()) {
-      final leadData = {
+      final Map<String, dynamic> leadData = {
         'firstName': _firstNameController.text,
         'lastName': _lastNameController.text,
         'email': _emailController.text,
@@ -51,8 +59,22 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
         'alternatePhone': _altPhoneController.text,
         'sourceId': _selectedSource,
         'statusId': _selectedStatus,
-        'invitationMessage': _messageController.text, // Specific to Quick Invite
+        'invitationMessage': _messageController.text,
       };
+
+      final customFieldsList = <Map<String, dynamic>>[];
+      _customFieldValues.forEach((fieldId, value) {
+        if (value != null && value.toString().isNotEmpty) {
+          customFieldsList.add({
+            'fieldId': fieldId,
+            'value': value,
+          });
+        }
+      });
+
+      if (customFieldsList.isNotEmpty) {
+        leadData['customFields'] = customFieldsList;
+      }
 
       context.read<LeadsBloc>().add(CreateLead(leadData));
     }
@@ -100,6 +122,7 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
               builder: (context, state) {
                 List<DropdownMenuItem<String>> statusItems = [];
                 List<DropdownMenuItem<String>> sourceItems = [];
+                List<dynamic> customFields = [];
 
                 if (state is LeadsLoaded) {
                   statusItems = state.statuses
@@ -108,6 +131,10 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
                   sourceItems = state.sources
                       .map((s) => DropdownMenuItem(value: s.id, child: Text(s.name, overflow: TextOverflow.ellipsis)))
                       .toList();
+                  customFields = List.of(state.customFields)
+                      .where((f) => f.isRequired == true)
+                      .toList()
+                    ..sort((a, b) => (a.displayOrder ?? 0).compareTo(b.displayOrder ?? 0));
                   
                   if (_selectedStatus == null && state.statuses.isNotEmpty) {
                     try {
@@ -157,9 +184,10 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
                     ),
                     CustomTextField(
                       label: 'Email', 
+                      isRequired: true,
                       keyboardType: TextInputType.emailAddress, 
                       controller: _emailController,
-                      validator: (val) => AppValidators.validateEmail(val, isRequired: false),
+                      validator: (val) => AppValidators.validateEmail(val, isRequired: true),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -193,6 +221,30 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
                     maxLines: 4,
                     controller: _messageController,
                   ),
+                  
+                  if (customFields.isNotEmpty) ...[
+                    const SizedBox(height: 32),
+                    _buildSectionTitle(Icons.list_alt, 'Custom Fields'),
+                    const SizedBox(height: 16),
+                    ...customFields.map((field) {
+                      final controller = TextEditingController(
+                        text: _customFieldValues[field.fieldId]?.toString() ?? '',
+                      );
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 16.0),
+                        child: CustomTextField(
+                          label: field.label,
+                          isRequired: field.isRequired,
+                          controller: controller,
+                          onChanged: (val) {
+                            _customFieldValues[field.fieldId] = val;
+                          },
+                          validator: field.isRequired ? (val) => val == null || val.isEmpty ? 'Required' : null : null,
+                        ),
+                      );
+                    }),
+                  ],
+                  
                   const SizedBox(height: 24),
                   SizedBox(
                     width: double.infinity,

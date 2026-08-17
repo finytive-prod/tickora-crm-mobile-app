@@ -1,10 +1,10 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../core/theme/app_colors.dart';
-import '../injection/injection.dart';
-import 'home_screen.dart';
-import 'login_screen.dart';
+import 'package:crm_mobile/core/theme/app_colors.dart';
+import 'package:crm_mobile/injection/injection.dart';
+import 'package:crm_mobile/screens/home_screen.dart';
+import 'package:crm_mobile/screens/auth/login_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});

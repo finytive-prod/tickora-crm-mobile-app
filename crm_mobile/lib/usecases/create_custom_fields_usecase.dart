@@ -1,0 +1,13 @@
+import 'package:dartz/dartz.dart';
+import 'package:crm_mobile/core/error/failure.dart';
+import 'package:crm_mobile/repositories/settings_repository.dart';
+
+class CreateCustomFieldsUseCase {
+  final SettingsRepository repository;
+
+  CreateCustomFieldsUseCase(this.repository);
+
+  Future<Either<Failure, void>> call(List<Map<String, dynamic>> fields) async {
+    return await repository.createCustomFields(fields);
+  }
+}

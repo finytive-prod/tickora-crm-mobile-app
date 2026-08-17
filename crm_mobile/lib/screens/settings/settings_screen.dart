@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../core/theme/app_colors.dart';
+import 'package:crm_mobile/core/theme/app_colors.dart';
 import 'lead_custom_form_screen.dart';
 import 'lead_statuses_screen.dart';
 import 'lead_sources_screen.dart';

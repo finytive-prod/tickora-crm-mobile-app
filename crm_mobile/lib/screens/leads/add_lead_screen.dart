@@ -1,16 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/theme/app_colors.dart';
-import '../../features/leads/presentation/bloc/leads_bloc.dart';
-import '../../features/leads/presentation/bloc/leads_event.dart';
-import '../../features/leads/presentation/bloc/leads_state.dart';
+import 'package:crm_mobile/blocs/leads_bloc.dart';
+import 'package:crm_mobile/blocs/leads_event.dart';
+import 'package:crm_mobile/blocs/leads_state.dart';
 import '../../widgets/custom_text_field.dart';
 import '../../widgets/custom_dropdown_field.dart';
-import '../../core/utils/validators.dart';
+import 'package:crm_mobile/core/utils/validators.dart';
 import 'package:file_picker/file_picker.dart' as fp;
+import 'package:crm_mobile/models/lead_detail.dart';
 
 class AddLeadScreen extends StatefulWidget {
-  const AddLeadScreen({super.key});
+  final LeadDetail? leadToEdit;
+  const AddLeadScreen({super.key, this.leadToEdit});
 
   @override
   State<AddLeadScreen> createState() => _AddLeadScreenState();
@@ -27,7 +29,6 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
   // Controllers to capture data
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
-  final _mobileController = TextEditingController();
   final _companyController = TextEditingController();
   final _emailController = TextEditingController();
   final _jobTitleController = TextEditingController();
@@ -83,11 +84,45 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
     context.read<LeadsBloc>().add(FetchCustomFieldsForm());
 
     void updateLeadName() {
-      _leadNameController.text = '${_firstNameController.text} ${_lastNameController.text}'.trim();
+      if (widget.leadToEdit == null) {
+        _leadNameController.text = '${_firstNameController.text} ${_lastNameController.text}'.trim();
+      }
     }
     
     _firstNameController.addListener(updateLeadName);
     _lastNameController.addListener(updateLeadName);
+
+    if (widget.leadToEdit != null) {
+      final l = widget.leadToEdit!;
+      _firstNameController.text = l.firstName;
+      _lastNameController.text = l.lastName;
+      _companyController.text = l.companyName;
+      _emailController.text = l.email;
+      _phoneController.text = l.phone;
+      _altPhoneController.text = l.alternatePhone ?? '';
+      _scoreController.text = (l.score ?? 0).toString();
+      _industryController.text = l.industry ?? '';
+      _revenueController.text = (l.annualRevenue ?? 0.0).toString();
+      _employeeSizeController.text = (l.employeeSize ?? 0).toString();
+      _websiteController.text = l.website ?? '';
+      _countryController.text = l.country ?? '';
+      _stateController.text = l.state ?? '';
+      _cityController.text = l.city ?? '';
+      _postalController.text = l.postalCode ?? '';
+      _addressController.text = l.address ?? '';
+      _descriptionController.text = l.description ?? '';
+      
+      _selectedSource = l.source?.id;
+      _selectedStatus = l.status?.id;
+      _selectedPriority = l.priority;
+      _selectedOwner = l.ownerUserId;
+      
+      _leadNameController.text = '${l.firstName} ${l.lastName}'.trim();
+      
+      for (var cf in l.customFields) {
+        _customFieldValues[cf.fieldId] = cf.value;
+      }
+    }
   }
 
   @override
@@ -95,7 +130,6 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
     _pageController.dispose();
     _firstNameController.dispose();
     _lastNameController.dispose();
-    _mobileController.dispose();
     _companyController.dispose();
     _emailController.dispose();
     _jobTitleController.dispose();
@@ -166,7 +200,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         'companyName': _companyController.text,
         'jobTitle': _jobTitleController.text,
         'email': _emailController.text,
-        'phone': _mobileController.text,
+        'phone': _phoneController.text,
         'alternatePhone': _altPhoneController.text,
         'sourceId': _selectedSource,
         'statusId': _selectedStatus,
@@ -241,7 +275,15 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         leadData['customFields'] = customFieldsList;
       }
 
-      context.read<LeadsBloc>().add(CreateLead(leadData, filePaths: filePaths));
+      if (widget.leadToEdit != null) {
+        context.read<LeadsBloc>().add(UpdateLead(
+          leadId: widget.leadToEdit!.id,
+          leadData: leadData,
+          filePaths: filePaths,
+        ));
+      } else {
+        context.read<LeadsBloc>().add(CreateLead(leadData, filePaths: filePaths));
+      }
     }
   }
 
@@ -287,10 +329,10 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
 
   String _getAppBarTitle() {
     switch (_currentPage) {
-      case 0: return 'New Lead';
+      case 0: return widget.leadToEdit != null ? 'Edit Lead' : 'New Lead';
       case 1: return 'Follow-up & Notes';
       case 2: return 'Custom Fields';
-      default: return 'New Lead';
+      default: return widget.leadToEdit != null ? 'Edit Lead' : 'New Lead';
     }
   }
 
@@ -302,7 +344,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(state.message), backgroundColor: Colors.green),
           );
-          Navigator.pop(context);
+          Navigator.pop(context, true);
         } else if (state is LeadActionError) {
           setState(() {
             _hasCompletedOptionalSteps = false;
@@ -381,10 +423,10 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
                     ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                     : Row(
                         mainAxisAlignment: MainAxisAlignment.center,
-                        children: const [
-                          Text('Save Lead', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                          SizedBox(width: 8),
-                          Icon(Icons.check_circle, color: Colors.white, size: 20),
+                        children: [
+                          Text(widget.leadToEdit != null ? 'Update Lead' : 'Save Lead', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                          const SizedBox(width: 8),
+                          const Icon(Icons.check_circle, color: Colors.white, size: 20),
                         ],
                       ),
               ),
@@ -518,10 +560,10 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
             const SizedBox(height: 16),
             _buildRow(
               CustomTextField(
-                label: 'Mobile No.', 
+                label: 'Phone', 
                 isRequired: true, 
                 keyboardType: TextInputType.phone, 
-                controller: _mobileController,
+                controller: _phoneController,
                 inputFormatters: AppInputFormatters.phoneFormatters,
                 validator: (val) => AppValidators.validateMobile(val, isRequired: true),
               ),
@@ -536,18 +578,6 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
             const SizedBox(height: 16),
             _buildRow(
               CustomTextField(
-                label: 'Phone', 
-                keyboardType: TextInputType.phone, 
-                controller: _phoneController,
-                inputFormatters: AppInputFormatters.phoneFormatters,
-                validator: (val) {
-                  if (val != null && val.isNotEmpty) {
-                    return AppValidators.validateMobile(val, isRequired: false);
-                  }
-                  return null;
-                },
-              ),
-              CustomTextField(
                 label: 'Alternate Phone', 
                 keyboardType: TextInputType.phone, 
                 controller: _altPhoneController,
@@ -558,6 +588,12 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
                   }
                   return null;
                 },
+              ),
+              CustomDropdownField<String>(
+                label: 'Owner',
+                items: ownerItems,
+                value: _selectedOwner,
+                onChanged: (val) => setState(() => _selectedOwner = val),
               ),
             ),
             const SizedBox(height: 16),
@@ -616,16 +652,6 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
             _buildRow(
               CustomTextField(label: 'Address', maxLines: 3, controller: _addressController),
               CustomTextField(label: 'Description', maxLines: 3, controller: _descriptionController),
-            ),
-            const SizedBox(height: 16),
-            _buildRow(
-              CustomDropdownField<String>(
-                label: 'Owner',
-                items: ownerItems,
-                value: _selectedOwner,
-                onChanged: (val) => setState(() => _selectedOwner = val),
-              ),
-              const SizedBox(),
             ),
             const SizedBox(height: 40),
           ],

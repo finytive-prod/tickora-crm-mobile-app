@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import '../../core/theme/app_colors.dart';
-import '../../widgets/lead_card.dart';
-import '../../injection/injection.dart';
-import '../../features/leads/presentation/bloc/leads_bloc.dart';
-import '../../features/leads/presentation/bloc/leads_event.dart';
-import '../../features/leads/presentation/bloc/leads_state.dart';
-import 'add_lead_screen.dart';
-import 'lead_details_screen.dart';
-import 'widgets/expandable_fab.dart';
-import '../../widgets/spinning_logo.dart';
+import 'package:crm_mobile/core/theme/app_colors.dart';
+import 'package:crm_mobile/widgets/lead_card.dart';
+import 'package:crm_mobile/injection/injection.dart';
+import 'package:crm_mobile/blocs/leads_bloc.dart';
+import 'package:crm_mobile/blocs/leads_event.dart';
+import 'package:crm_mobile/blocs/leads_state.dart';
+import 'package:crm_mobile/screens/leads/add_lead_screen.dart';
+import 'package:crm_mobile/screens/leads/lead_details_screen.dart';
+import 'package:crm_mobile/widgets/expandable_fab.dart';
+import 'package:crm_mobile/widgets/spinning_logo.dart';
 
 class LeadsScreen extends StatelessWidget {
   const LeadsScreen({super.key});
@@ -22,7 +22,7 @@ class LeadsScreen extends StatelessWidget {
         ..add(FetchLeadSources())
         ..add(FetchLeadPriorities())
         ..add(const FetchStaffUsers())
-        ..add(const FetchLeads()),
+        ..add(const FetchLeads(page: 0, size: 15)),
       child: const LeadsScreenView(),
     );
   }
@@ -87,8 +87,16 @@ class LeadsScreenView extends StatelessWidget {
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: AppColors.borderEnabled),
                     ),
-                    child: const TextField(
-                      decoration: InputDecoration(
+                    child: TextField(
+                      onChanged: (query) {
+                        final trimmed = query.trim();
+                        if (trimmed.isEmpty) {
+                          context.read<LeadsBloc>().add(const FetchLeads(page: 0, size: 15));
+                        } else {
+                          context.read<LeadsBloc>().add(SearchLeads(query: trimmed, page: 0, size: 15));
+                        }
+                      },
+                      decoration: const InputDecoration(
                         hintText: 'Search leads, assignees...',
                         hintStyle: TextStyle(color: AppColors.textHint, fontSize: 14),
                         prefixIcon: Icon(Icons.search, color: AppColors.textHint),
@@ -110,14 +118,14 @@ class LeadsScreenView extends StatelessWidget {
                           'All Leads',
                           isSelected: selectedStatusId == null,
                           onTap: () {
-                            context.read<LeadsBloc>().add(const FetchLeads());
+                            context.read<LeadsBloc>().add(const FetchLeads(page: 0, size: 15));
                           },
                         ),
                         ...statuses.map((status) => _buildFilterChip(
                               status.statusName,
                               isSelected: selectedStatusId == status.id,
                               onTap: () {
-                                context.read<LeadsBloc>().add(FetchLeads(statusId: status.id));
+                                context.read<LeadsBloc>().add(FetchLeads(page: 0, size: 15, statusId: status.id));
                               },
                             )),
                       ],
@@ -154,54 +162,94 @@ class LeadsScreenView extends StatelessWidget {
       if (state.leads.isEmpty) {
         return const Center(child: Text('No leads found.'));
       }
+      final totalItemCount = state.leads.length + (state.hasMoreLeads ? 1 : 0) + 1; // +1 for view more, +1 for FAB
+
       return ListView.separated(
         padding: const EdgeInsets.symmetric(horizontal: 16.0),
-        itemCount: state.leads.length + 1, // +1 for the FAB padding
+        itemCount: totalItemCount,
         separatorBuilder: (context, index) => const SizedBox(height: 12),
         itemBuilder: (context, index) {
-          if (index == state.leads.length) {
-            return const SizedBox(height: 80); // Padding for FAB
+          if (index < state.leads.length) {
+            final lead = state.leads[index];
+            final String initials = (lead.firstName.isNotEmpty ? lead.firstName[0] : '') +
+                                    (lead.lastName.isNotEmpty ? lead.lastName[0] : '');
+            final statusColor = lead.status?.color != null 
+                ? _hexToColor(lead.status!.color) 
+                : Colors.grey;
+
+            Color priorityColor = Colors.grey;
+            if (lead.priority == 'HIGH') priorityColor = Colors.red;
+            if (lead.priority == 'MEDIUM') priorityColor = Colors.orange;
+            if (lead.priority == 'LOW') priorityColor = Colors.green;
+
+            return GestureDetector(
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => LeadDetailsScreen(leadId: lead.id),
+                  ),
+                ).then((wasEdited) {
+                  if (wasEdited == true) {
+                    final currentState = context.read<LeadsBloc>().state;
+                    final currentStatusId = currentState is LeadsLoaded ? currentState.selectedStatusId : null;
+                    context.read<LeadsBloc>().add(FetchLeads(page: 0, size: 15, statusId: currentStatusId));
+                  }
+                });
+              },
+              child: LeadCard(
+                initials: initials.toUpperCase(),
+                avatarColor: statusColor.withOpacity(0.2),
+                avatarTextColor: statusColor,
+                name: '${lead.firstName} ${lead.lastName}',
+                company: lead.companyName,
+                status: lead.status?.statusName ?? 'Unknown',
+                statusBgColor: statusColor.withOpacity(0.2),
+                statusTextColor: statusColor,
+                description: lead.source?.description ?? 'No description available.',
+                priority: lead.priority != null ? '${lead.priority} Priority' : 'No Priority',
+                priorityColor: priorityColor,
+                assignee: (lead.ownerUserName != null && lead.ownerUserName!.isNotEmpty) 
+                    ? lead.ownerUserName! 
+                    : 'Unassigned',
+                phone: lead.phone,
+              ),
+            );
           }
-          
-          final lead = state.leads[index];
-          final String initials = (lead.firstName.isNotEmpty ? lead.firstName[0] : '') +
-                                  (lead.lastName.isNotEmpty ? lead.lastName[0] : '');
-          final statusColor = lead.status?.color != null 
-              ? _hexToColor(lead.status!.color) 
-              : Colors.grey;
 
-          Color priorityColor = Colors.grey;
-          if (lead.priority == 'HIGH') priorityColor = Colors.red;
-          if (lead.priority == 'MEDIUM') priorityColor = Colors.orange;
-          if (lead.priority == 'LOW') priorityColor = Colors.green;
+          if (index == state.leads.length && state.hasMoreLeads) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12.0),
+              child: Center(
+                child: state.isLoadingMore
+                    ? const SpinningLogo(size: 40)
+                    : OutlinedButton.icon(
+                        onPressed: () {
+                          context.read<LeadsBloc>().add(
+                            FetchLeads(
+                              page: state.currentPage + 1,
+                              size: 15,
+                              statusId: state.selectedStatusId,
+                              isLoadMore: true,
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.expand_more, color: AppColors.primary),
+                        label: const Text(
+                          'View More',
+                          style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary, fontSize: 14),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: AppColors.primary, width: 1.5),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        ),
+                      ),
+              ),
+            );
+          }
 
-          return GestureDetector(
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => LeadDetailsScreen(leadId: lead.id),
-                ),
-              );
-            },
-            child: LeadCard(
-              initials: initials.toUpperCase(),
-              avatarColor: statusColor.withOpacity(0.2),
-              avatarTextColor: statusColor,
-              name: '${lead.firstName} ${lead.lastName}',
-              company: lead.companyName,
-              status: lead.status?.statusName ?? 'Unknown',
-              statusBgColor: statusColor.withOpacity(0.2),
-              statusTextColor: statusColor,
-              description: lead.source?.description ?? 'No description available.',
-              priority: lead.priority != null ? '${lead.priority} Priority' : 'No Priority',
-              priorityColor: priorityColor,
-              assignee: (lead.ownerUserName != null && lead.ownerUserName!.isNotEmpty) 
-                  ? lead.ownerUserName! 
-                  : 'Unassigned',
-              phone: lead.phone,
-            ),
-          );
+          return const SizedBox(height: 80); // Padding for FAB
         },
       );
     }
