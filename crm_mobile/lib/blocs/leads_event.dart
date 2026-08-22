@@ -12,11 +12,18 @@ class FetchLeads extends LeadsEvent {
   final int size;
   final String? statusId;
   final bool isLoadMore;
+  final bool? isActive;
 
-  const FetchLeads({this.page = 0, this.size = 15, this.statusId, this.isLoadMore = false});
+  const FetchLeads({
+    this.page = 0,
+    this.size = 15,
+    this.statusId,
+    this.isLoadMore = false,
+    this.isActive,
+  });
 
   @override
-  List<Object> get props => [page, size, isLoadMore, if (statusId != null) statusId!];
+  List<Object?> get props => [page, size, statusId, isLoadMore, isActive];
 }
 
 class SearchLeads extends LeadsEvent {
@@ -25,14 +32,12 @@ class SearchLeads extends LeadsEvent {
   final int size;
   final bool isLoadMore;
 
-  const SearchLeads(
-    {
+  const SearchLeads({
     required this.query,
     this.page = 0,
     this.size = 15,
     this.isLoadMore = false,
-  }
-  );
+  });
 
   @override
   List<Object> get props => [query, page, size, isLoadMore];
@@ -117,4 +122,36 @@ class UploadLeadAttachment extends LeadsEvent {
 
   @override
   List<Object?> get props => [leadId, filePath];
+}
+
+class FetchLeadAudios extends LeadsEvent {
+  final String id;
+
+  const FetchLeadAudios(this.id);
+
+  @override
+  List<Object?> get props => [id];
+}
+
+class UploadLeadAudio extends LeadsEvent {
+  final String leadId;
+  final String filePath;
+
+  const UploadLeadAudio({required this.leadId, required this.filePath});
+
+  @override
+  List<Object?> get props => [leadId, filePath];
+}
+
+class UpdateLeadActiveStatus extends LeadsEvent {
+  final String leadId;
+  final bool isActive;
+
+  const UpdateLeadActiveStatus({
+    required this.leadId,
+    required this.isActive,
+  });
+
+  @override
+  List<Object> get props => [leadId, isActive];
 }

@@ -10,6 +10,7 @@ import 'package:crm_mobile/screens/leads/add_lead_screen.dart';
 import 'package:crm_mobile/screens/leads/lead_details_screen.dart';
 import 'package:crm_mobile/widgets/expandable_fab.dart';
 import 'package:crm_mobile/widgets/spinning_logo.dart';
+import 'package:crm_mobile/core/services/privilege_service.dart';
 
 class LeadsScreen extends StatelessWidget {
   const LeadsScreen({super.key});
@@ -54,6 +55,7 @@ class LeadsScreenView extends StatelessWidget {
           builder: (context, state) {
             final statuses = state is LeadsLoaded ? state.statuses : [];
             final selectedStatusId = state is LeadsLoaded ? state.selectedStatusId : null;
+            final selectedIsActive = state is LeadsLoaded ? state.selectedIsActive : null;
 
             return Column(
               children: [
@@ -131,6 +133,50 @@ class LeadsScreenView extends StatelessWidget {
                       ],
                     ),
                   ),
+                const SizedBox(height: 12),
+                // Active/Inactive Toggle
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () {
+                            context.read<LeadsBloc>().add(FetchLeads(page: 0, size: 15, statusId: selectedStatusId, isActive: true));
+                          },
+                          child: Container(
+                            alignment: Alignment.center,
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            decoration: BoxDecoration(
+                              color: selectedIsActive == null || selectedIsActive == true ? AppColors.primary : Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: AppColors.primary),
+                            ),
+                            child: Text('Active', style: TextStyle(color: selectedIsActive == null || selectedIsActive == true ? Colors.white : AppColors.primary, fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () {
+                            context.read<LeadsBloc>().add(FetchLeads(page: 0, size: 15, statusId: selectedStatusId, isActive: false));
+                          },
+                          child: Container(
+                            alignment: Alignment.center,
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            decoration: BoxDecoration(
+                              color: selectedIsActive == false ? AppColors.primary : Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: AppColors.primary),
+                            ),
+                            child: Text('Inactive', style: TextStyle(color: selectedIsActive == false ? Colors.white : AppColors.primary, fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
                 const SizedBox(height: 16),
                 // Leads List
                 Expanded(
@@ -141,7 +187,9 @@ class LeadsScreenView extends StatelessWidget {
           },
         ),
       ),
-      floatingActionButton: const ExpandableFab(),
+      floatingActionButton: sl<PrivilegeService>().hasPrivilege('LEAD_CREATE') 
+          ? const ExpandableFab() 
+          : null,
     );
   }
 
@@ -162,6 +210,7 @@ class LeadsScreenView extends StatelessWidget {
       if (state.leads.isEmpty) {
         return const Center(child: Text('No leads found.'));
       }
+      final selectedIsActive = state.selectedIsActive;
       final totalItemCount = state.leads.length + (state.hasMoreLeads ? 1 : 0) + 1; // +1 for view more, +1 for FAB
 
       return ListView.separated(
@@ -187,17 +236,25 @@ class LeadsScreenView extends StatelessWidget {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => LeadDetailsScreen(leadId: lead.id),
+                    builder: (context) => LeadDetailsScreen(leadId: lead.id, isActive: selectedIsActive ?? true),
                   ),
                 ).then((wasEdited) {
                   if (wasEdited == true) {
                     final currentState = context.read<LeadsBloc>().state;
                     final currentStatusId = currentState is LeadsLoaded ? currentState.selectedStatusId : null;
-                    context.read<LeadsBloc>().add(FetchLeads(page: 0, size: 15, statusId: currentStatusId));
+                    final currentIsActive = currentState is LeadsLoaded ? currentState.selectedIsActive : null;
+                    final searchQuery = currentState is LeadsLoaded ? currentState.searchQuery : null;
+                    
+                    if (searchQuery != null && searchQuery.isNotEmpty) {
+                      context.read<LeadsBloc>().add(SearchLeads(query: searchQuery, page: 0, size: 15));
+                    } else {
+                      context.read<LeadsBloc>().add(FetchLeads(page: 0, size: 15, statusId: currentStatusId, isActive: currentIsActive));
+                    }
                   }
                 });
               },
               child: LeadCard(
+                leadId: lead.id,
                 initials: initials.toUpperCase(),
                 avatarColor: statusColor.withOpacity(0.2),
                 avatarTextColor: statusColor,
@@ -230,6 +287,7 @@ class LeadsScreenView extends StatelessWidget {
                               page: state.currentPage + 1,
                               size: 15,
                               statusId: state.selectedStatusId,
+                              isActive: state.selectedIsActive,
                               isLoadMore: true,
                             ),
                           );

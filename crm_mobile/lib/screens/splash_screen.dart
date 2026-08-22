@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crm_mobile/core/theme/app_colors.dart';
+import 'package:crm_mobile/core/services/privilege_service.dart';
 import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/screens/home_screen.dart';
 import 'package:crm_mobile/screens/auth/login_screen.dart';
@@ -36,6 +37,10 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     final prefs = sl<SharedPreferences>();
     final token = prefs.getString('token');
     final isLoggedIn = token != null && token.isNotEmpty;
+
+    if (isLoggedIn) {
+      await sl<PrivilegeService>().fetchPrivileges();
+    }
 
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:crm_mobile/core/theme/app_colors.dart';
@@ -28,14 +29,24 @@ class _StaffListView extends StatefulWidget {
   State<_StaffListView> createState() => _StaffListViewState();
 }
 
+
 class _StaffListViewState extends State<_StaffListView> {
   String _selectedStatus = 'ACTIVE';
   final TextEditingController _searchController = TextEditingController();
+  Timer? _debounce;
 
   @override
   void dispose() {
     _searchController.dispose();
+    _debounce?.cancel();
     super.dispose();
+  }
+
+  void _onSearchChanged(String query) {
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
+    _debounce = Timer(const Duration(milliseconds: 500), () {
+      context.read<StaffBloc>().add(FetchStaffMembers(status: _selectedStatus, searchQuery: query));
+    });
   }
 
   void _onStatusChanged(String status) {
@@ -145,7 +156,7 @@ class _StaffListViewState extends State<_StaffListView> {
               ),
               child: TextField(
                 controller: _searchController,
-                onChanged: (_) => setState(() {}), // Trigger local filter rebuild
+                onChanged: _onSearchChanged,
                 decoration: const InputDecoration(
                   hintText: 'Search by name...',
                   hintStyle: TextStyle(color: AppColors.textHint, fontSize: 14),
@@ -160,12 +171,40 @@ class _StaffListViewState extends State<_StaffListView> {
 
           // Filter Chips
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
             child: Row(
               children: [
-                _buildFilterChip('Active', isSelected: _selectedStatus == 'ACTIVE', onTap: () => _onStatusChanged('ACTIVE')),
-                const SizedBox(width: 8),
-                _buildFilterChip('Inactive', isSelected: _selectedStatus == 'INACTIVE', onTap: () => _onStatusChanged('INACTIVE')),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => _onStatusChanged('ACTIVE'),
+                    child: Container(
+                      alignment: Alignment.center,
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      decoration: BoxDecoration(
+                        color: _selectedStatus == 'ACTIVE' ? AppColors.primary : Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.primary),
+                      ),
+                      child: Text('Active', style: TextStyle(color: _selectedStatus == 'ACTIVE' ? Colors.white : AppColors.primary, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => _onStatusChanged('INACTIVE'),
+                    child: Container(
+                      alignment: Alignment.center,
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      decoration: BoxDecoration(
+                        color: _selectedStatus == 'INACTIVE' ? AppColors.primary : Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.primary),
+                      ),
+                      child: Text('Inactive', style: TextStyle(color: _selectedStatus == 'INACTIVE' ? Colors.white : AppColors.primary, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -208,16 +247,10 @@ class _StaffListViewState extends State<_StaffListView> {
                   );
                 }
                 if (state is StaffLoaded) {
-                  final query = _searchController.text.toLowerCase().trim();
-                  final filtered = query.isEmpty
-                      ? state.staffMembers
-                      : state.staffMembers.where((s) =>
-                          s.fullName.toLowerCase().contains(query) ||
-                          s.email.toLowerCase().contains(query) ||
-                          s.userCode.toLowerCase().contains(query)
-                        ).toList();
+                  final query = state.searchQuery ?? '';
+                  final staffMembers = state.staffMembers;
 
-                  if (filtered.isEmpty) {
+                  if (staffMembers.isEmpty) {
                     return Center(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
@@ -238,22 +271,22 @@ class _StaffListViewState extends State<_StaffListView> {
                     );
                   }
 
-                  final itemCount = filtered.length + (state.hasMore ? 1 : 0);
+                  final itemCount = staffMembers.length + (state.hasMore ? 1 : 0);
 
                   return RefreshIndicator(
                     color: AppColors.primary,
                     onRefresh: () async {
-                      context.read<StaffBloc>().add(FetchStaffMembers(status: _selectedStatus));
+                      context.read<StaffBloc>().add(FetchStaffMembers(status: _selectedStatus, searchQuery: _searchController.text));
                     },
                     child: ListView.separated(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       itemCount: itemCount,
                       separatorBuilder: (_, __) => const SizedBox(height: 10),
                       itemBuilder: (context, index) {
-                        if (index < filtered.length) {
+                        if (index < staffMembers.length) {
                           return StaffCard(
-                            staff: filtered[index],
-                            onTap: () => _navigateToDetail(filtered[index]),
+                            staff: staffMembers[index],
+                            onTap: () => _navigateToDetail(staffMembers[index]),
                           );
                         }
 
@@ -269,6 +302,7 @@ class _StaffListViewState extends State<_StaffListView> {
                                         LoadMoreStaffMembers(
                                           page: state.currentPage + 1,
                                           status: _selectedStatus,
+                                          searchQuery: state.searchQuery,
                                         ),
                                       );
                                     },
@@ -345,30 +379,6 @@ class _StaffListViewState extends State<_StaffListView> {
       width: 1,
       height: 50,
       color: AppColors.borderEnabled,
-    );
-  }
-
-  Widget _buildFilterChip(String label, {bool isSelected = false, required VoidCallback onTap}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 9),
-        decoration: BoxDecoration(
-          color: isSelected ? AppColors.primary : Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: isSelected ? AppColors.primary : AppColors.borderEnabled,
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? Colors.white : AppColors.textLabel,
-            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-            fontSize: 13,
-          ),
-        ),
-      ),
     );
   }
 }

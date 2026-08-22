@@ -8,7 +8,7 @@ class GetLeadsUseCase {
 
   GetLeadsUseCase(this.repository);
 
-  Future<Either<Failure, List<Lead>>> call(int page, int size, {String? statusId}) async {
-    return await repository.getLeads(page, size, statusId: statusId);
+  Future<Either<Failure, List<Lead>>> call(int page, int size, {String? statusId, bool? isActive}) async {
+    return await repository.getLeads(page, size, statusId: statusId, isActive: isActive);
   }
 }

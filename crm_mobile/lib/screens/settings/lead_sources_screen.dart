@@ -7,6 +7,7 @@ import 'package:crm_mobile/blocs/settings_event.dart';
 import 'package:crm_mobile/blocs/settings_state.dart';
 import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/widgets/spinning_logo.dart';
+import 'package:crm_mobile/core/utils/form_validator_utils.dart';
 
 class LeadSourcesScreen extends StatelessWidget {
   const LeadSourcesScreen({super.key});
@@ -51,7 +52,7 @@ class _LeadSourcesViewState extends State<LeadSourcesView> {
   }
 
   void _createSource(BuildContext context) {
-    if (!_formKey.currentState!.validate()) return;
+    if (!validateAndScrollToError(_formKey)) return;
 
     final sourceData = {
       'name': _nameController.text.trim(),

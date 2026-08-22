@@ -13,6 +13,7 @@ abstract class FollowUpsRepository {
   Future<Either<Failure, FollowUpResponse>> getFollowUps({required String category, int page = 0, int size = 10});
   Future<Either<Failure, LeadFollowUps>> getLeadFollowUps(String leadId);
   Future<Either<Failure, void>> updateFollowUp(String followupId, Map<String, dynamic> data);
+  Future<Either<Failure, void>> addFollowUp(String leadId, Map<String, dynamic> data);
 }
 
 class FollowUpsRepositoryImpl implements FollowUpsRepository {
@@ -79,6 +80,26 @@ class FollowUpsRepositoryImpl implements FollowUpsRepository {
         return const Right(null);
       } else {
         throw ApiException(message: body?['message'] ?? 'Failed to update followup');
+      }
+    } on Exception catch (e) {
+      return Left(ErrorHandler.mapExceptionToFailure(e));
+    }
+  }
+
+  @override
+  Future<Either<Failure, void>> addFollowUp(String leadId, Map<String, dynamic> data) async {
+    try {
+      final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
+      final response = await apiClient.post(
+        '$leadsBaseUrl/leads/$leadId/followup',
+        data: data,
+      );
+
+      final body = response.data;
+      if (body != null && body['success'] == true) {
+        return const Right(null);
+      } else {
+        throw ApiException(message: body?['message'] ?? 'Failed to add followup');
       }
     } on Exception catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));

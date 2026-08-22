@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:crm_mobile/widgets/custom_bottom_nav_bar.dart';
+import 'package:crm_mobile/screens/dashboard/dashboard_screen.dart';
 import 'package:crm_mobile/screens/leads/leads_screen.dart';
 import 'package:crm_mobile/screens/more/more_screen.dart';
 import 'package:crm_mobile/screens/followups/followups_screen.dart';
 import 'package:crm_mobile/screens/calendar/calendar_screen.dart';
+import 'package:crm_mobile/core/services/privilege_service.dart';
+import 'package:crm_mobile/injection/injection.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -13,34 +16,104 @@ class HomeScreen extends StatefulWidget {
 }
 
 class HomeScreenState extends State<HomeScreen> {
-  int _currentIndex = 1; // Default to Leads tab
+  int _currentIndex = 0;
+  List<Widget> _screens = [];
+  List<BottomNavigationBarItem> _navItems = [];
 
-  void changeTab(int index) {
-    setState(() {
-      _currentIndex = index;
-    });
+  @override
+  void initState() {
+    super.initState();
+    _buildTabs();
   }
 
-  final List<Widget> _screens = [
-    const Center(child: Text('Dashboard Coming Soon', style: TextStyle(fontSize: 18))),
-    const LeadsScreen(),
-    const FollowUpsScreen(),
-    const CalendarScreen(),
-    const MoreScreen(),
-  ];
+  void changeTabByLabel(String label) {
+    final index = _navItems.indexWhere((item) => item.label == label);
+    if (index != -1) {
+      setState(() {
+        _currentIndex = index;
+      });
+    }
+  }
+
+  void _buildTabs() {
+    _screens.clear();
+    _navItems.clear();
+
+    final priv = sl<PrivilegeService>();
+
+    // If privileges service has privileges defined, check them. Otherwise show default set.
+    final bool showAllByDefault = priv.privileges.isEmpty;
+
+    if (showAllByDefault || priv.hasPrivilege('DASHBOARD_READ')) {
+      _screens.add(const DashboardScreen());
+      _navItems.add(const BottomNavigationBarItem(
+        icon: Icon(Icons.home_outlined),
+        activeIcon: Icon(Icons.home),
+        label: 'Dashboard',
+      ));
+    }
+
+    if (showAllByDefault || priv.hasPrivilege('LEAD_READ')) {
+      _screens.add(const LeadsScreen());
+      _navItems.add(const BottomNavigationBarItem(
+        icon: Icon(Icons.person_outline),
+        activeIcon: Icon(Icons.person),
+        label: 'Leads',
+      ));
+    }
+
+    if (showAllByDefault || priv.hasPrivilege('FOLLOWUP_READ')) {
+      _screens.add(const FollowUpsScreen());
+      _navItems.add(const BottomNavigationBarItem(
+        icon: Icon(Icons.reply_outlined),
+        activeIcon: Icon(Icons.reply),
+        label: 'Follow ups',
+      ));
+    }
+
+    if (showAllByDefault || priv.hasPrivilege('CALENDAR_READ')) {
+      _screens.add(const CalendarScreen());
+      _navItems.add(const BottomNavigationBarItem(
+        icon: Icon(Icons.calendar_today_outlined),
+        activeIcon: Icon(Icons.calendar_today),
+        label: 'Calendar',
+      ));
+    }
+
+    // More tab is always available
+    _screens.add(const MoreScreen());
+    _navItems.add(const BottomNavigationBarItem(
+      icon: Icon(Icons.menu),
+      activeIcon: Icon(Icons.menu),
+      label: 'More',
+    ));
+
+    // Set default tab to Leads if it exists, otherwise 0
+    final leadsIndex = _navItems.indexWhere((item) => item.label == 'Leads');
+    _currentIndex = leadsIndex != -1 ? leadsIndex : 0;
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (_screens.isEmpty) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    final safeIndex = _currentIndex.clamp(0, _screens.length - 1);
+
     return Scaffold(
-      body: _screens[_currentIndex],
-      bottomNavigationBar: CustomBottomNavBar(
-        currentIndex: _currentIndex,
-        onTap: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
-      ),
+      body: _screens[safeIndex],
+      bottomNavigationBar: _navItems.length >= 2
+          ? CustomBottomNavBar(
+              currentIndex: safeIndex,
+              items: _navItems,
+              onTap: (index) {
+                setState(() {
+                  _currentIndex = index;
+                });
+              },
+            )
+          : null,
     );
   }
 }

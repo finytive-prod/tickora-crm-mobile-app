@@ -5,6 +5,7 @@ import 'package:crm_mobile/models/staff_user.dart';
 import 'package:crm_mobile/models/custom_field.dart';
 import 'package:crm_mobile/models/lead_detail.dart';
 import 'package:crm_mobile/models/attachment.dart';
+import 'package:crm_mobile/models/lead_audio.dart';
 
 
 abstract class LeadsState extends Equatable {
@@ -26,10 +27,12 @@ class LeadsLoaded extends LeadsState {
   final List<StaffUser> owners;
   final List<CustomField> customFields;
   final String? selectedStatusId;
+  final bool? selectedIsActive;
   final bool isLeadsLoaded;
   final int currentPage;
   final bool hasMoreLeads;
   final bool isLoadingMore;
+  final String? searchQuery;
 
   const LeadsLoaded(
     this.leads, {
@@ -39,10 +42,12 @@ class LeadsLoaded extends LeadsState {
     this.owners = const [],
     this.customFields = const [],
     this.selectedStatusId,
+    this.selectedIsActive,
     this.isLeadsLoaded = false,
     this.currentPage = 0,
     this.hasMoreLeads = true,
     this.isLoadingMore = false,
+    this.searchQuery,
   });
 
   LeadsLoaded copyWith({
@@ -54,10 +59,13 @@ class LeadsLoaded extends LeadsState {
     List<CustomField>? customFields,
     String? selectedStatusId,
     bool clearSelectedStatusId = false,
+    bool? selectedIsActive,
+    bool clearSelectedIsActive = false,
     bool? isLeadsLoaded,
     int? currentPage,
     bool? hasMoreLeads,
     bool? isLoadingMore,
+    String? searchQuery,
   }) {
     return LeadsLoaded(
       leads ?? this.leads,
@@ -67,10 +75,12 @@ class LeadsLoaded extends LeadsState {
       owners: owners ?? this.owners,
       customFields: customFields ?? this.customFields,
       selectedStatusId: clearSelectedStatusId ? null : (selectedStatusId ?? this.selectedStatusId),
+      selectedIsActive: clearSelectedIsActive ? null : (selectedIsActive ?? this.selectedIsActive),
       isLeadsLoaded: isLeadsLoaded ?? this.isLeadsLoaded,
       currentPage: currentPage ?? this.currentPage,
       hasMoreLeads: hasMoreLeads ?? this.hasMoreLeads,
       isLoadingMore: isLoadingMore ?? this.isLoadingMore,
+      searchQuery: searchQuery ?? this.searchQuery,
     );
   }
 
@@ -83,10 +93,12 @@ class LeadsLoaded extends LeadsState {
     owners,
     customFields,
     selectedStatusId,
+    selectedIsActive,
     isLeadsLoaded,
     currentPage,
     hasMoreLeads,
     isLoadingMore,
+    searchQuery,
   ];
 }
 
@@ -129,6 +141,9 @@ class LeadDetailsLoaded extends LeadsState {
   final List<Attachment>? attachments;
   final bool isAttachmentsLoading;
   final String? attachmentsError;
+  final List<LeadAudio>? audios;
+  final bool isAudiosLoading;
+  final String? audiosError;
 
   const LeadDetailsLoaded(
     this.leadDetail, {
@@ -138,6 +153,9 @@ class LeadDetailsLoaded extends LeadsState {
     this.attachments,
     this.isAttachmentsLoading = false,
     this.attachmentsError,
+    this.audios,
+    this.isAudiosLoading = false,
+    this.audiosError,
   });
 
   LeadDetailsLoaded copyWith({
@@ -148,6 +166,9 @@ class LeadDetailsLoaded extends LeadsState {
     List<Attachment>? attachments,
     bool? isAttachmentsLoading,
     String? attachmentsError,
+    List<LeadAudio>? audios,
+    bool? isAudiosLoading,
+    String? audiosError,
   }) {
     return LeadDetailsLoaded(
       leadDetail ?? this.leadDetail,
@@ -157,6 +178,9 @@ class LeadDetailsLoaded extends LeadsState {
       attachments: attachments ?? this.attachments,
       isAttachmentsLoading: isAttachmentsLoading ?? this.isAttachmentsLoading,
       attachmentsError: attachmentsError ?? this.attachmentsError,
+      audios: audios ?? this.audios,
+      isAudiosLoading: isAudiosLoading ?? this.isAudiosLoading,
+      audiosError: audiosError ?? this.audiosError,
     );
   }
 
@@ -169,6 +193,9 @@ class LeadDetailsLoaded extends LeadsState {
         attachments,
         isAttachmentsLoading,
         attachmentsError,
+        audios,
+        isAudiosLoading,
+        audiosError,
       ];
 }
 

@@ -4,17 +4,25 @@ import 'package:crm_mobile/core/theme/app_colors.dart';
 class CustomBottomNavBar extends StatelessWidget {
   final int currentIndex;
   final Function(int) onTap;
+  final List<BottomNavigationBarItem> items;
 
   const CustomBottomNavBar({
     super.key,
     required this.currentIndex,
     required this.onTap,
+    required this.items,
   });
 
   @override
   Widget build(BuildContext context) {
+    if (items.length < 2) {
+      return const SizedBox.shrink();
+    }
+
+    final safeIndex = currentIndex.clamp(0, items.length - 1);
+
     return BottomNavigationBar(
-      currentIndex: currentIndex,
+      currentIndex: safeIndex,
       onTap: onTap,
       type: BottomNavigationBarType.fixed,
       selectedItemColor: AppColors.primary,
@@ -24,33 +32,7 @@ class CustomBottomNavBar extends StatelessWidget {
       selectedFontSize: 12,
       unselectedFontSize: 12,
       elevation: 8,
-      items: const [
-        BottomNavigationBarItem(
-          icon: Icon(Icons.home_outlined),
-          activeIcon: Icon(Icons.home),
-          label: 'Dashboard',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.person_outline),
-          activeIcon: Icon(Icons.person),
-          label: 'Leads',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.reply_outlined),
-          activeIcon: Icon(Icons.reply),
-          label: 'Follow ups',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.calendar_today_outlined),
-          activeIcon: Icon(Icons.calendar_today),
-          label: 'Calendar',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.menu),
-          activeIcon: Icon(Icons.menu),
-          label: 'More',
-        ),
-      ],
+      items: items,
     );
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_phone_direct_caller/flutter_phone_direct_caller.dart';
+import 'package:crm_mobile/core/services/auto_call_recording_uploader.dart';
 import 'package:crm_mobile/core/theme/app_colors.dart';
 import 'package:crm_mobile/models/follow_up.dart';
 import 'package:crm_mobile/models/lead_detail.dart';
@@ -10,7 +11,9 @@ import 'package:crm_mobile/blocs/followups_event.dart';
 import 'package:crm_mobile/blocs/followups_state.dart';
 import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/widgets/spinning_logo.dart';
+import 'package:crm_mobile/core/services/privilege_service.dart';
 import 'edit_followup_screen.dart';
+import 'add_followup_screen.dart';
 
 class LeadFollowUpDetailsScreen extends StatelessWidget {
   final String leadId;
@@ -103,10 +106,27 @@ class _LeadFollowUpDetailsViewState extends State<LeadFollowUpDetailsView> {
         actions: [
           BlocBuilder<FollowUpsBloc, FollowUpsState>(
             builder: (context, state) {
-              if (state is LeadFollowUpsLoaded && state.leadFollowUps.followups.isNotEmpty) {
+              if (state is LeadFollowUpsLoaded) {
                 return IconButton(
                   icon: const Icon(Icons.edit_outlined, color: AppColors.primary),
                   onPressed: () async {
+                    final hasPrivilege = sl<PrivilegeService>().hasPrivilege('FOLLOWUP_UPDATE');
+                    final hasFollowups = state.leadFollowUps.followups.isNotEmpty;
+
+                    if (!hasPrivilege) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('You do not have the FOLLOWUP_UPDATE privilege!')),
+                      );
+                      return;
+                    }
+
+                    if (!hasFollowups) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('There is no follow-up history to edit for this lead!')),
+                      );
+                      return;
+                    }
+
                     final followupsBloc = context.read<FollowUpsBloc>();
                     final result = await Navigator.push(
                       context,
@@ -311,7 +331,12 @@ class _LeadFollowUpDetailsViewState extends State<LeadFollowUpDetailsView> {
                         child: InkWell(
                           onTap: () async {
                             if (leadDetails.phone.isNotEmpty) {
-                              await FlutterPhoneDirectCaller.callNumber(leadDetails.phone);
+                              AutoCallRecordingUploader.makeCallAndAutoUpload(
+                                context: context,
+                                leadId: leadDetails.id,
+                                phoneNumber: leadDetails.phone,
+                                leadName: '${leadDetails.firstName} ${leadDetails.lastName}',
+                              );
                             } else {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(content: Text('No phone number available for this lead.')),
@@ -592,28 +617,29 @@ class _LeadFollowUpDetailsViewState extends State<LeadFollowUpDetailsView> {
                               style: const TextStyle(color: AppColors.textSecondary, fontSize: 11, fontWeight: FontWeight.bold),
                             ),
                             const SizedBox(width: 8),
-                            InkWell(
-                              onTap: () async {
-                                final followupsBloc = context.read<FollowUpsBloc>();
-                                final result = await Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => EditFollowUpScreen(
-                                      followUp: item,
-                                      leadDetail: leadDetails,
+                            if (sl<PrivilegeService>().hasPrivilege('FOLLOWUP_UPDATE'))
+                              InkWell(
+                                onTap: () async {
+                                  final followupsBloc = context.read<FollowUpsBloc>();
+                                  final result = await Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => EditFollowUpScreen(
+                                        followUp: item,
+                                        leadDetail: leadDetails,
+                                      ),
                                     ),
-                                  ),
-                                );
-                                 if (result == true && mounted) {
-                                   followupsBloc.add(FetchLeadFollowUps(widget.leadId));
-                                 }
-                              },
-                              borderRadius: BorderRadius.circular(12),
-                              child: const Padding(
-                                padding: EdgeInsets.all(4.0),
-                                child: Icon(Icons.edit, size: 14, color: AppColors.primary),
+                                  );
+                                   if (result == true && mounted) {
+                                     followupsBloc.add(FetchLeadFollowUps(widget.leadId));
+                                   }
+                                },
+                                borderRadius: BorderRadius.circular(12),
+                                child: const Padding(
+                                  padding: EdgeInsets.all(4.0),
+                                  child: Icon(Icons.edit, size: 14, color: AppColors.primary),
+                                ),
                               ),
-                            ),
                           ],
                         ),
                       ],
@@ -669,6 +695,31 @@ class _LeadFollowUpDetailsViewState extends State<LeadFollowUpDetailsView> {
                       Text(
                         item.leadTask,
                         style: const TextStyle(color: AppColors.textLabel, fontSize: 13, height: 1.3),
+                      ),
+                    ],
+                    // NO FOLLOW UP Action Button
+                    if (item.followUpStatus.toUpperCase().contains('NO FOLLOW UP')) ...[
+                      const SizedBox(height: 12),
+                      const Divider(height: 1, color: AppColors.borderEnabled),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () async {
+                            final followupsBloc = context.read<FollowUpsBloc>();
+                            final result = await AddFollowUpScreen.openFromRight(context, leadId: widget.leadId);
+                            if (result == true && mounted) {
+                              followupsBloc.add(FetchLeadFollowUps(widget.leadId));
+                            }
+                          },
+                          icon: const Icon(Icons.add, size: 16, color: Colors.white),
+                          label: const Text('Add Follow Up', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                          ),
+                        ),
                       ),
                     ],
                   ],

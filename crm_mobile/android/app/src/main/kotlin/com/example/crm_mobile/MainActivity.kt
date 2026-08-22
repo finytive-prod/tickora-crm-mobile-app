@@ -1,5 +1,9 @@
 package com.example.crm_mobile
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -12,8 +16,13 @@ class MainActivity: FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_CALL_LOG, Manifest.permission.READ_PHONE_STATE), 200)
+        }
         
         val callRecordingManager = CallRecordingManager(this)
+        val documentDownloader = DocumentDownloader(this)
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
@@ -44,6 +53,19 @@ class MainActivity: FlutterActivity() {
                 "playRecording" -> {
                     val path = call.argument<String>("path") ?: ""
                     callRecordingManager.playRecording(this, path)
+                    result.success(null)
+                }
+                "saveToDownloads" -> {
+                    val filePath = call.argument<String>("filePath") ?: ""
+                    val fileName = call.argument<String>("fileName") ?: ""
+                    val mimeType = call.argument<String>("mimeType")
+                    val savedUriOrPath = documentDownloader.saveDocumentToDownloads(filePath, fileName, mimeType)
+                    result.success(savedUriOrPath)
+                }
+                "openFile" -> {
+                    val filePath = call.argument<String>("filePath") ?: ""
+                    val mimeType = call.argument<String>("mimeType")
+                    documentDownloader.openFile(filePath, mimeType)
                     result.success(null)
                 }
                 else -> {

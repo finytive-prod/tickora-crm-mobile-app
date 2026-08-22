@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:crm_mobile/core/theme/app_colors.dart';
 import 'package:crm_mobile/models/staff_member.dart';
+import 'package:crm_mobile/models/role_entity.dart';
+import 'package:crm_mobile/repositories/settings_repository.dart';
+import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/widgets/custom_text_field.dart';
 import 'package:crm_mobile/widgets/custom_dropdown_field.dart';
+import 'package:crm_mobile/core/utils/form_validator_utils.dart';
 
 class EditStaffBottomSheet extends StatefulWidget {
   final StaffMember staff;
@@ -38,10 +42,12 @@ class _EditStaffBottomSheetState extends State<EditStaffBottomSheet> {
   late final TextEditingController _joiningDateController;
 
   String? _selectedGender;
-  String _selectedRole = 'STAFF';
+  String _selectedRole = '';
+  
+  bool _isLoadingRoles = true;
+  List<RoleDropdownItem> _roleDropdownOptions = [];
 
   final List<String> _genderOptions = ['MALE', 'FEMALE', 'Other'];
-  final List<String> _roleOptions = ['STAFF', 'ADMIN', 'SUPER_ADMIN'];
 
   @override
   void initState() {
@@ -53,7 +59,37 @@ class _EditStaffBottomSheetState extends State<EditStaffBottomSheet> {
     _designationController = TextEditingController(text: widget.staff.designation ?? '');
     _joiningDateController = TextEditingController(text: widget.staff.joiningDate ?? '');
     _selectedGender = widget.staff.gender;
+    if (_selectedGender == null || _selectedGender!.isEmpty || !_genderOptions.contains(_selectedGender)) {
+      _selectedGender = _genderOptions.first;
+    }
     _selectedRole = widget.staff.primaryRole;
+    _fetchRoles();
+  }
+
+  Future<void> _fetchRoles() async {
+    final repo = sl<SettingsRepository>();
+    final result = await repo.getRolesDropdown();
+    if (mounted) {
+      setState(() {
+        _isLoadingRoles = false;
+        result.fold(
+          (failure) {}, // Handle error if needed
+          (roles) {
+            _roleDropdownOptions = roles;
+            // Ensure selected role exists in the options
+            if (_selectedRole.isEmpty || !_roleDropdownOptions.any((r) => r.id == _selectedRole || r.roleName == _selectedRole)) {
+              if (_roleDropdownOptions.isNotEmpty) {
+                _selectedRole = _roleDropdownOptions.first.id;
+              }
+            } else {
+              // Try to map role name to id if it's currently a name
+              final matchedRole = _roleDropdownOptions.firstWhere((r) => r.roleName == _selectedRole || r.id == _selectedRole, orElse: () => _roleDropdownOptions.first);
+              _selectedRole = matchedRole.id;
+            }
+          },
+        );
+      });
+    }
   }
 
   @override
@@ -89,7 +125,7 @@ class _EditStaffBottomSheetState extends State<EditStaffBottomSheet> {
   }
 
   void _handleSave() {
-    if (_formKey.currentState?.validate() ?? false) {
+    if (validateAndScrollToError(_formKey)) {
       final data = {
         'username': _usernameController.text.trim(),
         'email': _emailController.text.trim(),
@@ -226,15 +262,24 @@ class _EditStaffBottomSheetState extends State<EditStaffBottomSheet> {
                         ),
                       ),
                       const SizedBox(height: 16),
-                      CustomDropdownField<String>(
-                        label: 'Role',
-                        isRequired: true,
-                        value: _roleOptions.contains(_selectedRole) ? _selectedRole : null,
-                        items: _roleOptions
-                            .map((r) => DropdownMenuItem(value: r, child: Text(r)))
-                            .toList(),
-                        onChanged: (val) => setState(() => _selectedRole = val ?? 'STAFF'),
-                      ),
+                      _isLoadingRoles 
+                          ? const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 16.0),
+                              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                            )
+                          : CustomDropdownField<String>(
+                              label: 'Role',
+                              isRequired: true,
+                              value: _roleDropdownOptions.any((r) => r.id == _selectedRole) ? _selectedRole : null,
+                              items: _roleDropdownOptions
+                                  .map((r) => DropdownMenuItem(value: r.id, child: Text(r.roleName)))
+                                  .toList(),
+                              onChanged: (val) {
+                                if (val != null) {
+                                  setState(() => _selectedRole = val);
+                                }
+                              },
+                            ),
                       const SizedBox(height: 24),
 
                       // Save Button

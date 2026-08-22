@@ -69,7 +69,7 @@ class _CalendarScreenViewState extends State<CalendarScreenView> {
               color: Colors.white,
               borderRadius: BorderRadius.circular(24),
               boxShadow: [
-                BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 20, spreadRadius: 5),
+                BoxShadow(color: const Color.fromRGBO(0, 0, 0, 1).withValues(alpha: 0.1), blurRadius: 20, spreadRadius: 5),
               ],
             ),
             child: Column(
@@ -367,6 +367,50 @@ class _CalendarScreenViewState extends State<CalendarScreenView> {
   Widget _buildMonthView() {
     return Column(
       children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                DateFormat('MMMM yyyy').format(_focusedDay),
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.chevron_left, color: AppColors.textPrimary),
+                    onPressed: () {
+                      final prevMonth = DateTime(_focusedDay.year, _focusedDay.month - 1, 1);
+                      setState(() {
+                        _focusedDay = prevMonth;
+                      });
+                      final start = DateTime(prevMonth.year, prevMonth.month, 1);
+                      final end = DateTime(prevMonth.year, prevMonth.month + 1, 0, 23, 59, 59);
+                      context.read<CalendarBloc>().add(FetchCalendarEvents(start: start, end: end));
+                    },
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.chevron_right, color: AppColors.textPrimary),
+                    onPressed: () {
+                      final nextMonth = DateTime(_focusedDay.year, _focusedDay.month + 1, 1);
+                      setState(() {
+                        _focusedDay = nextMonth;
+                      });
+                      final start = DateTime(nextMonth.year, nextMonth.month, 1);
+                      final end = DateTime(nextMonth.year, nextMonth.month + 1, 0, 23, 59, 59);
+                      context.read<CalendarBloc>().add(FetchCalendarEvents(start: start, end: end));
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
         TableCalendar(
           firstDay: DateTime.utc(2020, 1, 1),
           lastDay: DateTime.utc(2030, 12, 31),
@@ -398,7 +442,9 @@ class _CalendarScreenViewState extends State<CalendarScreenView> {
             }
           },
           onPageChanged: (focusedDay) {
-            _focusedDay = focusedDay;
+            setState(() {
+              _focusedDay = focusedDay;
+            });
             final start = DateTime(focusedDay.year, focusedDay.month, 1);
             final end = DateTime(focusedDay.year, focusedDay.month + 1, 0, 23, 59, 59);
             context.read<CalendarBloc>().add(FetchCalendarEvents(start: start, end: end));

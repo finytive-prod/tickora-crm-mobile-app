@@ -1,8 +1,11 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:http_parser/http_parser.dart';
 import 'package:dartz/dartz.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:crm_mobile/core/error/failure.dart';
 import 'package:crm_mobile/core/network/api_client.dart';
 import 'package:crm_mobile/core/network/api_exception.dart';
@@ -16,9 +19,11 @@ import 'package:crm_mobile/models/activity_lead.dart';
 import 'package:crm_mobile/models/activity_lead_model.dart';
 import 'package:crm_mobile/models/attachment.dart';
 import 'package:crm_mobile/models/attachment_model.dart';
+import 'package:crm_mobile/models/lead_audio.dart';
+import 'package:crm_mobile/models/lead_audio_model.dart';
 
 abstract class LeadsRepository {
-  Future<Either<Failure, List<Lead>>> getLeads(int page, int size, {String? statusId});
+  Future<Either<Failure, List<Lead>>> getLeads(int page, int size, {String? statusId, bool? isActive});
   Future<Either<Failure, List<Lead>>> searchLeads(String query, {int page = 0, int size = 10});
   Future<Either<Failure, List<String>>> getLeadPriorities();
   Future<Either<Failure, List<StaffUser>>> getStaffUsers({String? search});
@@ -28,6 +33,10 @@ abstract class LeadsRepository {
   Future<Either<Failure, AuditLogResponse>> getLeadAuditLogs(String id, {int page = 0, int size = 20});
   Future<Either<Failure, List<Attachment>>> getLeadAttachments(String id);
   Future<Either<Failure, void>> uploadLeadAttachment(String leadId, String filePath);
+  Future<Either<Failure, List<LeadAudio>>> getLeadAudios(String leadId);
+  Future<Either<Failure, LeadAudio>> uploadLeadAudio(String leadId, String filePath);
+  Future<Either<Failure, void>> updateLeadActiveStatus(String leadId, bool isActive);
+  Future<Either<Failure, String>> exportLeadReport(Map<String, dynamic> payload);
 }
 
 class LeadsRepositoryImpl implements LeadsRepository {
@@ -36,7 +45,7 @@ class LeadsRepositoryImpl implements LeadsRepository {
   LeadsRepositoryImpl({required this.apiClient});
 
   @override
-  Future<Either<Failure, List<Lead>>> getLeads(int page, int size, {String? statusId}) async {
+  Future<Either<Failure, List<Lead>>> getLeads(int page, int size, {String? statusId, bool? isActive}) async {
     try {
       final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
       final queryParameters = <String, dynamic>{
@@ -46,6 +55,9 @@ class LeadsRepositoryImpl implements LeadsRepository {
       };
       if (statusId != null) {
         queryParameters['statusId'] = statusId;
+      }
+      if (isActive != null) {
+        queryParameters['isActive'] = isActive;
       }
 
       final response = await apiClient.get(
@@ -117,18 +129,13 @@ class LeadsRepositoryImpl implements LeadsRepository {
       final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
       final identityBaseUrl = leadsBaseUrl.replaceAll('lead-service', 'identity-service');
       
-      final queryParameters = <String, dynamic>{
-        'page': 0,
-        'size': 100,
-        'isActive': true,
-        'status': 'ACTIVE',
-      };
+      final queryParameters = <String, dynamic>{};
       if (search != null && search.isNotEmpty) {
         queryParameters['search'] = search;
       }
 
       final response = await apiClient.get(
-        '$identityBaseUrl/users/staff',
+        '$identityBaseUrl/users/dropdown',
         queryParameters: queryParameters,
       );
 
@@ -321,7 +328,7 @@ class LeadsRepositoryImpl implements LeadsRepository {
       final filename = filePath.split('/').last.split('\\').last;
 
       formData.files.add(MapEntry(
-        'file',
+        'files',
         await MultipartFile.fromFile(
           filePath,
           filename: filename,
@@ -347,6 +354,147 @@ class LeadsRepositoryImpl implements LeadsRepository {
       return Left(ServerFailure(msg));
     } on Exception catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));
+    }
+  }
+
+  @override
+  Future<Either<Failure, List<LeadAudio>>> getLeadAudios(String leadId) async {
+    try {
+      final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
+      final response = await apiClient.get('$leadsBaseUrl/leads/$leadId/audios');
+
+      final body = response.data;
+      List<dynamic> listData = [];
+      if (body is List) {
+        listData = body;
+      } else if (body is Map<String, dynamic>) {
+        if (body['data'] is List) {
+          listData = body['data'];
+        } else if (body['content'] is List) {
+          listData = body['content'];
+        }
+      }
+
+      final audios = listData.map((json) => LeadAudioModel.fromJson(json)).toList();
+      return Right(audios);
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 500) {
+        return const Right([]);
+      }
+      return Left(ErrorHandler.mapExceptionToFailure(e));
+    } on Exception catch (e) {
+      return Left(ErrorHandler.mapExceptionToFailure(e));
+    }
+  }
+
+  @override
+  Future<Either<Failure, LeadAudio>> uploadLeadAudio(String leadId, String filePath) async {
+    try {
+      final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
+      final formData = FormData();
+      final filename = filePath.split('/').last.split('\\').last;
+
+      String mimeType = 'audio/mpeg';
+      final lowerName = filename.toLowerCase();
+      if (lowerName.endsWith('.wav')) {
+        mimeType = 'audio/wav';
+      } else if (lowerName.endsWith('.m4a') || lowerName.endsWith('.aac')) {
+        mimeType = 'audio/mp4';
+      } else if (lowerName.endsWith('.3gp')) {
+        mimeType = 'audio/3gpp';
+      } else if (lowerName.endsWith('.amr')) {
+        mimeType = 'audio/amr';
+      } else if (lowerName.endsWith('.ogg') || lowerName.endsWith('.opus')) {
+        mimeType = 'audio/ogg';
+      }
+
+      final ext = mimeType.split('/').last;
+
+      final multipartFile1 = await MultipartFile.fromFile(
+        filePath,
+        filename: filename,
+        contentType: MediaType('audio', ext),
+      );
+
+      final multipartFile2 = await MultipartFile.fromFile(
+        filePath,
+        filename: filename,
+        contentType: MediaType('audio', ext),
+      );
+
+      formData.files.add(MapEntry('files', multipartFile1));
+      formData.files.add(MapEntry('file', multipartFile2));
+
+      final response = await apiClient.post(
+        '$leadsBaseUrl/leads/$leadId/audios',
+        data: formData,
+      );
+
+      final body = response.data;
+      if (body != null) {
+        final Map<String, dynamic> dataJson = (body is Map<String, dynamic> && body.containsKey('data') && body['data'] is Map<String, dynamic>)
+            ? body['data']
+            : (body is Map<String, dynamic> ? body : {});
+        final audioModel = LeadAudioModel.fromJson(dataJson);
+        return Right(audioModel);
+      } else {
+        throw ApiException(message: 'Failed to upload audio file');
+      }
+    } on DioException catch (e) {
+      String msg = 'Upload failed';
+      if (e.response != null && e.response?.data is Map) {
+        msg = e.response?.data['message'] ?? 'Server error ${e.response?.statusCode}';
+      } else if (e.response != null) {
+        msg = 'Server status ${e.response?.statusCode}';
+      }
+      return Left(ServerFailure(msg));
+    } on Exception catch (e) {
+      return Left(ErrorHandler.mapExceptionToFailure(e));
+    }
+  }
+
+  @override
+  Future<Either<Failure, void>> updateLeadActiveStatus(String leadId, bool isActive) async {
+    try {
+      final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
+      final response = await apiClient.put(
+        '$leadsBaseUrl/leads/$leadId/active-status?isActive=$isActive',
+      );
+
+      final body = response.data;
+      if (body != null && body['success'] == true) {
+        return const Right(null);
+      } else {
+        throw ApiException(message: body['message'] ?? 'Failed to update lead status');
+      }
+    } on Exception catch (e) {
+      return Left(ErrorHandler.mapExceptionToFailure(e));
+    }
+  }
+
+  @override
+  Future<Either<Failure, String>> exportLeadReport(Map<String, dynamic> payload) async {
+    final baseUrl = dotenv.env['BASE_URL'] ?? 'http://50.117.0.165:8080/api/crm/lead-service';
+    final url = '$baseUrl/leads/export/csv';
+    debugPrint('[LeadsRepo] Calling POST $url with payload $payload');
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final savePath = '${tempDir.path}/export_${DateTime.now().millisecondsSinceEpoch}.csv';
+      
+      await apiClient.download(
+        url,
+        savePath,
+        data: payload,
+        options: Options(
+          method: 'POST',
+        ),
+      );
+      
+      debugPrint('[LeadsRepo] Successfully downloaded export to $savePath');
+      return Right(savePath);
+    } catch (e) {
+      debugPrint('[LeadsRepo] export error: $e');
+      return const Left(ServerFailure('Failed to download export file.'));
     }
   }
 }
