@@ -1,4 +1,5 @@
 import 'package:crm_mobile/models/lead.dart';
+import 'package:crm_mobile/usecases/update_lead_active_status_usecase.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:crm_mobile/usecases/get_leads_usecase.dart';
 import 'package:crm_mobile/usecases/search_leads_usecase.dart';
@@ -12,6 +13,8 @@ import 'package:crm_mobile/usecases/get_lead_details_usecase.dart';
 import 'package:crm_mobile/usecases/get_lead_audit_logs_usecase.dart';
 import 'package:crm_mobile/usecases/get_lead_attachments_usecase.dart';
 import 'package:crm_mobile/usecases/upload_lead_attachment_usecase.dart';
+import 'package:crm_mobile/usecases/get_lead_audios_usecase.dart';
+import 'package:crm_mobile/usecases/upload_lead_audio_usecase.dart';
 import 'package:crm_mobile/usecases/update_lead_usecase.dart';
 import 'package:crm_mobile/blocs/leads_event.dart';
 import 'package:crm_mobile/blocs/leads_state.dart';
@@ -28,8 +31,11 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
   final GetLeadAuditLogsUseCase getLeadAuditLogsUseCase;
   final GetLeadAttachmentsUseCase getLeadAttachmentsUseCase;
   final UploadLeadAttachmentUseCase uploadLeadAttachmentUseCase;
+  final GetLeadAudiosUseCase getLeadAudiosUseCase;
+  final UploadLeadAudioUseCase uploadLeadAudioUseCase;
   final UpdateLeadUseCase updateLeadUseCase;
   final SearchLeadsUseCase searchLeadsUseCase;
+  final UpdateLeadActiveStatusUseCase updateLeadActiveStatusUseCase;
 
   LeadsBloc({
     required this.getLeadsUseCase,
@@ -43,8 +49,11 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
     required this.getLeadAuditLogsUseCase,
     required this.getLeadAttachmentsUseCase,
     required this.uploadLeadAttachmentUseCase,
+    required this.getLeadAudiosUseCase,
+    required this.uploadLeadAudioUseCase,
     required this.updateLeadUseCase,
     required this.searchLeadsUseCase,
+    required this.updateLeadActiveStatusUseCase,
   }) : super(LeadsInitial()) {
     on<FetchLeads>(_onFetchLeads);
     on<SearchLeads>(_onSearchLeads);
@@ -59,6 +68,9 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
     on<FetchLeadAuditLogs>(_onFetchLeadAuditLogs);
     on<FetchLeadAttachments>(_onFetchLeadAttachments);
     on<UploadLeadAttachment>(_onUploadLeadAttachment);
+    on<FetchLeadAudios>(_onFetchLeadAudios);
+    on<UploadLeadAudio>(_onUploadLeadAudio);
+    on<UpdateLeadActiveStatus>(_onUpdateLeadActiveStatus);
   }
 
   Future<void> _onFetchLeads(FetchLeads event, Emitter<LeadsState> emit) async {
@@ -85,7 +97,7 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
       emit(LeadsLoading());
     }
 
-    final result = await getLeadsUseCase(event.page, event.size, statusId: event.statusId);
+    final result = await getLeadsUseCase(event.page, event.size, statusId: event.statusId, isActive: event.isActive);
 
     result.fold(
       (failure) {
@@ -117,10 +129,12 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
           priorities: finalPriorities,
           owners: finalOwners.cast(),
           selectedStatusId: event.statusId,
+          selectedIsActive: event.isActive,
           isLeadsLoaded: true,
           currentPage: event.page,
           hasMoreLeads: hasMore,
           isLoadingMore: false,
+          searchQuery: null, // Clear search query when fetching normal leads
         ));
       },
     );
@@ -191,6 +205,7 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
           currentPage: event.page,
           hasMoreLeads: hasMore,
           isLoadingMore: false,
+          searchQuery: query,
         ));
       },
     );
@@ -353,6 +368,46 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
         },
       );
     }
+  }
+
+  Future<void> _onFetchLeadAudios(FetchLeadAudios event, Emitter<LeadsState> emit) async {
+    final currentState = state;
+    if (currentState is LeadDetailsLoaded) {
+      emit(currentState.copyWith(isAudiosLoading: true, audiosError: null));
+      final result = await getLeadAudiosUseCase(event.id);
+      result.fold(
+        (failure) => emit(currentState.copyWith(isAudiosLoading: false, audiosError: failure.message)),
+        (audios) => emit(currentState.copyWith(isAudiosLoading: false, audios: audios)),
+      );
+    }
+  }
+
+  Future<void> _onUploadLeadAudio(UploadLeadAudio event, Emitter<LeadsState> emit) async {
+    final currentState = state;
+    if (currentState is LeadDetailsLoaded) {
+      emit(currentState.copyWith(isAudiosLoading: true, audiosError: null));
+      final result = await uploadLeadAudioUseCase(event.leadId, event.filePath);
+      result.fold(
+        (failure) => emit(currentState.copyWith(isAudiosLoading: false, audiosError: failure.message)),
+        (_) {
+          add(FetchLeadAudios(event.leadId));
+        },
+      );
+    }
+  }
+
+  Future<void> _onUpdateLeadActiveStatus(UpdateLeadActiveStatus event, Emitter<LeadsState> emit) async {
+    emit(LeadActionLoading());
+    final result = await updateLeadActiveStatusUseCase(event.leadId, event.isActive);
+    
+    result.fold(
+      (failure) => emit(LeadActionError(failure.message)),
+      (_) {
+        emit(LeadActionSuccess(event.isActive ? "Lead activated successfully." : "Lead deactivated successfully."));
+        add(const FetchLeads());
+        add(FetchLeadDetails(event.leadId));
+      },
+    );
   }
 }
 

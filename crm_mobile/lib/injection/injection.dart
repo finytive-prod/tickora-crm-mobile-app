@@ -6,6 +6,7 @@ import 'package:crm_mobile/core/network/dio_client.dart';
 import 'package:crm_mobile/core/network/interceptors/auth_interceptor.dart';
 import 'package:crm_mobile/core/network/interceptors/error_interceptor.dart';
 import 'package:crm_mobile/core/network/interceptors/logger_interceptor.dart';
+import 'package:crm_mobile/core/services/privilege_service.dart';
 
 // BLoC Imports
 import 'package:crm_mobile/blocs/login_bloc.dart';
@@ -19,6 +20,12 @@ import 'package:crm_mobile/blocs/calendar_bloc.dart';
 import 'package:crm_mobile/repositories/login_repository.dart';
 import 'package:crm_mobile/repositories/leads_repository.dart';
 import 'package:crm_mobile/repositories/followups_repository.dart';
+import 'package:crm_mobile/repositories/customer_repository.dart';
+import 'package:crm_mobile/repositories/dashboard_repository.dart';
+import 'package:crm_mobile/usecases/customer_usecases.dart';
+import 'package:crm_mobile/usecases/dashboard_usecases.dart';
+import 'package:crm_mobile/blocs/customer_bloc.dart';
+import 'package:crm_mobile/blocs/dashboard_bloc.dart';
 import 'package:crm_mobile/repositories/settings_repository.dart';
 import 'package:crm_mobile/repositories/calendar_repository.dart';
 
@@ -39,11 +46,15 @@ import 'package:crm_mobile/usecases/get_lead_details_usecase.dart';
 import 'package:crm_mobile/usecases/get_lead_audit_logs_usecase.dart';
 import 'package:crm_mobile/usecases/get_lead_attachments_usecase.dart';
 import 'package:crm_mobile/usecases/upload_lead_attachment_usecase.dart';
+import 'package:crm_mobile/usecases/get_lead_audios_usecase.dart';
+import 'package:crm_mobile/usecases/upload_lead_audio_usecase.dart';
+import 'package:crm_mobile/usecases/update_lead_active_status_usecase.dart';
 import 'package:crm_mobile/usecases/update_lead_usecase.dart';
 
 import 'package:crm_mobile/usecases/get_followups_usecase.dart';
 import 'package:crm_mobile/usecases/get_lead_followups_usecase.dart';
 import 'package:crm_mobile/usecases/update_followup_usecase.dart';
+import 'package:crm_mobile/usecases/add_followup_usecase.dart';
 
 import 'package:crm_mobile/usecases/get_custom_fields_usecase.dart';
 import 'package:crm_mobile/usecases/get_custom_fields_list_usecase.dart';
@@ -90,6 +101,9 @@ Future<void> init() async {
     ),
   );
 
+  // Core App Services
+  sl.registerLazySingleton(() => PrivilegeService(apiClient: sl(), logger: sl()));
+
   // Auth BLoC, Usecases & Repositories
   sl.registerFactory(() => LoginBloc(loginUseCase: sl()));
   sl.registerLazySingleton(() => LoginUseCase(sl()));
@@ -111,7 +125,10 @@ Future<void> init() async {
       getLeadAuditLogsUseCase: sl(),
       getLeadAttachmentsUseCase: sl(),
       uploadLeadAttachmentUseCase: sl(),
+      getLeadAudiosUseCase: sl(),
+      uploadLeadAudioUseCase: sl(),
       updateLeadUseCase: sl(),
+      updateLeadActiveStatusUseCase: sl(),
       searchLeadsUseCase: sl(),
     ),
   );
@@ -125,27 +142,59 @@ Future<void> init() async {
   sl.registerLazySingleton(() => GetLeadAuditLogsUseCase(sl()));
   sl.registerLazySingleton(() => GetLeadAttachmentsUseCase(sl()));
   sl.registerLazySingleton(() => UploadLeadAttachmentUseCase(sl()));
+  sl.registerLazySingleton(() => GetLeadAudiosUseCase(sl()));
+  sl.registerLazySingleton(() => UploadLeadAudioUseCase(sl()));
   sl.registerLazySingleton(() => UpdateLeadUseCase(sl()));
+  sl.registerLazySingleton(() => UpdateLeadActiveStatusUseCase(sl()));
 
   sl.registerLazySingleton<LeadsRepository>(
     () => LeadsRepositoryImpl(apiClient: sl()),
   );
 
   // Follow-ups BLoC, Usecases & Repositories
-  sl.registerFactory(
-    () => FollowUpsBloc(
-      getFollowUpsUseCase: sl(),
-      getLeadFollowUpsUseCase: sl(),
-      updateFollowUpUseCase: sl(),
-    ),
-  );
+  sl.registerFactory(() => FollowUpsBloc(
+        getFollowUpsUseCase: sl(),
+        getLeadFollowUpsUseCase: sl(),
+        updateFollowUpUseCase: sl(),
+        addFollowUpUseCase: sl(),
+      ));
+
+  sl.registerFactory(() => CustomerBloc(
+        getCustomersUseCase: sl(),
+        getCustomerTypesUseCase: sl(),
+        createCustomerUseCase: sl(),
+        updateCustomerUseCase: sl(),
+        deleteCustomerUseCase: sl(),
+      ));
 
   sl.registerLazySingleton(() => GetFollowUpsUseCase(sl()));
   sl.registerLazySingleton(() => GetLeadFollowUpsUseCase(sl()));
   sl.registerLazySingleton(() => UpdateFollowUpUseCase(sl()));
+  sl.registerLazySingleton(() => AddFollowUpUseCase(sl()));
 
+  // Follow-ups Repository
   sl.registerLazySingleton<FollowUpsRepository>(
     () => FollowUpsRepositoryImpl(apiClient: sl()),
+  );
+
+  // Customer Repository
+  sl.registerLazySingleton<CustomerRepository>(
+    () => CustomerRepositoryImpl(apiClient: sl()),
+  );
+
+  // Customer UseCases
+  sl.registerLazySingleton(() => GetCustomersUseCase(sl()));
+  sl.registerLazySingleton(() => GetCustomerTypesUseCase(sl()));
+  sl.registerLazySingleton(() => CreateCustomerUseCase(sl()));
+  sl.registerLazySingleton(() => UpdateCustomerUseCase(sl()));
+  sl.registerLazySingleton(() => DeleteCustomerUseCase(sl()));
+
+  // Dashboard BLoC & Repository
+  sl.registerFactory(() => DashboardBloc(
+        repository: sl(),
+      ));
+  sl.registerLazySingleton<DashboardRepository>(
+    () => DashboardRepositoryImpl(apiClient: sl()),
   );
 
   // Settings BLoC, Usecases & Repositories

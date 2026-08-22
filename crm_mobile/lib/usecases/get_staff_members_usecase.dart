@@ -8,7 +8,7 @@ class GetStaffMembersUseCase {
 
   GetStaffMembersUseCase(this.repository);
 
-  Future<Either<Failure, List<StaffMember>>> call({int page = 0, int size = 20, String status = 'ACTIVE'}) {
-    return repository.getStaffMembers(page, size, status);
+  Future<Either<Failure, List<StaffMember>>> call({int page = 0, int size = 20, String status = 'ACTIVE', String? searchQuery}) {
+    return repository.getStaffMembers(page, size, status, searchQuery: searchQuery);
   }
 }

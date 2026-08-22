@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crm_mobile/core/theme/app_colors.dart';
+import 'package:crm_mobile/core/services/privilege_service.dart';
 import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/screens/auth/login_screen.dart';
 import 'package:crm_mobile/screens/home_screen.dart';
-import 'package:crm_mobile/screens/settings/settings_screen.dart';
+import 'package:crm_mobile/screens/settings/settings_menu_screen.dart';
 import 'package:crm_mobile/screens/staff/staff_list_screen.dart';
+import 'package:crm_mobile/screens/customers/customers_screen.dart';
+import 'package:crm_mobile/screens/reports/reports_screen.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:crm_mobile/blocs/leads_bloc.dart';
+import 'package:crm_mobile/blocs/leads_event.dart';
 
 class MoreScreen extends StatefulWidget {
   const MoreScreen({super.key});
@@ -86,10 +92,10 @@ class _MoreScreenState extends State<MoreScreen> {
     );
   }
 
-  void _changeTab(BuildContext context, int index) {
+  void _changeTab(BuildContext context, String label) {
     final homeState = context.findAncestorStateOfType<HomeScreenState>();
     if (homeState != null) {
-      homeState.changeTab(index);
+      homeState.changeTabByLabel(label);
     }
   }
 
@@ -97,6 +103,7 @@ class _MoreScreenState extends State<MoreScreen> {
   Widget build(BuildContext context) {
     const brandColor = Color(0xFFDB222A);
     final activeTabColor = const Color(0xFFFEE2E2);
+    final priv = sl<PrivilegeService>();
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -129,11 +136,15 @@ class _MoreScreenState extends State<MoreScreen> {
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(6),
                           ),
-                          child: const Icon(Icons.trending_up, color: brandColor, size: 20),
+                          child: Image.asset(
+                            'assets/images/app_logo.png',
+                            height: 20,
+                            width: 20,
+                          ),
                         ),
                         const SizedBox(width: 8),
                         const Text(
-                          'TICKORA',
+                          'TICKORA CRM',
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
@@ -144,7 +155,7 @@ class _MoreScreenState extends State<MoreScreen> {
                       ],
                     ),
                     GestureDetector(
-                      onTap: () => _changeTab(context, 1), // Close switches to Leads tab
+                      onTap: () => _changeTab(context, priv.hasPrivilege('LEAD_READ') ? 'Leads' : 'Dashboard'),
                       child: Container(
                         padding: const EdgeInsets.all(6),
                         decoration: BoxDecoration(
@@ -199,16 +210,6 @@ class _MoreScreenState extends State<MoreScreen> {
                         ],
                       ),
                     ),
-
-                    // Edit Icon
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.15),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.edit, color: Colors.white, size: 18),
-                    ),
                   ],
                 ),
               ],
@@ -220,78 +221,104 @@ class _MoreScreenState extends State<MoreScreen> {
             child: ListView(
               padding: const EdgeInsets.symmetric(vertical: 12),
               children: [
-                _buildMenuItem(
-                  icon: Icons.grid_view_outlined,
-                  title: 'Dashboard',
-                  isSelected: true,
-                  activeTabColor: activeTabColor,
-                  brandColor: brandColor,
-                  onTap: () => _changeTab(context, 0),
-                ),
-                _buildMenuItem(
-                  icon: Icons.person_add_alt_1_outlined,
-                  title: 'Leads',
-                  brandColor: brandColor,
-                  onTap: () => _changeTab(context, 1),
-                ),
-                _buildMenuItem(
-                  icon: Icons.people_outline,
-                  title: 'Customers',
-                  brandColor: brandColor,
-                  onTap: () => _showComingSoon('Customers'),
-                ),
-                _buildMenuItem(
-                  icon: Icons.phone_in_talk_outlined,
-                  title: 'Follow-ups',
-                  brandColor: brandColor,
-                  onTap: () => _changeTab(context, 2),
-                ),
-                _buildMenuItem(
-                  icon: Icons.business_center_outlined,
-                  title: 'Staff',
-                  brandColor: brandColor,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => const StaffListScreen()),
-                    );
-                  },
-                ),
+                if (priv.hasPrivilege('DASHBOARD_READ'))
+                  _buildMenuItem(
+                    icon: Icons.grid_view_outlined,
+                    title: 'Dashboard',
+                    isSelected: true,
+                    activeTabColor: activeTabColor,
+                    brandColor: brandColor,
+                    onTap: () => _changeTab(context, 'Dashboard'),
+                  ),
+                if (priv.hasPrivilege('LEAD_READ'))
+                  _buildMenuItem(
+                    icon: Icons.person_add_alt_1_outlined,
+                    title: 'Leads',
+                    brandColor: brandColor,
+                    onTap: () => _changeTab(context, 'Leads'),
+                  ),
+                if (priv.hasPrivilege('CUSTOMER_READ'))
+                  _buildMenuItem(
+                    icon: Icons.people_outline,
+                    title: 'Customers',
+                    brandColor: brandColor,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const CustomerScreen()),
+                      );
+                    },
+                  ),
+                if (priv.hasPrivilege('FOLLOWUP_READ'))
+                  _buildMenuItem(
+                    icon: Icons.phone_in_talk_outlined,
+                    title: 'Follow-ups',
+                    brandColor: brandColor,
+                    onTap: () => _changeTab(context, 'Follow ups'),
+                  ),
+                if (priv.hasPrivilege('USER_READ'))
+                  _buildMenuItem(
+                    icon: Icons.business_center_outlined,
+                    title: 'Staff',
+                    brandColor: brandColor,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const StaffListScreen()),
+                      );
+                    },
+                  ),
                 _buildMenuItem(
                   icon: Icons.check_box_outlined,
                   title: 'Tasks',
                   brandColor: brandColor,
                   onTap: () => _showComingSoon('Tasks'),
                 ),
-                _buildMenuItem(
-                  icon: Icons.calendar_today_outlined,
-                  title: 'Calendar',
-                  brandColor: brandColor,
-                  onTap: () => _changeTab(context, 3),
-                ),
-                _buildMenuItem(
-                  icon: Icons.bar_chart_outlined,
-                  title: 'Reports',
-                  brandColor: brandColor,
-                  onTap: () => _showComingSoon('Reports'),
-                ),
+                if (priv.hasPrivilege('CALENDAR_READ'))
+                  _buildMenuItem(
+                    icon: Icons.calendar_today_outlined,
+                    title: 'Calendar',
+                    brandColor: brandColor,
+                    onTap: () => _changeTab(context, 'Calendar'),
+                  ),
+                if (priv.hasPrivilege('REPORT_READ'))
+                  _buildMenuItem(
+                    icon: Icons.bar_chart_outlined,
+                    title: 'Reports',
+                    brandColor: brandColor,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => BlocProvider<LeadsBloc>(
+                            create: (_) => sl<LeadsBloc>()
+                              ..add(FetchLeadStatuses())
+                              ..add(FetchLeadSources())
+                              ..add(const FetchStaffUsers()),
+                            child: const ReportsScreen(),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
                 
                 const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                   child: Divider(color: Color(0xFFF3F4F6), thickness: 1, height: 1),
                 ),
 
-                _buildMenuItem(
-                  icon: Icons.settings_outlined,
-                  title: 'Settings',
-                  brandColor: brandColor,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => const SettingsScreen()),
-                    );
-                  },
-                ),
+                if (priv.hasPrivilege('SETTINGS_READ'))
+                  _buildMenuItem(
+                    icon: Icons.settings_outlined,
+                    title: 'Settings',
+                    brandColor: brandColor,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const SettingsMenuScreen()),
+                      );
+                    },
+                  ),
                 _buildMenuItem(
                   icon: Icons.person_outline,
                   title: 'Profile',

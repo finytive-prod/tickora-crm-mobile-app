@@ -34,13 +34,29 @@ class StaffBloc extends Bloc<StaffEvent, StaffState> {
     StaffStats? stats;
     final results = await Future.wait([
       getStaffStatsUseCase(),
-      getStaffMembersUseCase(page: event.page, size: event.size, status: event.status),
+      getStaffMembersUseCase(page: event.page, size: event.size, status: event.status, searchQuery: event.searchQuery),
+      getStaffMembersUseCase(page: 0, size: 1000, status: 'ACTIVE'),
+      getStaffMembersUseCase(page: 0, size: 1000, status: 'INACTIVE'),
     ]);
 
     final statsResult = results[0] as Either<Failure, StaffStats>;
     final membersResult = results[1] as Either<Failure, List<StaffMember>>;
+    final allActiveResult = results[2] as Either<Failure, List<StaffMember>>;
+    final allInactiveResult = results[3] as Either<Failure, List<StaffMember>>;
 
     statsResult.fold((_) => null, (s) => stats = s);
+    
+    if (stats == null) {
+      int activeCount = 0;
+      int inactiveCount = 0;
+      allActiveResult.fold((_) {}, (list) => activeCount = list.length);
+      allInactiveResult.fold((_) {}, (list) => inactiveCount = list.length);
+      stats = StaffStats(
+        activeMembers: activeCount,
+        inactiveMembers: inactiveCount,
+        totalMembers: activeCount + inactiveCount,
+      );
+    }
 
     membersResult.fold(
       (failure) => emit(StaffError(failure.message)),
@@ -50,6 +66,7 @@ class StaffBloc extends Bloc<StaffEvent, StaffState> {
         currentPage: event.page,
         hasMore: staffMembers.length >= event.size,
         currentStatus: event.status,
+        searchQuery: event.searchQuery,
       )),
     );
   }
@@ -58,7 +75,7 @@ class StaffBloc extends Bloc<StaffEvent, StaffState> {
     final currentState = state;
     if (currentState is StaffLoaded) {
       emit(currentState.copyWith(isLoadingMore: true));
-      final result = await getStaffMembersUseCase(page: event.page, size: event.size, status: event.status);
+      final result = await getStaffMembersUseCase(page: event.page, size: event.size, status: event.status, searchQuery: event.searchQuery);
       result.fold(
         (failure) => emit(currentState.copyWith(isLoadingMore: false)),
         (newStaff) => emit(StaffLoaded(
@@ -68,6 +85,7 @@ class StaffBloc extends Bloc<StaffEvent, StaffState> {
           hasMore: newStaff.length >= event.size,
           isLoadingMore: false,
           currentStatus: event.status,
+          searchQuery: event.searchQuery,
         )),
       );
     }

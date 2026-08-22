@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_phone_direct_caller/flutter_phone_direct_caller.dart';
+import 'package:crm_mobile/core/services/auto_call_recording_uploader.dart';
 import 'package:crm_mobile/core/theme/app_colors.dart';
 
 class LeadCard extends StatelessWidget {
+  final String? leadId;
   final String initials;
   final Color avatarColor;
   final Color avatarTextColor;
@@ -19,6 +21,7 @@ class LeadCard extends StatelessWidget {
 
   const LeadCard({
     super.key,
+    this.leadId,
     required this.initials,
     required this.avatarColor,
     required this.avatarTextColor,
@@ -70,6 +73,14 @@ class LeadCard extends StatelessWidget {
                       company,
                       style: const TextStyle(color: AppColors.textHint, fontSize: 13),
                     ),
+                    if (phone.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          phone,
+                          style: const TextStyle(color: AppColors.textHint, fontSize: 13, fontWeight: FontWeight.w500),
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -97,18 +108,27 @@ class LeadCard extends StatelessWidget {
                       padding: const EdgeInsets.only(top: 18.0),
                       child: InkWell(
                         onTap: () async {
-                          await FlutterPhoneDirectCaller.callNumber(phone);
+                          if (leadId != null && leadId!.isNotEmpty) {
+                            AutoCallRecordingUploader.makeCallAndAutoUpload(
+                              context: context,
+                              leadId: leadId!,
+                              phoneNumber: phone,
+                              leadName: name,
+                            );
+                          } else {
+                            await FlutterPhoneDirectCaller.callNumber(phone);
+                          }
                         },
                         borderRadius: BorderRadius.circular(20),
                         child: Container(
-                          padding: const EdgeInsets.all(6),
+                          padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
                             color: AppColors.primary.withOpacity(0.1),
                             shape: BoxShape.circle,
                           ),
                           child: const Icon(
                             Icons.phone,
-                            size: 16,
+                            size: 24,
                             color: AppColors.primary,
                           ),
                         ),

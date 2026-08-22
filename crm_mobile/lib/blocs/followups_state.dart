@@ -63,3 +63,17 @@ class UpdateFollowUpError extends FollowUpsState {
   @override
   List<Object?> get props => [message];
 }
+
+class AddFollowUpLoading extends FollowUpsState {}
+
+class AddFollowUpSuccess extends FollowUpsState {}
+
+class AddFollowUpError extends FollowUpsState {
+  final String message;
+
+  const AddFollowUpError(this.message);
+
+  @override
+  List<Object?> get props => [message];
+}
+

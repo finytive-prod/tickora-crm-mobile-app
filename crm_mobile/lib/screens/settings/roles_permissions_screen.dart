@@ -8,6 +8,7 @@ import 'package:crm_mobile/blocs/settings_event.dart';
 import 'package:crm_mobile/blocs/settings_state.dart';
 import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/widgets/spinning_logo.dart';
+import 'package:crm_mobile/core/utils/form_validator_utils.dart';
 
 class RolesPermissionsScreen extends StatelessWidget {
   const RolesPermissionsScreen({super.key});
@@ -506,7 +507,7 @@ class _CreateRoleRightPanelState extends State<CreateRoleRightPanel> {
   }
 
   void _submitCreateRole() {
-    if (!_formKey.currentState!.validate()) return;
+    if (!validateAndScrollToError(_formKey)) return;
 
     final permissionsList = widget.modules.map((m) {
       final perms = _createPermissionsMap[m.module] ?? {'create': true, 'read': true, 'update': true, 'delete': true};

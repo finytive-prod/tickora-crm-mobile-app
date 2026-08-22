@@ -7,6 +7,7 @@ import 'package:crm_mobile/blocs/leads_state.dart';
 import 'package:crm_mobile/widgets/custom_text_field.dart';
 import 'package:crm_mobile/widgets/custom_dropdown_field.dart';
 import 'package:crm_mobile/core/utils/validators.dart';
+import 'package:crm_mobile/core/utils/form_validator_utils.dart';
 
 class QuickInviteScreen extends StatefulWidget {
   const QuickInviteScreen({super.key});
@@ -50,7 +51,7 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
   }
 
   void _onCreate() {
-    if (_formKey.currentState!.validate()) {
+    if (validateAndScrollToError(_formKey)) {
       final Map<String, dynamic> leadData = {
         'firstName': _firstNameController.text,
         'lastName': _lastNameController.text,

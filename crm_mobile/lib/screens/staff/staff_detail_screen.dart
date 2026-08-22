@@ -267,7 +267,11 @@ class _StaffDetailViewState extends State<_StaffDetailView> {
               ),
               const SizedBox(height: 16),
 
+              const SizedBox(height: 24),
+
+              // Activate/Deactivate Button
               
+              const SizedBox(height: 24),
             ],
           ),
         ),

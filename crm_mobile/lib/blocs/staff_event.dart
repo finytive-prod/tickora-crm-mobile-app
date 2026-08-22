@@ -11,22 +11,24 @@ class FetchStaffMembers extends StaffEvent {
   final int page;
   final int size;
   final String status;
+  final String? searchQuery;
 
-  const FetchStaffMembers({this.page = 0, this.size = 20, this.status = 'ACTIVE'});
+  const FetchStaffMembers({this.page = 0, this.size = 20, this.status = 'ACTIVE', this.searchQuery});
 
   @override
-  List<Object?> get props => [page, size, status];
+  List<Object?> get props => [page, size, status, searchQuery];
 }
 
 class LoadMoreStaffMembers extends StaffEvent {
   final int page;
   final int size;
   final String status;
+  final String? searchQuery;
 
-  const LoadMoreStaffMembers({required this.page, this.size = 20, required this.status});
+  const LoadMoreStaffMembers({required this.page, this.size = 20, required this.status, this.searchQuery});
 
   @override
-  List<Object?> get props => [page, size, status];
+  List<Object?> get props => [page, size, status, searchQuery];
 }
 
 class UpdateStaffMemberEvent extends StaffEvent {

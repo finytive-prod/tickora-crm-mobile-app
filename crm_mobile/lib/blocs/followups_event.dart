@@ -36,3 +36,14 @@ class UpdateFollowUp extends FollowUpsEvent {
   @override
   List<Object?> get props => [followupId, updateData];
 }
+
+class AddFollowUpEvent extends FollowUpsEvent {
+  final String leadId;
+  final Map<String, dynamic> data;
+
+  const AddFollowUpEvent({required this.leadId, required this.data});
+
+  @override
+  List<Object?> get props => [leadId, data];
+}
+

@@ -355,16 +355,7 @@ class _EditFollowUpViewState extends State<EditFollowUpView> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // 1. Lead Task / Objective
-                CustomTextField(
-                  label: 'Lead Task / Objective',
-                  isRequired: true,
-                  controller: _leadTaskController,
-                  validator: (val) {
-                    if (val == null || val.trim().isEmpty) return 'Required';
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
+                
 
                 // 2. Lead Status Dropdown
                 CustomDropdownField<String>(

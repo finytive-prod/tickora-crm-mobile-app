@@ -8,6 +8,7 @@ import 'package:crm_mobile/blocs/settings_state.dart';
 import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/widgets/spinning_logo.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
+import 'package:crm_mobile/core/utils/form_validator_utils.dart';
 
 class LeadStatusesScreen extends StatelessWidget {
   const LeadStatusesScreen({super.key});
@@ -61,7 +62,7 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
   }
 
   void _createStatus(BuildContext context) {
-    if (!_formKey.currentState!.validate()) return;
+    if (!validateAndScrollToError(_formKey)) return;
 
     final newStatusName = _nameController.text.trim();
     final nextOrder = int.tryParse(_orderController.text) ?? (_statuses.length + 1);

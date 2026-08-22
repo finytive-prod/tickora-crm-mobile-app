@@ -20,6 +20,7 @@ class StaffLoaded extends StaffState {
   final bool hasMore;
   final bool isLoadingMore;
   final String currentStatus;
+  final String? searchQuery;
 
   const StaffLoaded({
     required this.staffMembers,
@@ -28,6 +29,7 @@ class StaffLoaded extends StaffState {
     this.hasMore = true,
     this.isLoadingMore = false,
     this.currentStatus = 'ACTIVE',
+    this.searchQuery,
   });
 
   StaffLoaded copyWith({
@@ -37,6 +39,7 @@ class StaffLoaded extends StaffState {
     bool? hasMore,
     bool? isLoadingMore,
     String? currentStatus,
+    String? searchQuery,
   }) {
     return StaffLoaded(
       staffMembers: staffMembers ?? this.staffMembers,
@@ -45,11 +48,12 @@ class StaffLoaded extends StaffState {
       hasMore: hasMore ?? this.hasMore,
       isLoadingMore: isLoadingMore ?? this.isLoadingMore,
       currentStatus: currentStatus ?? this.currentStatus,
+      searchQuery: searchQuery ?? this.searchQuery,
     );
   }
 
   @override
-  List<Object?> get props => [staffMembers, stats, currentPage, hasMore, isLoadingMore, currentStatus];
+  List<Object?> get props => [staffMembers, stats, currentPage, hasMore, isLoadingMore, currentStatus, searchQuery];
 }
 
 class StaffError extends StaffState {

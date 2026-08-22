@@ -1,0 +1,47 @@
+import 'package:equatable/equatable.dart';
+
+abstract class CustomerEvent extends Equatable {
+  const CustomerEvent();
+
+  @override
+  List<Object?> get props => [];
+}
+
+class FetchCustomers extends CustomerEvent {
+  final String? searchQuery;
+
+  const FetchCustomers({this.searchQuery});
+
+  @override
+  List<Object?> get props => [searchQuery];
+}
+
+class FetchCustomerTypes extends CustomerEvent {}
+
+class CreateCustomerEvent extends CustomerEvent {
+  final Map<String, dynamic> data;
+
+  const CreateCustomerEvent(this.data);
+
+  @override
+  List<Object?> get props => [data];
+}
+
+class UpdateCustomerEvent extends CustomerEvent {
+  final String id;
+  final Map<String, dynamic> data;
+
+  const UpdateCustomerEvent(this.id, this.data);
+
+  @override
+  List<Object?> get props => [id, data];
+}
+
+class DeleteCustomerEvent extends CustomerEvent {
+  final String id;
+
+  const DeleteCustomerEvent(this.id);
+
+  @override
+  List<Object?> get props => [id];
+}

@@ -7,7 +7,9 @@ import 'package:crm_mobile/blocs/followups_bloc.dart';
 import 'package:crm_mobile/blocs/followups_event.dart';
 import 'package:crm_mobile/blocs/followups_state.dart';
 import 'package:crm_mobile/models/follow_up.dart';
+import 'package:crm_mobile/core/services/privilege_service.dart';
 import 'lead_followup_details_screen.dart';
+import 'add_followup_screen.dart';
 
 class FollowUpsScreen extends StatelessWidget {
   const FollowUpsScreen({super.key});
@@ -29,9 +31,8 @@ class FollowUpsScreenView extends StatefulWidget {
 }
 
 class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
-  String _selectedTab = 'All'; // Default active tab in UI
-  
-  // Keep track of the last known counts for all tabs so they don't disappear while loading
+  String _selectedTab = 'All';
+
   int _allCount = 0;
   int _todayCount = 0;
   int _upcomingCount = 0;
@@ -124,7 +125,7 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
                 padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
                 child: Row(
                   children: [
-                    _buildTabChip('All', _allCount),
+                    _buildTabChip('All', -1),
                     _buildTabChip('Today', _todayCount),
                     _buildTabChip('Upcoming', _upcomingCount),
                     _buildTabChip('Missed', _missedCount),
@@ -246,22 +247,24 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
                 fontSize: 14,
               ),
             ),
-            const SizedBox(width: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: isSelected ? activeBorderColor : const Color(0xFFE5E7EB),
-                shape: BoxShape.circle,
-              ),
-              child: Text(
-                '$count',
-                style: TextStyle(
-                  color: isSelected ? Colors.white : AppColors.textPrimary,
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
+            if (count >= 0) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: isSelected ? activeBorderColor : const Color(0xFFE5E7EB),
+                  shape: BoxShape.circle,
+                ),
+                child: Text(
+                  '$count',
+                  style: TextStyle(
+                    color: isSelected ? Colors.white : AppColors.textPrimary,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
-            ),
+            ],
           ],
         ),
       ),
@@ -270,6 +273,7 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
 
   Widget _buildFollowUpCard(FollowUp item) {
     final isMissed = _selectedTab == 'Missed';
+    final isNoFollowUp = item.followUpStatus.toUpperCase().contains('NO FOLLOW UP');
     
     // Priority badge styling
     Color priorityBgColor = const Color(0xFFF3F4F6);
@@ -319,130 +323,154 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
         child: Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                // Initials Avatar (Status themed)
-                CircleAvatar(
-                  radius: 20,
-                  backgroundColor: statusColor.withOpacity(0.15),
-                  child: Text(
-                    initials,
-                    style: TextStyle(color: statusColor, fontWeight: FontWeight.bold, fontSize: 13),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                
-                // Lead Name & Company Name
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        item.leadName,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.textPrimary),
-                      ),
-                      Text(
-                        item.companyName.isNotEmpty ? item.companyName : 'No Company',
-                        style: const TextStyle(color: AppColors.textHint, fontSize: 13),
-                      ),
-                    ],
-                  ),
-                ),
-                
-                // Priority Badge (instead of Call/Meeting/Email)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: priorityBgColor,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    item.priority,
-                    style: TextStyle(color: priorityTextColor, fontWeight: FontWeight.bold, fontSize: 12),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            
-            // Time / Assigned User row
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                // Time / Status (Show followUpTime if present, else show status name)
-                Row(
-                  children: [
-                    Icon(
-                      isMissed ? Icons.error_outline : Icons.access_time,
-                      size: 16,
-                      color: isMissed ? Colors.red : AppColors.textHint,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  // Initials Avatar (Status themed)
+                  CircleAvatar(
+                    radius: 20,
+                    backgroundColor: statusColor.withOpacity(0.15),
+                    child: Text(
+                      initials,
+                      style: TextStyle(color: statusColor, fontWeight: FontWeight.bold, fontSize: 13),
                     ),
-                    const SizedBox(width: 6),
-                    Text(
-                      isMissed 
-                          ? 'Overdue follow-up'
-                          : (item.followUpTime.isNotEmpty ? item.followUpTime : (item.leadStatus?.statusName ?? 'No Date')),
-                      style: TextStyle(
-                        color: isMissed ? Colors.red : AppColors.textPrimary,
-                        fontSize: 14,
-                        fontWeight: isMissed ? FontWeight.bold : FontWeight.normal,
-                      ),
+                  ),
+                  const SizedBox(width: 12),
+                  
+                  // Lead Name & Company Name
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.leadName,
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.textPrimary),
+                        ),
+                        Text(
+                          item.companyName.isNotEmpty ? item.companyName : 'No Company',
+                          style: const TextStyle(color: AppColors.textHint, fontSize: 13),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-                
-                // Assigned User Name badge (instead of Hours/Due status)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
-                    borderRadius: BorderRadius.circular(6),
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.person_outline, size: 12, color: Colors.blue.shade700),
-                      const SizedBox(width: 4),
-                      Text(
-                        item.assignedUser?.name ?? 'Unassigned',
-                        style: TextStyle(color: Colors.blue.shade700, fontSize: 11, fontWeight: FontWeight.bold),
-                      ),
-                    ],
+                  
+                  // Priority Badge
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: priorityBgColor,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      item.priority,
+                      style: TextStyle(color: priorityTextColor, fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
                   ),
-                ),
-              ],
-            ),
-            
-            // Reschedule button if missed
-            if (isMissed) ...[
-              const SizedBox(height: 12),
-              const Divider(height: 1, color: AppColors.borderEnabled),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    // Rescheduling flow placeholder
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Rescheduling is handled in lead details.')),
-                    );
-                  },
-                  icon: const Icon(Icons.calendar_today, size: 16, color: AppColors.textPrimary),
-                  label: const Text('Reschedule', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: AppColors.borderEnabled),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                ),
+                ],
               ),
+              const SizedBox(height: 12),
+              
+              // Time / Assigned User row
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        isMissed ? Icons.error_outline : Icons.access_time,
+                        size: 16,
+                        color: isMissed ? Colors.red : AppColors.textHint,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        isMissed 
+                            ? 'Overdue follow-up'
+                            : (item.followUpTime.isNotEmpty ? item.followUpTime : (item.leadStatus?.statusName ?? 'No Date')),
+                        style: TextStyle(
+                          color: isMissed ? Colors.red : AppColors.textPrimary,
+                          fontSize: 14,
+                          fontWeight: isMissed ? FontWeight.bold : FontWeight.normal,
+                        ),
+                      ),
+                    ],
+                  ),
+                  
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade50,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.person_outline, size: 12, color: Colors.blue.shade700),
+                        const SizedBox(width: 4),
+                        Text(
+                          item.assignedUser?.name ?? 'Unassigned',
+                          style: TextStyle(color: Colors.blue.shade700, fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+
+              // Add Follow Up button if NO FOLLOW UP
+              if (isNoFollowUp) ...[
+                const SizedBox(height: 12),
+                const Divider(height: 1, color: AppColors.borderEnabled),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () async {
+                      final result = await AddFollowUpScreen.openFromRight(context, leadId: item.leadId);
+                      if (result == true && mounted) {
+                        context.read<FollowUpsBloc>().add(
+                          FetchFollowUps(category: _getApiCategory(_selectedTab)),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.add, size: 16, color: Colors.white),
+                    label: const Text('Add Follow Up', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                  ),
+                ),
+              ],
+              
+              // Reschedule button if missed
+              if (isMissed && sl<PrivilegeService>().hasPrivilege('FOLLOWUP_UPDATE')) ...[
+                const SizedBox(height: 12),
+                const Divider(height: 1, color: AppColors.borderEnabled),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Rescheduling is handled in lead details.')),
+                      );
+                    },
+                    icon: const Icon(Icons.calendar_today, size: 16, color: AppColors.textPrimary),
+                    label: const Text('Reschedule', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: AppColors.borderEnabled),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
-    ),
-   );
+    );
   }
 }

@@ -36,7 +36,7 @@ abstract class SettingsRepository {
   Future<Either<Failure, void>> createRole(Map<String, dynamic> roleData);
   Future<Either<Failure, void>> updateRole(String id, Map<String, dynamic> roleData);
 
-  Future<Either<Failure, List<StaffMember>>> getStaffMembers(int page, int size, String status);
+  Future<Either<Failure, List<StaffMember>>> getStaffMembers(int page, int size, String status, {String? searchQuery});
   Future<Either<Failure, StaffStats>> getStaffStats();
   Future<Either<Failure, void>> updateStaffMember(String id, Map<String, dynamic> data);
   Future<Either<Failure, void>> toggleStaffStatus(String id, bool isActive);
@@ -395,7 +395,7 @@ class SettingsRepositoryImpl implements SettingsRepository {
   }
 
   @override
-  Future<Either<Failure, List<StaffMember>>> getStaffMembers(int page, int size, String status) async {
+  Future<Either<Failure, List<StaffMember>>> getStaffMembers(int page, int size, String status, {String? searchQuery}) async {
     try {
       final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
       final identityBaseUrl = leadsBaseUrl.replaceAll('lead-service', 'identity-service');
@@ -406,9 +406,13 @@ class SettingsRepositoryImpl implements SettingsRepository {
       if (status.toUpperCase() == 'INACTIVE') {
         queryParams['isActive'] = false;
         queryParams['status'] = 'INACTIVE';
-      } else {
+      } else if (status.toUpperCase() == 'ACTIVE') {
         queryParams['isActive'] = true;
         queryParams['status'] = 'ACTIVE';
+      }
+      
+      if (searchQuery != null && searchQuery.trim().isNotEmpty) {
+        queryParams['search'] = searchQuery.trim();
       }
 
       final response = await apiClient.get(

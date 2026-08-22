@@ -7,6 +7,7 @@ import 'package:crm_mobile/blocs/leads_state.dart';
 import '../../widgets/custom_text_field.dart';
 import '../../widgets/custom_dropdown_field.dart';
 import 'package:crm_mobile/core/utils/validators.dart';
+import 'package:crm_mobile/core/utils/form_validator_utils.dart';
 import 'package:file_picker/file_picker.dart' as fp;
 import 'package:crm_mobile/models/lead_detail.dart';
 
@@ -158,7 +159,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
   }
 
   void _nextPage() {
-    if (_currentPage == 0 && !_formKey.currentState!.validate()) {
+    if (_currentPage == 0 && !validateAndScrollToError(_formKey)) {
       return;
     }
 
@@ -193,7 +194,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
   }
 
   void _onSaveLead() {
-    if (_formKey.currentState!.validate()) {
+    if (validateAndScrollToError(_formKey)) {
       final leadData = {
         'firstName': _firstNameController.text,
         'lastName': _lastNameController.text,

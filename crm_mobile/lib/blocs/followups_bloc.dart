@@ -2,6 +2,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:crm_mobile/usecases/get_followups_usecase.dart';
 import 'package:crm_mobile/usecases/get_lead_followups_usecase.dart';
 import 'package:crm_mobile/usecases/update_followup_usecase.dart';
+import 'package:crm_mobile/usecases/add_followup_usecase.dart';
 import 'package:crm_mobile/blocs/followups_event.dart';
 import 'package:crm_mobile/blocs/followups_state.dart';
 
@@ -9,15 +10,18 @@ class FollowUpsBloc extends Bloc<FollowUpsEvent, FollowUpsState> {
   final GetFollowUpsUseCase getFollowUpsUseCase;
   final GetLeadFollowUpsUseCase getLeadFollowUpsUseCase;
   final UpdateFollowUpUseCase updateFollowUpUseCase;
+  final AddFollowUpUseCase? addFollowUpUseCase;
 
   FollowUpsBloc({
     required this.getFollowUpsUseCase,
     required this.getLeadFollowUpsUseCase,
     required this.updateFollowUpUseCase,
+    this.addFollowUpUseCase,
   }) : super(FollowUpsInitial()) {
     on<FetchFollowUps>(_onFetchFollowUps);
     on<FetchLeadFollowUps>(_onFetchLeadFollowUps);
     on<UpdateFollowUp>(_onUpdateFollowUp);
+    on<AddFollowUpEvent>(_onAddFollowUp);
   }
 
   Future<void> _onFetchFollowUps(FetchFollowUps event, Emitter<FollowUpsState> emit) async {
@@ -46,4 +50,15 @@ class FollowUpsBloc extends Bloc<FollowUpsEvent, FollowUpsState> {
       (_) => emit(UpdateFollowUpSuccess()),
     );
   }
+
+  Future<void> _onAddFollowUp(AddFollowUpEvent event, Emitter<FollowUpsState> emit) async {
+    if (addFollowUpUseCase == null) return;
+    emit(AddFollowUpLoading());
+    final result = await addFollowUpUseCase!(event.leadId, event.data);
+    result.fold(
+      (failure) => emit(AddFollowUpError(failure.message)),
+      (_) => emit(AddFollowUpSuccess()),
+    );
+  }
 }
+

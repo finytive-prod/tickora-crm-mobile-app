@@ -21,8 +21,7 @@ class CallRecordingService {
     }
   }
 
-  /// Finds the latest system recording for a call
-  /// Returns the absolute path to the copied recording file, or null if not found.
+
   Future<String?> findLatestSystemRecording({
     required int callTimestamp,
     String phoneNumber = "",
@@ -63,6 +62,24 @@ class CallRecordingService {
       });
     } on PlatformException catch (e) {
       print("Failed to play recording: '${e.message}'.");
+    }
+  }
+
+  Future<String?> saveToDownloads({
+    required String filePath,
+    required String fileName,
+    String? mimeType,
+  }) async {
+    try {
+      final String? savedPath = await _channel.invokeMethod('saveToDownloads', {
+        'filePath': filePath,
+        'fileName': fileName,
+        'mimeType': mimeType,
+      });
+      return savedPath;
+    } on PlatformException catch (e) {
+      print("Failed to save to downloads: '${e.message}'.");
+      return null;
     }
   }
 }
