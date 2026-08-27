@@ -93,12 +93,7 @@ class SettingsMenuScreen extends StatelessWidget {
                 _buildSectionTitle('TEAM MANAGEMENT'),
                 _buildSectionContainer(
                 children: [
-                  _buildMenuItem(
-                    context: context,
-                    icon: Icons.folder_outlined,
-                    title: 'Departments',
-                    onTap: () => _showComingSoon(context, 'Departments'),
-                  ),
+                 
                   _buildDivider(),
                   _buildMenuItem(
                     context: context,
@@ -114,50 +109,6 @@ class SettingsMenuScreen extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 24),
-              ],
-
-              if (sl<PrivilegeService>().hasPrivilege('SETTINGS_READ')) ...[
-                _buildSectionTitle('TEMPLATES'),
-                _buildSectionContainer(
-                children: [
-                  _buildMenuItem(
-                    context: context,
-                    icon: Icons.email_outlined,
-                    title: 'Email Templates',
-                    onTap: () => _showComingSoon(context, 'Email Templates'),
-                  ),
-                  _buildDivider(),
-                  _buildMenuItem(
-                    context: context,
-                    icon: Icons.chat_bubble_outline,
-                    title: 'SMS & Messaging',
-                    onTap: () => _showComingSoon(context, 'SMS & Messaging'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              ],
-
-              if (sl<PrivilegeService>().hasPrivilege('SETTINGS_READ')) ...[
-                _buildSectionTitle('AUTOMATION'),
-                _buildSectionContainer(
-                children: [
-                  _buildMenuItem(
-                    context: context,
-                    icon: Icons.bolt_outlined,
-                    title: 'Workflow Rules',
-                    onTap: () => _showComingSoon(context, 'Workflow Rules'),
-                  ),
-                  _buildDivider(),
-                  _buildMenuItem(
-                    context: context,
-                    icon: Icons.api_outlined,
-                    title: 'API Keys & Integrations',
-                    onTap: () => _showComingSoon(context, 'API Keys & Integrations'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 40),
               ],
             ],
           ),

@@ -39,7 +39,6 @@ class _AddEditCustomerViewState extends State<_AddEditCustomerView> {
   final TextEditingController _companyController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
-  final TextEditingController _designationController = TextEditingController();
   final TextEditingController _addressController = TextEditingController();
   final TextEditingController _notesController = TextEditingController();
   final TextEditingController _tagsController = TextEditingController();
@@ -55,7 +54,6 @@ class _AddEditCustomerViewState extends State<_AddEditCustomerView> {
       _companyController.text = widget.customer!.companyName;
       _emailController.text = widget.customer!.email;
       _phoneController.text = widget.customer!.phone;
-      _designationController.text = widget.customer!.designation;
       _addressController.text = widget.customer!.address;
       _notesController.text = widget.customer!.notes ?? '';
       _tagsController.text = widget.customer!.tags ?? '';
@@ -68,7 +66,6 @@ class _AddEditCustomerViewState extends State<_AddEditCustomerView> {
     _companyController.dispose();
     _emailController.dispose();
     _phoneController.dispose();
-    _designationController.dispose();
     _addressController.dispose();
     _notesController.dispose();
     _tagsController.dispose();
@@ -83,7 +80,6 @@ class _AddEditCustomerViewState extends State<_AddEditCustomerView> {
         "companyName": _companyController.text.trim(),
         "email": _emailController.text.trim(),
         "phone": _phoneController.text.trim(),
-        "designation": _designationController.text.trim(),
         "address": _addressController.text.trim(),
         "notes": _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
         "tags": _tagsController.text.trim().isEmpty ? null : _tagsController.text.trim(),
@@ -240,7 +236,6 @@ class _AddEditCustomerViewState extends State<_AddEditCustomerView> {
                   _buildTextField('Company Name', _companyController),
                   _buildTextField('Email', _emailController, required: true),
                   _buildTextField('Phone', _phoneController, required: true),
-                  _buildTextField('Designation', _designationController),
                   _buildTextField('Address', _addressController, maxLines: 2),
                   _buildTextField('Notes', _notesController, maxLines: 3),
                   _buildTextField('Tags', _tagsController),

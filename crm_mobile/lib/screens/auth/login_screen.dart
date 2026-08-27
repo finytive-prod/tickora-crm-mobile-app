@@ -6,6 +6,7 @@ import 'package:crm_mobile/blocs/login_bloc.dart';
 import 'package:crm_mobile/blocs/login_event.dart';
 import 'package:crm_mobile/blocs/login_state.dart';
 import 'package:crm_mobile/injection/injection.dart';
+import 'package:crm_mobile/screens/auth/forgot_password_screen.dart';
 
 class LoginScreen extends StatelessWidget {
   const LoginScreen({super.key});
@@ -74,7 +75,7 @@ class _LoginScreenViewState extends State<LoginScreenView> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Image.asset(
-                        'assets/images/app_logo.png',
+                        'assets/images/logo.webp',
                         width: 40,
                         height: 40,
                       ),
@@ -202,54 +203,61 @@ class _LoginScreenViewState extends State<LoginScreenView> {
                   ),
                   const SizedBox(height: 24),
                   // Remember Me & Forgot Password
-                  // Row(
-                  //   mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  //   children: [
-                  //     Row(
-                  //       children: [
-                  //         SizedBox(
-                  //           width: 24,
-                  //           height: 24,
-                  //           child: Checkbox(
-                  //             value: _rememberMe,
-                  //             onChanged: (value) {
-                  //               setState(() {
-                  //                 _rememberMe = value ?? false;
-                  //               });
-                  //             },
-                  //             activeColor: primaryColor,
-                  //             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                  //             side: const BorderSide(color: AppColors.border),
-                  //           ),
-                  //         ),
-                  //         const SizedBox(width: 8),
-                  //         const Text(
-                  //           'Remember me',
-                  //           style: TextStyle(
-                  //             fontSize: 14,
-                  //             color: AppColors.rememberMeText,
-                  //           ),
-                  //         ),
-                  //       ],
-                  //     ),
-                  //     TextButton(
-                  //       onPressed: () {},
-                  //       style: TextButton.styleFrom(
-                  //         padding: EdgeInsets.zero,
-                  //         minimumSize: Size.zero,
-                  //         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  //       ),
-                  //       child: Text(
-                  //         'Forgot Password?',
-                  //         style: TextStyle(
-                  //           fontSize: 14,
-                  //           fontWeight: FontWeight.w600,
-                  //           color: primaryColor,
-                  //         ),
-                  //       ),
-                  //     ),
-                  //   ],
-                  // ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: Checkbox(
+                              value: _rememberMe,
+                              onChanged: (value) {
+                                setState(() {
+                                  _rememberMe = value ?? false;
+                                });
+                              },
+                              activeColor: primaryColor,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                              side: const BorderSide(color: AppColors.border),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'Remember me',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: AppColors.rememberMeText,
+                            ),
+                          ),
+                        ],
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const ForgotPasswordScreen(),
+                            ),
+                          );
+                        },
+                        style: TextButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        child: Text(
+                          'Forgot Password?',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: primaryColor,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 32),
                   // Sign In Button
                   SizedBox(

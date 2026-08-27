@@ -13,8 +13,10 @@ import 'package:crm_mobile/models/role_entity.dart';
 import 'package:crm_mobile/models/staff_member.dart';
 import 'package:crm_mobile/models/staff_stats.dart';
 
+import 'package:crm_mobile/models/lead_form_layout.dart';
+
 abstract class SettingsRepository {
-  Future<Either<Failure, List<CustomField>>> getCustomFieldsForm();
+  Future<Either<Failure, LeadFormLayout>> getCustomFieldsForm();
   Future<Either<Failure, List<CustomField>>> getCustomFields();
   Future<Either<Failure, void>> createCustomFields(List<Map<String, dynamic>> fields);
   Future<Either<Failure, void>> updateCustomFields(List<Map<String, dynamic>> fields);
@@ -48,21 +50,17 @@ class SettingsRepositoryImpl implements SettingsRepository {
   SettingsRepositoryImpl({required this.apiClient});
 
   @override
-  Future<Either<Failure, List<CustomField>>> getCustomFieldsForm() async {
+  Future<Either<Failure, LeadFormLayout>> getCustomFieldsForm() async {
     try {
       final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
-      final response = await apiClient.get('$leadsBaseUrl/lead-settings/custom-fields');
+      final response = await apiClient.get('$leadsBaseUrl/lead-settings/custom-fields/form');
       
       final body = response.data;
       if (body != null && body['success'] == true && body['data'] != null) {
-        final List<dynamic> content = body['data'];
-        final fields = content
-            .map((json) => CustomFieldModel.fromJson(json))
-            .where((f) => f.active)
-            .toList();
-        return Right(fields);
+        final layout = LeadFormLayout.fromJson(body['data']);
+        return Right(layout);
       } else {
-        throw ApiException(message: body['message'] ?? 'Failed to load custom fields form');
+        throw ApiException(message: body?['message'] ?? 'Failed to load lead form layout');
       }
     } on Exception catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));

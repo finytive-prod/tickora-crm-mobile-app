@@ -3,6 +3,7 @@ import 'package:crm_mobile/usecases/login_usecase.dart';
 import 'package:crm_mobile/blocs/login_event.dart';
 import 'package:crm_mobile/blocs/login_state.dart';
 import 'package:crm_mobile/core/services/privilege_service.dart';
+import 'package:crm_mobile/core/services/fcm_service.dart';
 import 'package:crm_mobile/injection/injection.dart';
 
 class LoginBloc extends Bloc<LoginEvent, LoginState> {
@@ -24,8 +25,11 @@ class LoginBloc extends Bloc<LoginEvent, LoginState> {
       (failure) async => emit(LoginFailure(failure.message)),
       (user) async {
         await sl<PrivilegeService>().fetchPrivileges();
+        // Initialize FCM and register device token for the logged-in user
+        await FcmService.instance.initialize();
         emit(LoginSuccess(user));
       },
     );
   }
 }
+

@@ -57,7 +57,7 @@ class _SpinningLogoState extends State<SpinningLogo> with SingleTickerProviderSt
         mainAxisSize: MainAxisSize.min,
         children: [
           Image.asset(
-            'assets/images/app_logo.png',
+            'assets/images/logo.webp',
             width: widget.size,
             height: widget.size,
             errorBuilder: (context, error, stackTrace) {

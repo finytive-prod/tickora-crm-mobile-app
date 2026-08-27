@@ -30,8 +30,8 @@ class Attachment extends Equatable {
       }
     } catch (_) {}
 
-    final baseUrl = dotenv.env['BASE_URL'] ?? 'http://50.117.0.165:8080/api/crm/lead-service';
-    final domain = baseUrl.contains('/api') ? baseUrl.split('/api').first : 'http://50.117.0.165:8080';
+    final baseUrl = dotenv.env['BASE_URL'] ?? '';
+    final domain = baseUrl.contains('/api') ? baseUrl.split('/api').first : baseUrl;
 
     String url = filePath;
 

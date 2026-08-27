@@ -71,7 +71,7 @@ class _DashboardViewState extends State<DashboardView> {
         title: Row(
           children: [
             Image.asset(
-              'assets/images/app_logo.png',
+              'assets/images/logo.webp',
               width: 28,
               height: 28,
               errorBuilder: (_, __, ___) => const Icon(Icons.dashboard_customize_outlined, color: AppColors.primary),
@@ -200,7 +200,7 @@ class _DashboardViewState extends State<DashboardView> {
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: Row(
-                              children: ['weekly', 'monthly', 'yearly'].map((period) {
+                              children: ['weekly', 'monthly'].map((period) {
                                 final isSelected = _trendPeriod.toLowerCase() == period.toLowerCase();
                                 return Expanded(
                                   child: GestureDetector(

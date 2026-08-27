@@ -42,14 +42,14 @@ class AppValidators {
       return 'Email cannot contain emojis';
     }
     
-    // Validates standard email addresses ending with specific domains
+    // Validates standard email addresses
     final emailRegExp = RegExp(
-      r'^[a-zA-Z0-9._%+-]+@(gmail\.com|yahoo\.com|outlook\.com|hotmail\.com)$',
+      r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
       caseSensitive: false,
     );
 
     if (!emailRegExp.hasMatch(value.trim())) {
-      return 'Email must end with @gmail.com, @yahoo.com, etc.';
+      return 'Please enter a valid email address';
     }
     return null;
   }

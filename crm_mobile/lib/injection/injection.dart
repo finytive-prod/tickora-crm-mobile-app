@@ -7,6 +7,7 @@ import 'package:crm_mobile/core/network/interceptors/auth_interceptor.dart';
 import 'package:crm_mobile/core/network/interceptors/error_interceptor.dart';
 import 'package:crm_mobile/core/network/interceptors/logger_interceptor.dart';
 import 'package:crm_mobile/core/services/privilege_service.dart';
+import 'package:crm_mobile/core/services/fcm_service.dart';
 
 // BLoC Imports
 import 'package:crm_mobile/blocs/login_bloc.dart';
@@ -103,6 +104,7 @@ Future<void> init() async {
 
   // Core App Services
   sl.registerLazySingleton(() => PrivilegeService(apiClient: sl(), logger: sl()));
+  sl.registerLazySingleton(() => FcmService.instance);
 
   // Auth BLoC, Usecases & Repositories
   sl.registerFactory(() => LoginBloc(loginUseCase: sl()));

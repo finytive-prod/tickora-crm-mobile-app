@@ -44,37 +44,45 @@ class ErrorHandler {
 
   static ApiException _handleStatusCode(int? statusCode, dynamic data) {
     String defaultMessage = 'Something went wrong';
-    if (data is Map<String, dynamic> && data['message'] != null) {
-      defaultMessage = data['message'];
-    } else if (data is Map<String, dynamic> && data['error'] != null) {
-      defaultMessage = data['error'].toString();
+    if (data is Map<String, dynamic>) {
+      if (data['message'] != null && data['message'].toString().trim().isNotEmpty) {
+        defaultMessage = data['message'].toString().trim();
+      } else if (data['error'] != null && data['error'].toString().trim().isNotEmpty) {
+        defaultMessage = data['error'].toString().trim();
+      } else if (data['detail'] != null && data['detail'].toString().trim().isNotEmpty) {
+        defaultMessage = data['detail'].toString().trim();
+      }
+    } else if (data is String && data.trim().isNotEmpty) {
+      defaultMessage = data.trim();
     }
+
+    final hasServerMessage = !defaultMessage.startsWith('Something went wrong');
 
     switch (statusCode) {
       case 400:
-        return ApiException(message: 'Bad Request: $defaultMessage', statusCode: 400);
+        return ApiException(message: defaultMessage, statusCode: 400);
       case 401:
-        return ApiException(message: 'Unauthorized access', statusCode: 401);
+        return ApiException(message: hasServerMessage ? defaultMessage : 'Unauthorized access', statusCode: 401);
       case 403:
-        return ApiException(message: 'Forbidden request', statusCode: 403);
+        return ApiException(message: hasServerMessage ? defaultMessage : 'Forbidden request', statusCode: 403);
       case 404:
-        return ApiException(message: 'Resource not found', statusCode: 404);
+        return ApiException(message: hasServerMessage ? defaultMessage : 'Resource not found', statusCode: 404);
       case 409:
-        return ApiException(message: 'Conflict occurred', statusCode: 409);
+        return ApiException(message: defaultMessage, statusCode: 409);
       case 422:
-        return ApiException(message: 'Unprocessable Entity: $defaultMessage', statusCode: 422);
+        return ApiException(message: defaultMessage, statusCode: 422);
       case 429:
-        return ApiException(message: 'Too many requests', statusCode: 429);
+        return ApiException(message: hasServerMessage ? defaultMessage : 'Too many requests', statusCode: 429);
       case 500:
-        return ApiException(message: 'Internal server error', statusCode: 500);
+        return ApiException(message: hasServerMessage ? defaultMessage : 'Internal server error', statusCode: 500);
       case 502:
-        return ApiException(message: 'Bad gateway', statusCode: 502);
+        return ApiException(message: hasServerMessage ? defaultMessage : 'Bad gateway', statusCode: 502);
       case 503:
-        return ApiException(message: 'Service unavailable', statusCode: 503);
+        return ApiException(message: hasServerMessage ? defaultMessage : 'Service unavailable', statusCode: 503);
       case 504:
-        return ApiException(message: 'Gateway timeout', statusCode: 504);
+        return ApiException(message: hasServerMessage ? defaultMessage : 'Gateway timeout', statusCode: 504);
       default:
-        return ApiException(message: 'Received invalid status code: $statusCode', statusCode: statusCode);
+        return ApiException(message: defaultMessage, statusCode: statusCode);
     }
   }
 
