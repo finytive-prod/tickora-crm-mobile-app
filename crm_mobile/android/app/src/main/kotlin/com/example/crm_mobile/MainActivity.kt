@@ -1,4 +1,4 @@
-package com.example.crm_mobile
+package com.tickora.crm
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -11,14 +11,36 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.Settings
+
 class MainActivity: FlutterActivity() {
     private val CHANNEL = "com.example.crm_mobile/call_recording"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_CALL_LOG, Manifest.permission.READ_PHONE_STATE), 200)
+        val permissionsToRequest = mutableListOf(
+            Manifest.permission.READ_CALL_LOG,
+            Manifest.permission.READ_PHONE_STATE,
+            Manifest.permission.RECORD_AUDIO,
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        )
+        if (Build.VERSION.SDK_INT >= 33) {
+            permissionsToRequest.add("android.permission.READ_MEDIA_AUDIO")
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            permissionsToRequest.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        }
+
+        val missing = permissionsToRequest.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, missing.toTypedArray(), 200)
         }
         
         val callRecordingManager = CallRecordingManager(this)

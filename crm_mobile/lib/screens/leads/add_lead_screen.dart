@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/theme/app_colors.dart';
 import 'package:crm_mobile/blocs/leads_bloc.dart';
@@ -10,6 +11,7 @@ import 'package:crm_mobile/core/utils/validators.dart';
 import 'package:crm_mobile/core/utils/form_validator_utils.dart';
 import 'package:file_picker/file_picker.dart' as fp;
 import 'package:crm_mobile/models/lead_detail.dart';
+import 'package:crm_mobile/models/lead_form_layout.dart';
 
 class AddLeadScreen extends StatefulWidget {
   final LeadDetail? leadToEdit;
@@ -532,6 +534,224 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
       }
     }
 
+    Widget? buildFixedWidget(FixedField ff) {
+      final k = ff.fieldName.trim().toLowerCase();
+      final label = ff.fieldLabel.trim().isNotEmpty ? ff.fieldLabel.trim() : ff.fieldName;
+      final req = ff.isRequired;
+
+      if (k == 'firstname' || k == 'first_name') {
+        return CustomTextField(
+          label: label,
+          isRequired: req,
+          controller: _firstNameController,
+          inputFormatters: AppInputFormatters.nameFormatters,
+          validator: (val) => (req && (val == null || val.trim().isEmpty)) ? 'Required' : null,
+        );
+      } else if (k == 'lastname' || k == 'last_name') {
+        return CustomTextField(
+          label: label,
+          isRequired: req,
+          controller: _lastNameController,
+          inputFormatters: AppInputFormatters.nameFormatters,
+          validator: (val) => (req && (val == null || val.trim().isEmpty)) ? 'Required' : null,
+        );
+      } else if (k == 'companyname' || k == 'company_name' || k == 'company') {
+        return CustomTextField(
+          label: label,
+          isRequired: req,
+          controller: _companyController,
+          validator: (val) => (req && (val == null || val.trim().isEmpty)) ? 'Required' : null,
+        );
+      } else if (k == 'jobtitle' || k == 'job_title' || k == 'designation') {
+        return CustomTextField(
+          label: label,
+          isRequired: req,
+          controller: _jobTitleController,
+          validator: (val) => (req && (val == null || val.trim().isEmpty)) ? 'Required' : null,
+        );
+      } else if (k == 'email') {
+        return CustomTextField(
+          label: label,
+          isRequired: req,
+          keyboardType: TextInputType.emailAddress,
+          controller: _emailController,
+          validator: (val) => AppValidators.validateEmail(val, isRequired: req),
+        );
+      } else if (k == 'phone' || k == 'mobile') {
+        return CustomTextField(
+          label: label,
+          isRequired: req,
+          keyboardType: TextInputType.phone,
+          controller: _phoneController,
+          inputFormatters: AppInputFormatters.phoneFormatters,
+          validator: (val) => AppValidators.validateMobile(val, isRequired: req),
+        );
+      } else if (k == 'alternatephone' || k == 'alternate_phone' || k == 'alt_phone') {
+        return CustomTextField(
+          label: label,
+          isRequired: req,
+          keyboardType: TextInputType.phone,
+          controller: _altPhoneController,
+          inputFormatters: AppInputFormatters.phoneFormatters,
+          validator: (val) {
+            if (req || (val != null && val.isNotEmpty)) {
+              return AppValidators.validateMobile(val, isRequired: req);
+            }
+            return null;
+          },
+        );
+      } else if (k == 'sourceid' || k == 'source' || k == 'lead_source') {
+        return CustomDropdownField<String>(
+          label: label,
+          isRequired: req,
+          items: sourceItems,
+          value: _selectedSource,
+          onChanged: (val) => setState(() => _selectedSource = val),
+          validator: (val) => (req && (val == null || val.isEmpty)) ? 'Required' : null,
+        );
+      } else if (k == 'statusid' || k == 'status' || k == 'lead_status') {
+        return CustomDropdownField<String>(
+          label: label,
+          isRequired: req,
+          items: statusItems,
+          value: _selectedStatus,
+          onChanged: (val) => setState(() => _selectedStatus = val),
+          validator: (val) => (req && (val == null || val.isEmpty)) ? 'Required' : null,
+        );
+      } else if (k == 'score' || k == 'lead_score') {
+        return CustomTextField(
+          label: label,
+          isRequired: req,
+          keyboardType: TextInputType.number,
+          controller: _scoreController,
+          validator: (val) => (req && (val == null || val.trim().isEmpty)) ? 'Required' : null,
+        );
+      } else if (k == 'priority' || k == 'lead_priority') {
+        return CustomDropdownField<String>(
+          label: label,
+          isRequired: req,
+          items: priorityItems,
+          value: _selectedPriority,
+          onChanged: (val) => setState(() => _selectedPriority = val),
+        );
+      } else if (k == 'industry') {
+        return CustomTextField(
+          label: label,
+          isRequired: req,
+          controller: _industryController,
+          validator: (val) => (req && (val == null || val.trim().isEmpty)) ? 'Required' : null,
+        );
+      } else if (k == 'annualrevenue' || k == 'annual_revenue' || k == 'revenue') {
+        return CustomTextField(
+          label: label,
+          isRequired: req,
+          keyboardType: TextInputType.number,
+          controller: _revenueController,
+        );
+      } else if (k == 'employeesize' || k == 'employee_size' || k == 'no_of_employees') {
+        return CustomTextField(
+          label: label,
+          isRequired: req,
+          keyboardType: TextInputType.number,
+          controller: _employeeSizeController,
+        );
+      } else if (k == 'website' || k == 'url') {
+        return CustomTextField(
+          label: label,
+          isRequired: req,
+          keyboardType: TextInputType.url,
+          controller: _websiteController,
+        );
+      } else if (k == 'country') {
+        return CustomTextField(
+          label: label,
+          isRequired: req,
+          controller: _countryController,
+        );
+      } else if (k == 'state') {
+        return CustomTextField(
+          label: label,
+          isRequired: req,
+          controller: _stateController,
+        );
+      } else if (k == 'city') {
+        return CustomTextField(
+          label: label,
+          isRequired: req,
+          controller: _cityController,
+        );
+      } else if (k == 'postalcode' || k == 'postal_code' || k == 'zip' || k == 'pincode') {
+        return CustomTextField(
+          label: label,
+          isRequired: req,
+          controller: _postalController,
+        );
+      } else if (k == 'address') {
+        return CustomTextField(
+          label: label,
+          isRequired: req,
+          maxLines: 3,
+          controller: _addressController,
+        );
+      } else if (k == 'description' || k == 'notes') {
+        return CustomTextField(
+          label: label,
+          isRequired: req,
+          maxLines: 3,
+          controller: _descriptionController,
+        );
+      } else if (k == 'owneruserid' || k == 'owner' || k == 'assign_to' || k == 'owner_user_id') {
+        return CustomDropdownField<String>(
+          label: label,
+          isRequired: req,
+          items: ownerItems,
+          value: _selectedOwner,
+          onChanged: (val) => setState(() => _selectedOwner = val),
+        );
+      }
+      return null;
+    }
+
+    final List<FixedField> fieldsToShow = (state is LeadsLoaded && state.fixedFields.isNotEmpty)
+        ? state.fixedFields
+        : const [
+            FixedField(fieldName: 'firstName', fieldLabel: 'First Name', fieldType: 'TEXT', isRequired: true, displayOrder: 1),
+            FixedField(fieldName: 'lastName', fieldLabel: 'Last Name', fieldType: 'TEXT', isRequired: false, displayOrder: 2),
+            FixedField(fieldName: 'companyName', fieldLabel: 'Company Name', fieldType: 'TEXT', isRequired: false, displayOrder: 3),
+            FixedField(fieldName: 'email', fieldLabel: 'Email', fieldType: 'EMAIL', isRequired: true, displayOrder: 4),
+            FixedField(fieldName: 'phone', fieldLabel: 'Phone', fieldType: 'PHONE', isRequired: true, displayOrder: 5),
+            FixedField(fieldName: 'alternatePhone', fieldLabel: 'Alternate Phone', fieldType: 'PHONE', isRequired: false, displayOrder: 6),
+            FixedField(fieldName: 'sourceId', fieldLabel: 'Lead Source', fieldType: 'DROPDOWN', isRequired: true, displayOrder: 7),
+            FixedField(fieldName: 'statusId', fieldLabel: 'Lead Status', fieldType: 'DROPDOWN', isRequired: true, displayOrder: 8),
+            FixedField(fieldName: 'score', fieldLabel: 'Score', fieldType: 'NUMBER', isRequired: false, displayOrder: 9),
+            FixedField(fieldName: 'priority', fieldLabel: 'Priority', fieldType: 'DROPDOWN', isRequired: false, displayOrder: 10),
+            FixedField(fieldName: 'industry', fieldLabel: 'Industry', fieldType: 'TEXT', isRequired: false, displayOrder: 11),
+            FixedField(fieldName: 'website', fieldLabel: 'Website', fieldType: 'URL', isRequired: false, displayOrder: 12),
+            FixedField(fieldName: 'country', fieldLabel: 'Country', fieldType: 'TEXT', isRequired: false, displayOrder: 13),
+            FixedField(fieldName: 'state', fieldLabel: 'State', fieldType: 'TEXT', isRequired: false, displayOrder: 14),
+            FixedField(fieldName: 'city', fieldLabel: 'City', fieldType: 'TEXT', isRequired: false, displayOrder: 15),
+            FixedField(fieldName: 'postalCode', fieldLabel: 'Postal Code', fieldType: 'TEXT', isRequired: false, displayOrder: 16),
+            FixedField(fieldName: 'address', fieldLabel: 'Address', fieldType: 'TEXTAREA', isRequired: false, displayOrder: 17),
+            FixedField(fieldName: 'description', fieldLabel: 'Description', fieldType: 'TEXTAREA', isRequired: false, displayOrder: 18),
+            FixedField(fieldName: 'ownerUserId', fieldLabel: 'Assigned To', fieldType: 'DROPDOWN', isRequired: false, displayOrder: 19),
+          ];
+
+    final List<Widget> widgets = [];
+    for (var ff in fieldsToShow) {
+      final w = buildFixedWidget(ff);
+      if (w != null) widgets.add(w);
+    }
+
+    final List<Widget> formRows = [];
+    for (int i = 0; i < widgets.length; i += 2) {
+      if (i + 1 < widgets.length) {
+        formRows.add(_buildRow(widgets[i], widgets[i + 1]));
+      } else {
+        formRows.add(_buildRow(widgets[i], const SizedBox()));
+      }
+      formRows.add(const SizedBox(height: 16));
+    }
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
       child: Form(
@@ -541,119 +761,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
           children: [
             _buildSectionTitle('Basic Information & Lead Details'),
             const SizedBox(height: 16),
-            _buildRow(
-              CustomTextField(
-                label: 'First Name', 
-                isRequired: true, 
-                controller: _firstNameController,
-                inputFormatters: AppInputFormatters.nameFormatters,
-                validator: (val) {
-                  if (val == null || val.trim().isEmpty) return 'Required';
-                  return null;
-                },
-              ),
-              CustomTextField(
-                label: 'Last Name', 
-                controller: _lastNameController,
-                inputFormatters: AppInputFormatters.nameFormatters,
-              ),
-            ),
-            const SizedBox(height: 16),
-            _buildRow(
-              CustomTextField(
-                label: 'Phone', 
-                isRequired: true, 
-                keyboardType: TextInputType.phone, 
-                controller: _phoneController,
-                inputFormatters: AppInputFormatters.phoneFormatters,
-                validator: (val) => AppValidators.validateMobile(val, isRequired: true),
-              ),
-              CustomTextField(
-                label: 'Email', 
-                isRequired: true,
-                keyboardType: TextInputType.emailAddress, 
-                controller: _emailController,
-                validator: (val) => AppValidators.validateEmail(val, isRequired: true),
-              ),
-            ),
-            const SizedBox(height: 16),
-            _buildRow(
-              CustomTextField(
-                label: 'Alternate Phone', 
-                keyboardType: TextInputType.phone, 
-                controller: _altPhoneController,
-                inputFormatters: AppInputFormatters.phoneFormatters,
-                validator: (val) {
-                  if (val != null && val.isNotEmpty) {
-                    return AppValidators.validateMobile(val, isRequired: false);
-                  }
-                  return null;
-                },
-              ),
-              CustomDropdownField<String>(
-                label: 'Owner',
-                items: ownerItems,
-                value: _selectedOwner,
-                onChanged: (val) => setState(() => _selectedOwner = val),
-              ),
-            ),
-            const SizedBox(height: 16),
-            _buildRow(
-              CustomTextField(label: 'Company Name', controller: _companyController),
-              CustomTextField(label: 'Job Title', controller: _jobTitleController),
-            ),
-            const SizedBox(height: 16),
-            _buildRow(
-              CustomDropdownField<String>(
-                label: 'Lead Source', 
-                isRequired: true, 
-                items: sourceItems,
-                value: _selectedSource,
-                onChanged: (val) => setState(() => _selectedSource = val),
-              ),
-              CustomDropdownField<String>(
-                label: 'Lead Status', 
-                isRequired: true, 
-                items: statusItems,
-                value: _selectedStatus,
-                onChanged: (val) => setState(() => _selectedStatus = val),
-              ),
-            ),
-            const SizedBox(height: 16),
-            _buildRow(
-              CustomTextField(label: 'Score', keyboardType: TextInputType.number, controller: _scoreController),
-              CustomDropdownField<String>(
-                label: 'Priority',
-                items: priorityItems,
-                value: _selectedPriority,
-                onChanged: (val) => setState(() => _selectedPriority = val),
-              ),
-            ),
-            const SizedBox(height: 16),
-            _buildRow(
-              CustomTextField(label: 'Industry', controller: _industryController),
-              CustomTextField(label: 'Annual Revenue', keyboardType: TextInputType.number, controller: _revenueController),
-            ),
-            const SizedBox(height: 16),
-            _buildRow(
-              CustomTextField(label: 'Employee Size', keyboardType: TextInputType.number, controller: _employeeSizeController),
-              CustomTextField(label: 'Website', keyboardType: TextInputType.url, controller: _websiteController),
-            ),
-            const SizedBox(height: 16),
-            _buildRow(
-              CustomTextField(label: 'Country', controller: _countryController),
-              CustomTextField(label: 'State', controller: _stateController),
-            ),
-            const SizedBox(height: 16),
-            _buildRow(
-              CustomTextField(label: 'City', controller: _cityController),
-              CustomTextField(label: 'Postal Code', controller: _postalController),
-            ),
-            const SizedBox(height: 16),
-            _buildRow(
-              CustomTextField(label: 'Address', maxLines: 3, controller: _addressController),
-              CustomTextField(label: 'Description', maxLines: 3, controller: _descriptionController),
-            ),
+            ...formRows,
             const SizedBox(height: 40),
           ],
         ),
@@ -843,28 +951,138 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
   }
 
   Widget _buildDynamicField(dynamic field) { 
-    
-    final type = field.type;
-    final isRequired = field.isRequired;
-    
-    if (type == 'DROPDOWN') {
+    final rawType = (field.type != null && field.type.toString().isNotEmpty ? field.type.toString() : (field.fieldType != null ? field.fieldType.toString() : '')).toUpperCase();
+    final isRequired = field.isRequired ?? false;
+    final displayLabel = (field.fieldLabel != null && field.fieldLabel.toString().trim().isNotEmpty)
+        ? field.fieldLabel.toString().trim()
+        : (field.label != null && field.label.toString().trim().isNotEmpty ? field.label.toString().trim() : '');
+    final rawLabel = displayLabel.toLowerCase();
+
+    if (rawType == 'DROPDOWN' || rawType == 'SELECT') {
       List<DropdownMenuItem<String>> items = [];
-      for (var opt in field.options) {
+      List<dynamic> opts = field.options ?? [];
+      for (var opt in opts) {
         items.add(DropdownMenuItem(value: opt.toString(), child: Text(opt.toString())));
       }
       return CustomDropdownField(
-        label: field.label,
+        label: displayLabel,
         isRequired: isRequired,
         items: items,
-        value: _customFieldValues[field.fieldId],
+        value: _customFieldValues[field.fieldId]?.toString(),
         onChanged: (val) {
           setState(() {
             _customFieldValues[field.fieldId] = val;
           });
         },
-        validator: isRequired ? (val) => val == null || val.toString().isEmpty ? 'Required' : null : null,
+        validator: isRequired ? (val) => val == null || val.toString().isEmpty ? '$displayLabel is required' : null : null,
       );
-    } else if (type == 'DATE') {
+    } else if (rawType == 'MULTI_SELECT') {
+      List<dynamic> opts = field.options ?? [];
+      final List<String> currentSelected = _customFieldValues[field.fieldId] is List
+          ? List<String>.from(_customFieldValues[field.fieldId])
+          : (_customFieldValues[field.fieldId] != null && _customFieldValues[field.fieldId].toString().isNotEmpty
+              ? _customFieldValues[field.fieldId].toString().split(',').map((e) => e.trim()).toList()
+              : []);
+
+      return FormField<List<String>>(
+        initialValue: currentSelected,
+        validator: isRequired
+            ? (val) => (val == null || val.isEmpty) ? '$displayLabel is required' : null
+            : null,
+        builder: (formFieldState) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              RichText(
+                text: TextSpan(
+                  text: displayLabel,
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textLabel),
+                  children: [
+                    if (isRequired) const TextSpan(text: ' *', style: TextStyle(color: Colors.red)),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: opts.map((opt) {
+                  final optStr = opt.toString();
+                  final isSel = currentSelected.contains(optStr);
+                  return FilterChip(
+                    label: Text(optStr),
+                    selected: isSel,
+                    selectedColor: AppColors.primary.withValues(alpha: 0.2),
+                    checkmarkColor: AppColors.primary,
+                    onSelected: (selected) {
+                      setState(() {
+                        if (selected) {
+                          currentSelected.add(optStr);
+                        } else {
+                          currentSelected.remove(optStr);
+                        }
+                        _customFieldValues[field.fieldId] = List<String>.from(currentSelected);
+                        formFieldState.didChange(List<String>.from(currentSelected));
+                      });
+                    },
+                  );
+                }).toList(),
+              ),
+              if (formFieldState.hasError) ...[
+                const SizedBox(height: 4),
+                Text(formFieldState.errorText!, style: const TextStyle(color: Colors.red, fontSize: 11)),
+              ],
+            ],
+          );
+        },
+      );
+    } else if (rawType == 'RADIO') {
+      List<dynamic> opts = field.options ?? [];
+      return FormField<String>(
+        initialValue: _customFieldValues[field.fieldId]?.toString(),
+        validator: isRequired
+            ? (val) => (val == null || val.trim().isEmpty) ? '$displayLabel is required' : null
+            : null,
+        builder: (formFieldState) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              RichText(
+                text: TextSpan(
+                  text: displayLabel,
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textLabel),
+                  children: [
+                    if (isRequired) const TextSpan(text: ' *', style: TextStyle(color: Colors.red)),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 4),
+              ...opts.map((opt) {
+                final optStr = opt.toString();
+                return RadioListTile<String>(
+                  title: Text(optStr, style: const TextStyle(fontSize: 14)),
+                  value: optStr,
+                  groupValue: _customFieldValues[field.fieldId]?.toString(),
+                  activeColor: AppColors.primary,
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  onChanged: (val) {
+                    setState(() {
+                      _customFieldValues[field.fieldId] = val;
+                      formFieldState.didChange(val);
+                    });
+                  },
+                );
+              }),
+              if (formFieldState.hasError) ...[
+                const SizedBox(height: 4),
+                Text(formFieldState.errorText!, style: const TextStyle(color: Colors.red, fontSize: 11)),
+              ],
+            ],
+          );
+        },
+      );
+    } else if (rawType == 'DATE') {
       final controller = TextEditingController(
         text: _customFieldValues[field.fieldId] != null ? _customFieldValues[field.fieldId].toString() : '',
       );
@@ -886,14 +1104,53 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         },
         child: IgnorePointer(
           child: CustomTextField(
-            label: field.label,
+            label: displayLabel,
             isRequired: isRequired,
             controller: controller,
-            validator: isRequired ? (val) => val == null || val.isEmpty ? 'Required' : null : null,
+            suffixIcon: const Icon(Icons.calendar_today, size: 18, color: AppColors.textHint),
+            validator: isRequired ? (val) => val == null || val.isEmpty ? '$displayLabel is required' : null : null,
           ),
         ),
       );
-    } else if (type == 'ATTACHMENT') {
+    } else if (rawType == 'DATE_TIME' || rawType == 'DATETIME') {
+      final controller = TextEditingController(
+        text: _customFieldValues[field.fieldId] != null ? _customFieldValues[field.fieldId].toString() : '',
+      );
+      return InkWell(
+        onTap: () async {
+          final DateTime? pickedDate = await showDatePicker(
+            context: context,
+            initialDate: DateTime.now(),
+            firstDate: DateTime(2000),
+            lastDate: DateTime(2100),
+          );
+          if (pickedDate != null && context.mounted) {
+            final TimeOfDay? pickedTime = await showTimePicker(
+              context: context,
+              initialTime: TimeOfDay.now(),
+            );
+            if (pickedTime != null) {
+              setState(() {
+                final dateStr = '${pickedDate.year}-${pickedDate.month.toString().padLeft(2, '0')}-${pickedDate.day.toString().padLeft(2, '0')}';
+                final timeStr = '${pickedTime.hour.toString().padLeft(2, '0')}:${pickedTime.minute.toString().padLeft(2, '0')}';
+                final fullStr = '$dateStr $timeStr';
+                _customFieldValues[field.fieldId] = fullStr;
+                controller.text = fullStr;
+              });
+            }
+          }
+        },
+        child: IgnorePointer(
+          child: CustomTextField(
+            label: displayLabel,
+            isRequired: isRequired,
+            controller: controller,
+            suffixIcon: const Icon(Icons.access_time, size: 18, color: AppColors.textHint),
+            validator: isRequired ? (val) => val == null || val.isEmpty ? '$displayLabel is required' : null : null,
+          ),
+        ),
+      );
+    } else if (rawType == 'ATTACHMENT' || rawType == 'FILE' || rawType == 'DOCUMENT' || field.attachmentType != null) {
       final List<fp.PlatformFile> pickedFiles =
           _customFieldValues[field.fieldId] is List<fp.PlatformFile>
               ? _customFieldValues[field.fieldId] as List<fp.PlatformFile>
@@ -904,7 +1161,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         children: [
           Row(
             children: [
-              Text(field.label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textLabel)),
+              Text(displayLabel, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textLabel)),
               if (isRequired) const Text(' *', style: TextStyle(color: Colors.red, fontSize: 13)),
             ],
           ),
@@ -926,7 +1183,6 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
                 setState(() {
                   final currentFiles = List<fp.PlatformFile>.from(pickedFiles);
                   currentFiles.addAll(result.files);
-                  // Enforce max file limit
                   _customFieldValues[field.fieldId] = currentFiles.take(maxFiles).toList();
                 });
               }
@@ -950,7 +1206,6 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
               ),
             ),
           ),
-          // Show selected files with remove button
           if (pickedFiles.isNotEmpty) ...[
             const SizedBox(height: 8),
             ...pickedFiles.asMap().entries.map((entry) {
@@ -994,18 +1249,76 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
           ],
         ],
       );
+    } else if (rawType == 'EMAIL' || rawLabel.contains('email') || rawLabel.contains('mail')) {
+      final controller = TextEditingController(
+        text: _customFieldValues[field.fieldId] != null ? _customFieldValues[field.fieldId].toString() : '',
+      );
+      return CustomTextField(
+        label: displayLabel,
+        isRequired: isRequired,
+        keyboardType: TextInputType.emailAddress,
+        controller: controller,
+        onChanged: (val) {
+          _customFieldValues[field.fieldId] = val;
+        },
+        validator: (val) => AppValidators.validateEmail(val, isRequired: isRequired),
+      );
+    } else if (rawType == 'PHONE' || rawType == 'MOBILE' || rawLabel.contains('phone') || rawLabel.contains('mobile') || rawLabel.contains('contact') || rawLabel.contains('tel') || rawLabel.contains('cell') || rawLabel.contains('whatsapp')) {
+      final controller = TextEditingController(
+        text: _customFieldValues[field.fieldId] != null ? _customFieldValues[field.fieldId].toString() : '',
+      );
+      return CustomTextField(
+        label: displayLabel,
+        isRequired: isRequired,
+        keyboardType: TextInputType.phone,
+        controller: controller,
+        inputFormatters: AppInputFormatters.phoneFormatters,
+        onChanged: (val) {
+          _customFieldValues[field.fieldId] = val;
+        },
+        validator: (val) => AppValidators.validateMobile(val, isRequired: isRequired),
+      );
+    } else if (rawType == 'NUMBER') {
+      final controller = TextEditingController(
+        text: _customFieldValues[field.fieldId] != null ? _customFieldValues[field.fieldId].toString() : '',
+      );
+      return CustomTextField(
+        label: displayLabel,
+        isRequired: isRequired,
+        keyboardType: TextInputType.number,
+        controller: controller,
+        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+        onChanged: (val) {
+          _customFieldValues[field.fieldId] = val;
+        },
+        validator: isRequired ? (val) => (val == null || val.trim().isEmpty) ? '$displayLabel is required' : null : null,
+      );
+    } else if (rawType == 'TEXTAREA') {
+      final controller = TextEditingController(
+        text: _customFieldValues[field.fieldId] != null ? _customFieldValues[field.fieldId].toString() : '',
+      );
+      return CustomTextField(
+        label: displayLabel,
+        isRequired: isRequired,
+        maxLines: 3,
+        controller: controller,
+        onChanged: (val) {
+          _customFieldValues[field.fieldId] = val;
+        },
+        validator: isRequired ? (val) => val == null || val.isEmpty ? '$displayLabel is required' : null : null,
+      );
     } else {
       final controller = TextEditingController(
         text: _customFieldValues[field.fieldId] != null ? _customFieldValues[field.fieldId].toString() : '',
       );
       return CustomTextField(
-        label: field.label,
+        label: displayLabel,
         isRequired: isRequired,
         controller: controller,
         onChanged: (val) {
           _customFieldValues[field.fieldId] = val;
         },
-        validator: isRequired ? (val) => val == null || val.isEmpty ? 'Required' : null : null,
+        validator: isRequired ? (val) => val == null || val.isEmpty ? '$displayLabel is required' : null : null,
       );
     }
   }

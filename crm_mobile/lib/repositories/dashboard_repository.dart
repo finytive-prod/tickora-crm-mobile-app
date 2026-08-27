@@ -85,16 +85,16 @@ class DashboardRepositoryImpl implements DashboardRepository {
   DashboardRepositoryImpl({required this.apiClient});
 
   String _getDashboardBaseUrl() {
-    final leadsBaseUrl = dotenv.env['BASE_URL'] ?? 'http://50.117.0.165:8080/api/crm/lead-service';
+    final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
     return '$leadsBaseUrl/dashboard';
   }
 
   String _getIdentityBaseUrl() {
-    final leadsBaseUrl = dotenv.env['BASE_URL'] ?? 'http://50.117.0.165:8080/api/crm/lead-service';
+    final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
     if (leadsBaseUrl.contains('lead-service')) {
       return leadsBaseUrl.replaceAll('lead-service', 'identity-service');
     }
-    return 'http://50.117.0.165:8080/api/crm/identity-service';
+    return leadsBaseUrl;
   }
 
   @override

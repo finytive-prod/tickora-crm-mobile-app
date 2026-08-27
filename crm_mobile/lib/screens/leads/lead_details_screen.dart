@@ -678,14 +678,15 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
             ],
           ),
 
-          if (lead.customFields.where((field) => field.fieldType != 'ATTACHMENT').isNotEmpty) ...[
+          if (lead.customFields.isNotEmpty) ...[
             const SizedBox(height: 16),
             _buildInfoCard(
               'Custom Fields',
-              lead.customFields
-                  .where((field) => field.fieldType != 'ATTACHMENT')
-                  .map((field) {
-                return _buildInfoRow(Icons.toc_outlined, field.label, field.value?.toString() ?? '');
+              lead.customFields.map((field) {
+                final isAttachment = field.fieldType.toUpperCase() == 'ATTACHMENT' || field.fieldType.toUpperCase() == 'FILE';
+                final icon = isAttachment ? Icons.attach_file_outlined : Icons.toc_outlined;
+                final valStr = field.value?.toString() ?? '';
+                return _buildInfoRow(icon, field.label, valStr.isNotEmpty ? valStr : '-');
               }).toList(),
             ),
           ],
@@ -709,12 +710,15 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
   Widget _buildCallRecordingsTab(LeadDetailsLoaded state) {
     final rawServerAudios = state.audios ?? [];
 
+    final List<LeadAudio> sortedRaw = List.from(rawServerAudios);
+    sortedRaw.sort((a, b) => b.size.compareTo(a.size));
+
     final List<LeadAudio> serverAudios = [];
-    final Set<String> seenKeys = {};
-    for (final audio in rawServerAudios) {
-      final key = '${audio.displayName.toLowerCase()}_${audio.size}';
-      if (!seenKeys.contains(key)) {
-        seenKeys.add(key);
+    final Set<String> seenCleanNames = {};
+    for (final audio in sortedRaw) {
+      final cleanName = AutoCallRecordingUploader.cleanFileName(audio.displayName.toLowerCase());
+      if (!seenCleanNames.contains(cleanName)) {
+        seenCleanNames.add(cleanName);
         serverAudios.add(audio);
       }
     }
@@ -1529,9 +1533,14 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
       final tempDir = await getTemporaryDirectory();
       final displayFileName = audio.displayName.isNotEmpty ? audio.displayName : 'audio_${audio.id}.mp3';
       final sanitizedName = displayFileName.replaceAll(RegExp(r'[^\w.\- ]'), '_');
-      final tempFile = File('${tempDir.path}/$sanitizedName');
+      final tempFile = File('${tempDir.path}/audio_${audio.id}_$sanitizedName');
 
-      if (!await tempFile.exists() || (await tempFile.length()) == 0) {
+      if (!await tempFile.exists() || (await tempFile.length()) <= 0 || (audio.size > 0 && (await tempFile.length()) != audio.size)) {
+        if (await tempFile.exists()) {
+          try {
+            await tempFile.delete();
+          } catch (_) {}
+        }
         await sl<ApiClient>().download(
           '/leads/audios/${audio.id}/download',
           tempFile.path,

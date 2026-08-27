@@ -19,16 +19,21 @@ class CustomFieldModel extends CustomField {
   });
 
   factory CustomFieldModel.fromJson(Map<String, dynamic> json) {
+    final rawFieldLabel = json['fieldLabel'] as String? ?? json['label'] as String? ?? json['fieldName'] as String? ?? json['name'] as String? ?? '';
+    final rawLabel = json['label'] as String? ?? json['fieldLabel'] as String? ?? json['fieldName'] as String? ?? json['name'] as String? ?? '';
+    final rawFieldId = json['fieldId'] as String? ?? json['id'] as String? ?? json['_id'] as String? ?? json['fieldName'] as String? ?? '';
+    final rawFieldName = json['fieldName'] as String? ?? json['name'] as String? ?? json['fieldId'] as String? ?? '';
+
     return CustomFieldModel(
-      id: json['id'] as String? ?? '',
-      fieldId: json['fieldId'] as String? ?? '',
-      fieldName: json['fieldName'] as String? ?? '',
-      fieldLabel: json['fieldLabel'] as String? ?? '',
-      label: json['label'] as String? ?? json['fieldLabel'] as String? ?? '',
-      fieldType: json['fieldType'] as String? ?? '',
+      id: json['id'] as String? ?? json['_id'] as String? ?? '',
+      fieldId: rawFieldId,
+      fieldName: rawFieldName,
+      fieldLabel: rawFieldLabel,
+      label: rawLabel,
+      fieldType: json['fieldType'] as String? ?? json['type'] as String? ?? '',
       type: json['type'] as String? ?? json['fieldType'] as String? ?? '',
       options: (json['options'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],
-      isRequired: json['required'] as bool? ?? false,
+      isRequired: json['required'] as bool? ?? json['isRequired'] as bool? ?? false,
       displayOrder: json['displayOrder'] as int? ?? 0,
       minLength: json['minLength'] as int?,
       maxLength: json['maxLength'] as int?,

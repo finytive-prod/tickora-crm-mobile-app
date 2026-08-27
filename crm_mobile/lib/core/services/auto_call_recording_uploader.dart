@@ -7,13 +7,15 @@ import 'package:crm_mobile/repositories/leads_repository.dart';
 import 'package:crm_mobile/injection/injection.dart';
 
 class AutoCallRecordingUploader {
-  static const String _prefKey = 'uploaded_call_recordings_v4';
+  static const String _prefKey = 'uploaded_call_recordings_v5';
   static final Set<String> _uploadedPaths = {};
   static final Set<String> _failedUploads = {};
+  static final Set<String> _currentlyUploadingPaths = {};
   static bool _prefsLoaded = false;
 
   static void clearFailedUploads() {
     _failedUploads.clear();
+    _currentlyUploadingPaths.clear();
   }
 
   static Future<void> _ensurePrefsLoaded() async {
@@ -31,9 +33,11 @@ class AutoCallRecordingUploader {
   static Future<void> _markAsUploaded(String path, int length) async {
     await _ensurePrefsLoaded();
     final fileName = path.split('/').last;
+    final cleanName = cleanFileName(fileName);
 
-    _uploadedPaths.add(path);
-    _uploadedPaths.add(fileName);
+    _uploadedPaths.add('${path}_$length');
+    _uploadedPaths.add('${fileName}_$length');
+    _uploadedPaths.add('${cleanName}_$length');
 
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -43,14 +47,16 @@ class AutoCallRecordingUploader {
     }
   }
 
-  static String _cleanFileName(String name) {
+  static String cleanFileName(String name) {
     var clean = name;
-    if (clean.startsWith('REC_')) {
+    while (clean.startsWith('REC_')) {
       final parts = clean.split('_');
       if (parts.length >= 4 && (parts[1] == 'INCOMING' || parts[1] == 'OUTGOING')) {
         clean = parts.sublist(3).join('_');
       } else if (parts.length >= 3) {
         clean = parts.sublist(2).join('_');
+      } else {
+        clean = clean.substring(4);
       }
     }
     return clean;
@@ -58,10 +64,28 @@ class AutoCallRecordingUploader {
 
   static Future<bool> isAlreadyUploaded(String path, int length) async {
     await _ensurePrefsLoaded();
-    if (_uploadedPaths.contains(path)) return true;
+
+    // Ignore tiny incomplete fragments under 25 KB (< 3 seconds of speech)
+    if (length < 25000) return true;
+
+    if (_uploadedPaths.contains('${path}_$length')) return true;
 
     final fileName = path.split('/').last;
-    if (_uploadedPaths.contains(fileName)) return true;
+    if (_uploadedPaths.contains('${fileName}_$length')) return true;
+
+    final clean = cleanFileName(fileName);
+    if (_uploadedPaths.contains('${clean}_$length')) return true;
+
+    // If an equal or larger version (or within 5 KB tolerance) was uploaded, skip re-uploading
+    for (final key in _uploadedPaths) {
+      if (key.startsWith('${clean}_') || key.startsWith('${fileName}_')) {
+        final parts = key.split('_');
+        final prevLength = int.tryParse(parts.last) ?? 0;
+        if (prevLength > 0 && (length <= prevLength || (length - prevLength).abs() < 5120)) {
+          return true;
+        }
+      }
+    }
 
     return false;
   }
@@ -97,8 +121,8 @@ class AutoCallRecordingUploader {
       debugPrint('Error placing phone call: $e');
     }
 
-    // Schedule scans at 4s, 10s, and 20s so newly written call recordings are detected automatically when call ends
-    for (final delaySec in [4, 10, 20]) {
+    // Schedule post-call scans (3s, 8s, 15s, 30s) so finalized recordings are uploaded quickly after call ends
+    for (final delaySec in [3, 8, 15, 30]) {
       Future.delayed(Duration(seconds: delaySec), () {
         autoScanAndUploadLeadRecordings(
           context: context,
@@ -191,7 +215,6 @@ class AutoCallRecordingUploader {
       final allRecordings = await service.getAllSystemRecordings(phoneNumber);
 
       bool uploadedAny = false;
-      final Set<String> sessionUploading = {};
 
       for (final recording in allRecordings) {
         final path = recording['path'] as String?;
@@ -202,18 +225,34 @@ class AutoCallRecordingUploader {
         final length = await file.length();
         if (length <= 0) continue;
 
-        if (sessionUploading.contains(path)) continue;
+        // Perform stability check ONLY if file was modified in the last 4 seconds
+        final lastMod = await file.lastModified();
+        final ageMs = DateTime.now().millisecondsSinceEpoch - lastMod.millisecondsSinceEpoch;
+        var finalLength = length;
 
-        if (await isAlreadyUploaded(path, length)) {
+        if (ageMs < 4000) {
+          await Future.delayed(const Duration(milliseconds: 250));
+          if (!await file.exists()) continue;
+          final length2 = await file.length();
+          if (length != length2) {
+            debugPrint('Recording file $path is actively growing ($length -> $length2 bytes). Live call ongoing, skipping.');
+            continue;
+          }
+          finalLength = length2;
+        }
+
+        final fileName = path.split('/').last;
+        final cleanName = cleanFileName(fileName);
+
+        if (_currentlyUploadingPaths.contains(path) || _currentlyUploadingPaths.contains(cleanName)) continue;
+
+        if (await isAlreadyUploaded(path, finalLength)) {
           continue;
         }
 
-        if (_failedUploads.contains(path)) {
-          continue;
-        }
-
-        debugPrint('Auto-uploading call recording (incoming/outgoing): $path for leadId: $leadId');
-        sessionUploading.add(path);
+        debugPrint('Auto-uploading call recording ($finalLength bytes): $path for leadId: $leadId');
+        _currentlyUploadingPaths.add(path);
+        _currentlyUploadingPaths.add(cleanName);
 
         final repo = sl<LeadsRepository>();
         final result = await repo.uploadLeadAudio(leadId, path);
@@ -221,12 +260,14 @@ class AutoCallRecordingUploader {
         result.fold(
           (failure) {
             debugPrint('Auto-upload failed for $path: ${failure.message}');
-            sessionUploading.remove(path);
-            _failedUploads.add(path);
+            _currentlyUploadingPaths.remove(path);
+            _currentlyUploadingPaths.remove(cleanName);
           },
           (audio) async {
             debugPrint('Successfully uploaded recording: ${audio.id}');
-            await _markAsUploaded(path, length);
+            await _markAsUploaded(path, finalLength);
+            _currentlyUploadingPaths.remove(path);
+            _currentlyUploadingPaths.remove(cleanName);
             uploadedAny = true;
           },
         );

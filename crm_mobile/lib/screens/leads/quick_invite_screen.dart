@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:crm_mobile/core/theme/app_colors.dart';
 import 'package:crm_mobile/blocs/leads_bloc.dart';
@@ -135,7 +136,7 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
                   customFields = List.of(state.customFields)
                       .where((f) => f.isRequired == true)
                       .toList()
-                    ..sort((a, b) => (a.displayOrder ?? 0).compareTo(b.displayOrder ?? 0));
+                    ..sort((a, b) => a.displayOrder.compareTo(b.displayOrder));
                   
                   if (_selectedStatus == null && state.statuses.isNotEmpty) {
                     try {
@@ -149,147 +150,214 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
                   }
                 }
 
+                String getFixedLabel(String name, String defaultLabel, [List<String>? aliases]) {
+                  if (state is LeadsLoaded) {
+                    for (var ff in state.fixedFields) {
+                      final fn = ff.fieldName.trim().toLowerCase();
+                      final targetName = name.trim().toLowerCase();
+                      if (fn == targetName) {
+                        if (ff.fieldLabel.trim().isNotEmpty) return ff.fieldLabel.trim();
+                      }
+                      if (aliases != null) {
+                        for (var alias in aliases) {
+                          if (fn == alias.trim().toLowerCase()) {
+                            if (ff.fieldLabel.trim().isNotEmpty) return ff.fieldLabel.trim();
+                          }
+                        }
+                      }
+                    }
+                  }
+                  return defaultLabel;
+                }
+
+                bool getFixedIsRequired(String name, bool defaultRequired, [List<String>? aliases]) {
+                  if (state is LeadsLoaded) {
+                    for (var ff in state.fixedFields) {
+                      final fn = ff.fieldName.trim().toLowerCase();
+                      final targetName = name.trim().toLowerCase();
+                      if (fn == targetName) return ff.isRequired;
+                      if (aliases != null) {
+                        for (var alias in aliases) {
+                          if (fn == alias.trim().toLowerCase()) return ff.isRequired;
+                        }
+                      }
+                    }
+                  }
+                  return defaultRequired;
+                }
+
+                final isFirstNameReq = getFixedIsRequired('firstName', true, ['first_name', 'firstname']);
+                final isPhoneReq = getFixedIsRequired('phone', true, ['mobile']);
+                final isEmailReq = getFixedIsRequired('email', true);
+
                 return Form(
                   key: _formKey,
                   child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildSectionTitle(Icons.email_outlined, 'Invitation Details'),
-                  const SizedBox(height: 16),
-                  _buildRow(
-                    CustomTextField(
-                      label: 'First Name', 
-                      isRequired: true, 
-                      controller: _firstNameController,
-                      inputFormatters: AppInputFormatters.nameFormatters,
-                      validator: (val) {
-                        if (val == null || val.trim().isEmpty) return 'Required';
-                        return null;
-                      },
-                    ),
-                    CustomTextField(
-                      label: 'Last Name', 
-                      controller: _lastNameController,
-                      inputFormatters: AppInputFormatters.nameFormatters,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  _buildRow(
-                    CustomTextField(
-                      label: 'Mobile No.', 
-                      isRequired: true, 
-                      keyboardType: TextInputType.phone, 
-                      controller: _mobileController,
-                      inputFormatters: AppInputFormatters.phoneFormatters,
-                      validator: (val) => AppValidators.validateMobile(val, isRequired: true),
-                    ),
-                    CustomTextField(
-                      label: 'Email', 
-                      isRequired: true,
-                      keyboardType: TextInputType.emailAddress, 
-                      controller: _emailController,
-                      validator: (val) => AppValidators.validateEmail(val, isRequired: true),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  _buildRow(
-                    CustomTextField(label: 'Alternate Phone', keyboardType: TextInputType.phone, controller: _altPhoneController, inputFormatters: AppInputFormatters.phoneFormatters),
-                    CustomDropdownField<String>(
-                      label: 'Lead Source', 
-                      isRequired: true, 
-                      items: sourceItems,
-                      value: _selectedSource,
-                      onChanged: (val) => setState(() => _selectedSource = val),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  _buildRow(
-                    CustomDropdownField<String>(
-                      label: 'Lead Status', 
-                      isRequired: true, 
-                      items: statusItems,
-                      value: _selectedStatus,
-                      onChanged: (val) => setState(() => _selectedStatus = val),
-                    ),
-                    const SizedBox(),
-                  ),
-                  const SizedBox(height: 32),
-                  
-                  _buildSectionTitle(Icons.chat_bubble_outline, 'Custom Message'),
-                  const SizedBox(height: 16),
-                  CustomTextField(
-                    label: 'Invitation Message (Optional)',
-                    maxLines: 4,
-                    controller: _messageController,
-                  ),
-                  
-                  if (customFields.isNotEmpty) ...[
-                    const SizedBox(height: 32),
-                    _buildSectionTitle(Icons.list_alt, 'Custom Fields'),
-                    const SizedBox(height: 16),
-                    ...customFields.map((field) {
-                      final controller = TextEditingController(
-                        text: _customFieldValues[field.fieldId]?.toString() ?? '',
-                      );
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 16.0),
-                        child: CustomTextField(
-                          label: field.label,
-                          isRequired: field.isRequired,
-                          controller: controller,
-                          onChanged: (val) {
-                            _customFieldValues[field.fieldId] = val;
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildSectionTitle(Icons.email_outlined, 'Invitation Details'),
+                      const SizedBox(height: 16),
+                      _buildRow(
+                        CustomTextField(
+                          label: getFixedLabel('firstName', 'First Name', ['first_name', 'firstname']), 
+                          isRequired: isFirstNameReq, 
+                          controller: _firstNameController,
+                          inputFormatters: AppInputFormatters.nameFormatters,
+                          validator: (val) {
+                            if (isFirstNameReq && (val == null || val.trim().isEmpty)) return 'Required';
+                            return null;
                           },
-                          validator: field.isRequired ? (val) => val == null || val.isEmpty ? 'Required' : null : null,
                         ),
-                      );
-                    }),
-                  ],
-                  
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 50,
-                    child: BlocBuilder<LeadsBloc, LeadsState>(
-                      builder: (context, state) {
-                        final isLoading = state is LeadActionLoading;
-                        return ElevatedButton(
-                          onPressed: isLoading ? null : _onCreate,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
+                        CustomTextField(
+                          label: getFixedLabel('lastName', 'Last Name', ['last_name', 'lastname']), 
+                          isRequired: getFixedIsRequired('lastName', false, ['last_name', 'lastname']),
+                          controller: _lastNameController,
+                          inputFormatters: AppInputFormatters.nameFormatters,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      _buildRow(
+                        CustomTextField(
+                          label: getFixedLabel('phone', 'Phone', ['mobile']), 
+                          isRequired: isPhoneReq, 
+                          keyboardType: TextInputType.phone, 
+                          controller: _mobileController,
+                          inputFormatters: AppInputFormatters.phoneFormatters,
+                          validator: (val) => AppValidators.validateMobile(val, isRequired: isPhoneReq),
+                        ),
+                        CustomTextField(
+                          label: getFixedLabel('email', 'Email'), 
+                          isRequired: isEmailReq,
+                          keyboardType: TextInputType.emailAddress, 
+                          controller: _emailController,
+                          validator: (val) => AppValidators.validateEmail(val, isRequired: isEmailReq),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      _buildRow(
+                        CustomTextField(
+                          label: getFixedLabel('alternatePhone', 'Alternate Phone', ['alternate_phone', 'alt_phone']), 
+                          isRequired: getFixedIsRequired('alternatePhone', false, ['alternate_phone', 'alt_phone']),
+                          keyboardType: TextInputType.phone, 
+                          controller: _altPhoneController, 
+                          inputFormatters: AppInputFormatters.phoneFormatters,
+                        ),
+                        CustomDropdownField<String>(
+                          label: getFixedLabel('sourceId', 'Lead Source', ['source', 'lead_source']), 
+                          isRequired: getFixedIsRequired('sourceId', true, ['source', 'lead_source']), 
+                          items: sourceItems,
+                          value: _selectedSource,
+                          onChanged: (val) => setState(() => _selectedSource = val),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      _buildRow(
+                        CustomDropdownField<String>(
+                          label: getFixedLabel('statusId', 'Lead Status', ['status', 'lead_status']), 
+                          isRequired: getFixedIsRequired('statusId', true, ['status', 'lead_status']), 
+                          items: statusItems,
+                          value: _selectedStatus,
+                          onChanged: (val) => setState(() => _selectedStatus = val),
+                        ),
+                        const SizedBox(),
+                      ),
+                      const SizedBox(height: 32),
+                      
+                      _buildSectionTitle(Icons.chat_bubble_outline, 'Custom Message'),
+                      const SizedBox(height: 16),
+                      CustomTextField(
+                        label: 'Invitation Message (Optional)',
+                        maxLines: 4,
+                        controller: _messageController,
+                      ),
+                      
+                      if (customFields.isNotEmpty) ...[
+                        const SizedBox(height: 32),
+                        _buildSectionTitle(Icons.list_alt, 'Custom Fields'),
+                        const SizedBox(height: 16),
+                        ...customFields.map((field) {
+                          final rawType = (field.type.toString().isNotEmpty ? field.type.toString() : field.fieldType.toString()).toUpperCase();
+                          final rawLabel = (field.label.toString().isNotEmpty ? field.label.toString() : field.fieldLabel.toString()).toLowerCase();
+                          final isRequired = field.isRequired;
+                          final displayLabel = field.label.toString().isNotEmpty ? field.label.toString() : field.fieldLabel.toString();
+
+                          final isEmail = rawType == 'EMAIL' || rawLabel.contains('email') || rawLabel.contains('mail');
+                          final isPhone = rawType == 'PHONE' || rawType == 'MOBILE' || rawLabel.contains('phone') || rawLabel.contains('mobile') || rawLabel.contains('contact') || rawLabel.contains('tel') || rawLabel.contains('cell') || rawLabel.contains('whatsapp');
+                          final isNumber = rawType == 'NUMBER';
+                          final controller = TextEditingController(
+                            text: _customFieldValues[field.fieldId]?.toString() ?? '',
+                          );
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 16.0),
+                            child: CustomTextField(
+                              label: displayLabel,
+                              isRequired: isRequired,
+                              keyboardType: isEmail
+                                  ? TextInputType.emailAddress
+                                  : (isPhone
+                                      ? TextInputType.phone
+                                      : (isNumber ? TextInputType.number : TextInputType.text)),
+                              inputFormatters: isPhone
+                                  ? AppInputFormatters.phoneFormatters
+                                  : (isNumber ? [FilteringTextInputFormatter.digitsOnly] : null),
+                              controller: controller,
+                              onChanged: (val) {
+                                _customFieldValues[field.fieldId] = val;
+                              },
+                              validator: isEmail
+                                  ? (val) => AppValidators.validateEmail(val, isRequired: isRequired)
+                                  : (isPhone
+                                      ? (val) => AppValidators.validateMobile(val, isRequired: isRequired)
+                                      : (isRequired ? (val) => val == null || val.isEmpty ? '$displayLabel is required' : null : null)),
                             ),
-                          ),
-                          child: isLoading
-                              ? const SizedBox(
-                                  width: 24,
-                                  height: 24,
-                                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                                )
-                              : Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: const [
-                                    Text('Create Lead', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                                    SizedBox(width: 8),
-                                    Icon(Icons.add_circle_outline, color: Colors.white, size: 20),
-                                  ],
+                          );
+                        }),
+                      ],
+                      
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: BlocBuilder<LeadsBloc, LeadsState>(
+                          builder: (context, state) {
+                            final isLoading = state is LeadActionLoading;
+                            return ElevatedButton(
+                              onPressed: isLoading ? null : _onCreate,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primary,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
                                 ),
-                        );
-                      },
-                    ),
+                              ),
+                              child: isLoading
+                                  ? const SizedBox(
+                                      width: 24,
+                                      height: 24,
+                                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                    )
+                                  : Row(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: const [
+                                        Text('Create Lead', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                                        SizedBox(width: 8),
+                                        Icon(Icons.add_circle_outline, color: Colors.white, size: 20),
+                                      ],
+                                    ),
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 40),
+                    ],
                   ),
-                  const SizedBox(height: 40),
-                ],
-              ),
-            );
-          },
+                );
+              },
+            ),
+          ),
         ),
       ),
-    ),
-  ),
-);
-}
+    );
+  }
 
   Widget _buildSectionTitle(IconData icon, String title) {
     return Row(

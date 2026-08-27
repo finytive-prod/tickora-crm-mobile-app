@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crm_mobile/core/theme/app_colors.dart';
 import 'package:crm_mobile/core/services/privilege_service.dart';
+import 'package:crm_mobile/core/services/fcm_service.dart';
 import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/screens/auth/login_screen.dart';
 import 'package:crm_mobile/screens/home_screen.dart';
@@ -77,6 +78,9 @@ class _MoreScreenState extends State<MoreScreen> {
                 await prefs.remove('userName');
                 await prefs.remove('userEmail');
                 
+                // Delete FCM token so this device stops receiving notifications
+                await FcmService.instance.deleteToken();
+                
                 if (context.mounted) {
                   Navigator.of(context).pushAndRemoveUntil(
                     MaterialPageRoute(builder: (context) => const LoginScreen()),
@@ -136,11 +140,7 @@ class _MoreScreenState extends State<MoreScreen> {
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(6),
                           ),
-                          child: Image.asset(
-                            'assets/images/app_logo.png',
-                            height: 20,
-                            width: 20,
-                          ),
+                          child: const Icon(Icons.trending_up, color: brandColor, size: 20),
                         ),
                         const SizedBox(width: 8),
                         const Text(
@@ -268,12 +268,12 @@ class _MoreScreenState extends State<MoreScreen> {
                       );
                     },
                   ),
-                _buildMenuItem(
-                  icon: Icons.check_box_outlined,
-                  title: 'Tasks',
-                  brandColor: brandColor,
-                  onTap: () => _showComingSoon('Tasks'),
-                ),
+                // _buildMenuItem(
+                //   icon: Icons.check_box_outlined,
+                //   title: 'Tasks',
+                //   brandColor: brandColor,
+                //   onTap: () => _showComingSoon('Tasks'),
+                // ),
                 if (priv.hasPrivilege('CALENDAR_READ'))
                   _buildMenuItem(
                     icon: Icons.calendar_today_outlined,
@@ -319,12 +319,12 @@ class _MoreScreenState extends State<MoreScreen> {
                       );
                     },
                   ),
-                _buildMenuItem(
-                  icon: Icons.person_outline,
-                  title: 'Profile',
-                  brandColor: brandColor,
-                  onTap: () => _showComingSoon('Profile'),
-                ),
+                // _buildMenuItem(
+                //   icon: Icons.person_outline,
+                //   title: 'Profile',
+                //   brandColor: brandColor,
+                //   onTap: () => _showComingSoon('Profile'),
+                // ),
                 _buildMenuItem(
                   icon: Icons.logout,
                   title: 'Logout',

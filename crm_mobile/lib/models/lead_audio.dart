@@ -23,18 +23,31 @@ class LeadAudio extends Equatable {
 
   String get callType {
     final lower = displayName.toLowerCase();
-    if (lower.contains('inbound') ||
-        lower.contains('incoming') ||
+    
+    // Explicit Outbound check first
+    if (lower.contains('outgoing') ||
+        lower.contains('outbound') ||
+        lower.contains('_out_') ||
+        lower.contains('_outg_') ||
+        lower.contains('callout') ||
+        lower.contains('sent') ||
+        lower.contains('(out)') ||
+        lower.contains('out_')) {
+      return 'outbound';
+    }
+
+    // Explicit Inbound check (without matching 'recording_')
+    if (lower.contains('incoming') ||
+        lower.contains('inbound') ||
         lower.contains('_in_') ||
         lower.contains('_inc_') ||
         lower.contains('callin') ||
         lower.contains('recv') ||
         lower.contains('received') ||
-        lower.contains('(in)') ||
-        lower.contains('in_') ||
-        lower.contains('inc_')) {
+        lower.contains('(in)')) {
       return 'inbound';
     }
+
     return 'outbound';
   }
 

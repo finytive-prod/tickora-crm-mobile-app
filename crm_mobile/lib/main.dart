@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'injection/injection.dart' as di;
 import 'core/theme/app_colors.dart';
+import 'core/services/fcm_service.dart';
 
 import 'package:crm_mobile/screens/splash_screen.dart';
 
@@ -10,6 +13,12 @@ void main() async {
   
   // Load environment variables
   await dotenv.load(fileName: ".env");
+  
+  // Initialize Firebase
+  await Firebase.initializeApp();
+
+  // Register the background message handler (must be a top-level function)
+  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
   
   // Initialize dependency injection
   await di.init();
@@ -39,3 +48,4 @@ class MyApp extends StatelessWidget {
     );
   }
 }
+

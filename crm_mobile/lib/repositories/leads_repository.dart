@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http_parser/http_parser.dart';
@@ -428,6 +427,10 @@ class LeadsRepositoryImpl implements LeadsRepository {
       final response = await apiClient.post(
         '$leadsBaseUrl/leads/$leadId/audios',
         data: formData,
+        options: Options(
+          sendTimeout: const Duration(minutes: 15),
+          receiveTimeout: const Duration(minutes: 15),
+        ),
       );
 
       final body = response.data;
@@ -474,7 +477,7 @@ class LeadsRepositoryImpl implements LeadsRepository {
 
   @override
   Future<Either<Failure, String>> exportLeadReport(Map<String, dynamic> payload) async {
-    final baseUrl = dotenv.env['BASE_URL'] ?? 'http://50.117.0.165:8080/api/crm/lead-service';
+    final baseUrl = dotenv.env['BASE_URL'] ?? '';
     final url = '$baseUrl/leads/export/csv';
     debugPrint('[LeadsRepo] Calling POST $url with payload $payload');
     try {

@@ -2,7 +2,7 @@ import os
 from PIL import Image, ImageDraw, ImageFont
 
 # 2. Load the original logo
-logo_path = r"d:\CRM_MOBILE\tickora-crm-mobile-app\crm_mobile\assets\images\app_logo.png"
+logo_path = r"d:\CRM_MOBILE\tickora-crm-mobile-app\crm_mobile\assets\images\logo.png"
 logo = Image.open(logo_path).convert("RGBA")
 
 # Resize logo to fit inside the Android 12 safe zone

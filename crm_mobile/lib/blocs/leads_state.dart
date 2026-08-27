@@ -6,6 +6,7 @@ import 'package:crm_mobile/models/custom_field.dart';
 import 'package:crm_mobile/models/lead_detail.dart';
 import 'package:crm_mobile/models/attachment.dart';
 import 'package:crm_mobile/models/lead_audio.dart';
+import 'package:crm_mobile/models/lead_form_layout.dart';
 
 
 abstract class LeadsState extends Equatable {
@@ -26,6 +27,7 @@ class LeadsLoaded extends LeadsState {
   final List<String> priorities;
   final List<StaffUser> owners;
   final List<CustomField> customFields;
+  final List<FixedField> fixedFields;
   final String? selectedStatusId;
   final bool? selectedIsActive;
   final bool isLeadsLoaded;
@@ -41,6 +43,7 @@ class LeadsLoaded extends LeadsState {
     this.priorities = const [],
     this.owners = const [],
     this.customFields = const [],
+    this.fixedFields = const [],
     this.selectedStatusId,
     this.selectedIsActive,
     this.isLeadsLoaded = false,
@@ -57,6 +60,7 @@ class LeadsLoaded extends LeadsState {
     List<String>? priorities,
     List<StaffUser>? owners,
     List<CustomField>? customFields,
+    List<FixedField>? fixedFields,
     String? selectedStatusId,
     bool clearSelectedStatusId = false,
     bool? selectedIsActive,
@@ -74,6 +78,7 @@ class LeadsLoaded extends LeadsState {
       priorities: priorities ?? this.priorities,
       owners: owners ?? this.owners,
       customFields: customFields ?? this.customFields,
+      fixedFields: fixedFields ?? this.fixedFields,
       selectedStatusId: clearSelectedStatusId ? null : (selectedStatusId ?? this.selectedStatusId),
       selectedIsActive: clearSelectedIsActive ? null : (selectedIsActive ?? this.selectedIsActive),
       isLeadsLoaded: isLeadsLoaded ?? this.isLeadsLoaded,
@@ -92,6 +97,7 @@ class LeadsLoaded extends LeadsState {
     priorities,
     owners,
     customFields,
+    fixedFields,
     selectedStatusId,
     selectedIsActive,
     isLeadsLoaded,

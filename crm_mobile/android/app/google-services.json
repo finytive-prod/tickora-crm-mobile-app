@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "192168528489",
+    "project_id": "crm-16cec",
+    "storage_bucket": "crm-16cec.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:192168528489:android:9786504403d2baa9dbf0f8",
+        "android_client_info": {
+          "package_name": "com.tickora.crm"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA4ObeoMv31kaGM8Zt5tPDBkLOsZsGgS0c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

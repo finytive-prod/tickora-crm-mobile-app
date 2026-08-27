@@ -11,6 +11,8 @@ import 'package:crm_mobile/models/user_model.dart';
 
 abstract class LoginRepository {
   Future<Either<Failure, User>> login(String email, String password);
+  Future<Either<Failure, void>> verifyMail(String email);
+  Future<Either<Failure, void>> resetPassword(String email, String currentPassword, String newPassword);
 }
 
 class LoginRepositoryImpl implements LoginRepository {
@@ -68,6 +70,68 @@ class LoginRepositoryImpl implements LoginRepository {
         return Right(userModel);
       } else {
         throw ApiException(message: body?['message'] ?? 'Login failed');
+      }
+    } on Exception catch (e) {
+      return Left(ErrorHandler.mapExceptionToFailure(e));
+    }
+  }
+
+  @override
+  Future<Either<Failure, void>> verifyMail(String email) async {
+    try {
+      final baseUrl = dotenv.env['BASE_URL'] ?? '';
+      String verifyUrl = baseUrl;
+      if (baseUrl.contains('/api/crm/lead-service')) {
+        verifyUrl = baseUrl.replaceAll('/api/crm/lead-service', '/api/crm/identity-service/auth/verify-mail');
+      } else {
+        final uri = Uri.parse(baseUrl);
+        verifyUrl = '${uri.scheme}://${uri.host}:${uri.port}/api/crm/identity-service/auth/verify-mail';
+      }
+
+      final response = await apiClient.post(
+        verifyUrl,
+        data: {
+          'email': email,
+        },
+      );
+      
+      final body = response.data;
+      if (body != null && (body['success'] == true || response.statusCode == 200)) {
+        return const Right(null);
+      } else {
+        throw ApiException(message: body?['message'] ?? 'Failed to send reset link');
+      }
+    } on Exception catch (e) {
+      return Left(ErrorHandler.mapExceptionToFailure(e));
+    }
+  }
+
+  @override
+  Future<Either<Failure, void>> resetPassword(String email, String currentPassword, String newPassword) async {
+    try {
+      final baseUrl = dotenv.env['BASE_URL'] ?? '';
+      String resetUrl = baseUrl;
+      if (baseUrl.contains('/api/crm/lead-service')) {
+        resetUrl = baseUrl.replaceAll('/api/crm/lead-service', '/api/crm/identity-service/auth/reset-password');
+      } else {
+        final uri = Uri.parse(baseUrl);
+        resetUrl = '${uri.scheme}://${uri.host}:${uri.port}/api/crm/identity-service/auth/reset-password';
+      }
+
+      final response = await apiClient.post(
+        resetUrl,
+        data: {
+          'email': email,
+          'currentPassword': currentPassword,
+          'newPassword': newPassword,
+        },
+      );
+      
+      final body = response.data;
+      if (body != null && (body['success'] == true || response.statusCode == 200)) {
+        return const Right(null);
+      } else {
+        throw ApiException(message: body?['message'] ?? 'Failed to reset password');
       }
     } on Exception catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));

@@ -1,4 +1,6 @@
 import 'package:crm_mobile/models/lead.dart';
+import 'package:crm_mobile/models/custom_field.dart';
+import 'package:crm_mobile/models/lead_form_layout.dart';
 import 'package:crm_mobile/usecases/update_lead_active_status_usecase.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:crm_mobile/usecases/get_leads_usecase.dart';
@@ -81,6 +83,10 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
     List<String>? currentPriorities;
     List<dynamic>? currentOwners;
     
+    if (currentState is! LeadsLoaded || currentState.fixedFields.isEmpty) {
+      add(FetchCustomFieldsForm());
+    }
+
     if (currentState is LeadsLoaded) {
       currentStatuses = currentState.statuses;
       currentSources = currentState.sources;
@@ -115,11 +121,19 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
         List<LeadSource> finalSources = currentSources ?? [];
         List<String> finalPriorities = currentPriorities ?? [];
         List<dynamic> finalOwners = currentOwners ?? [];
+        List<CustomField> finalCustomFields = [];
+        List<FixedField> finalFixedFields = [];
+
         if (state is LeadsLoaded) {
           finalStatuses = (state as LeadsLoaded).statuses;
           finalSources = (state as LeadsLoaded).sources;
           finalPriorities = (state as LeadsLoaded).priorities;
           finalOwners = (state as LeadsLoaded).owners;
+          finalCustomFields = (state as LeadsLoaded).customFields;
+          finalFixedFields = (state as LeadsLoaded).fixedFields;
+        } else if (currentState is LeadsLoaded) {
+          finalCustomFields = currentState.customFields;
+          finalFixedFields = currentState.fixedFields;
         }
 
         emit(LeadsLoaded(
@@ -128,6 +142,8 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
           sources: finalSources,
           priorities: finalPriorities,
           owners: finalOwners.cast(),
+          customFields: finalCustomFields,
+          fixedFields: finalFixedFields,
           selectedStatusId: event.statusId,
           selectedIsActive: event.isActive,
           isLeadsLoaded: true,
@@ -153,12 +169,16 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
     List<LeadSource>? currentSources;
     List<String>? currentPriorities;
     List<dynamic>? currentOwners;
+    List<CustomField>? currentCustomFields;
+    List<FixedField>? currentFixedFields;
 
     if (currentState is LeadsLoaded) {
       currentStatuses = currentState.statuses;
       currentSources = currentState.sources;
       currentPriorities = currentState.priorities;
       currentOwners = currentState.owners;
+      currentCustomFields = currentState.customFields;
+      currentFixedFields = currentState.fixedFields;
 
       if (event.isLoadMore) {
         existingLeads = currentState.leads;
@@ -188,11 +208,16 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
         List<LeadSource> finalSources = currentSources ?? [];
         List<String> finalPriorities = currentPriorities ?? [];
         List<dynamic> finalOwners = currentOwners ?? [];
+        List<CustomField> finalCustomFields = currentCustomFields ?? [];
+        List<FixedField> finalFixedFields = currentFixedFields ?? [];
+
         if (state is LeadsLoaded) {
           finalStatuses = (state as LeadsLoaded).statuses;
           finalSources = (state as LeadsLoaded).sources;
           finalPriorities = (state as LeadsLoaded).priorities;
           finalOwners = (state as LeadsLoaded).owners;
+          finalCustomFields = (state as LeadsLoaded).customFields;
+          finalFixedFields = (state as LeadsLoaded).fixedFields;
         }
 
         emit(LeadsLoaded(
@@ -201,6 +226,8 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
           sources: finalSources,
           priorities: finalPriorities,
           owners: finalOwners.cast(),
+          customFields: finalCustomFields,
+          fixedFields: finalFixedFields,
           isLeadsLoaded: true,
           currentPage: event.page,
           hasMoreLeads: hasMore,
@@ -286,11 +313,18 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
       (failure) {
         if (state is LeadsLoaded) {}
       },
-      (customFields) {
+      (layout) {
         if (state is LeadsLoaded) {
-          emit((state as LeadsLoaded).copyWith(customFields: customFields));
+          emit((state as LeadsLoaded).copyWith(
+            fixedFields: layout.fixedFields,
+            customFields: layout.customFields,
+          ));
         } else {
-          emit(LeadsLoaded(const [], customFields: customFields));
+          emit(LeadsLoaded(
+            const [],
+            fixedFields: layout.fixedFields,
+            customFields: layout.customFields,
+          ));
         }
       },
     );

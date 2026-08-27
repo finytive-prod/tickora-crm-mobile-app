@@ -6,6 +6,8 @@ import 'package:crm_mobile/screens/more/more_screen.dart';
 import 'package:crm_mobile/screens/followups/followups_screen.dart';
 import 'package:crm_mobile/screens/calendar/calendar_screen.dart';
 import 'package:crm_mobile/core/services/privilege_service.dart';
+import 'package:crm_mobile/core/services/call_recording_service.dart';
+import 'package:crm_mobile/core/theme/app_colors.dart';
 import 'package:crm_mobile/injection/injection.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -24,6 +26,51 @@ class HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _buildTabs();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkAndRequestStartupPermissions();
+    });
+  }
+
+  Future<void> _checkAndRequestStartupPermissions() async {
+    final service = CallRecordingService();
+    final hasPerm = await service.hasStoragePermission();
+    if (!hasPerm && mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.folder_special_rounded, color: AppColors.primary, size: 28),
+              SizedBox(width: 10),
+              Text('Storage Permission', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: const Text(
+            'Tickora CRM requires All Files Access and Call Log permissions on startup to automatically record, match, and sync customer call recordings.',
+            style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('NOT NOW', style: TextStyle(color: AppColors.textHint)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () async {
+                Navigator.pop(ctx);
+                await service.openStoragePermissionSettings();
+              },
+              child: const Text('ALLOW PERMISSION', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   void changeTabByLabel(String label) {

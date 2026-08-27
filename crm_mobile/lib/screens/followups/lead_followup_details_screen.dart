@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:flutter_phone_direct_caller/flutter_phone_direct_caller.dart';
-import 'package:crm_mobile/core/services/auto_call_recording_uploader.dart';
 import 'package:crm_mobile/core/theme/app_colors.dart';
 import 'package:crm_mobile/models/follow_up.dart';
 import 'package:crm_mobile/models/lead_detail.dart';
@@ -324,100 +322,100 @@ class _LeadFollowUpDetailsViewState extends State<LeadFollowUpDetailsView> {
                   const SizedBox(height: 16),
 
                   // 2. Action Buttons (Call, Email, Details)
-                  Row(
-                    children: [
-                      // Call Action
-                      Expanded(
-                        child: InkWell(
-                          onTap: () async {
-                            if (leadDetails.phone.isNotEmpty) {
-                              AutoCallRecordingUploader.makeCallAndAutoUpload(
-                                context: context,
-                                leadId: leadDetails.id,
-                                phoneNumber: leadDetails.phone,
-                                leadName: '${leadDetails.firstName} ${leadDetails.lastName}',
-                              );
-                            } else {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('No phone number available for this lead.')),
-                              );
-                            }
-                          },
-                          borderRadius: BorderRadius.circular(12),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: AppColors.borderEnabled),
-                            ),
-                            child: const Column(
-                              children: [
-                                Icon(Icons.phone, color: Colors.green),
-                                SizedBox(height: 4),
-                                Text(
-                                  'Call Lead',
-                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      // Email Action
-                      Expanded(
-                        child: InkWell(
-                          onTap: () => _copyToClipboard(leadDetails.email, 'Email Address'),
-                          borderRadius: BorderRadius.circular(12),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: AppColors.borderEnabled),
-                            ),
-                            child: const Column(
-                              children: [
-                                Icon(Icons.email_outlined, color: Colors.indigo),
-                                SizedBox(height: 4),
-                                Text(
-                                  'Copy Email',
-                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      // Copy Phone
-                      Expanded(
-                        child: InkWell(
-                          onTap: () => _copyToClipboard(leadDetails.phone, 'Phone Number'),
-                          borderRadius: BorderRadius.circular(12),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: AppColors.borderEnabled),
-                            ),
-                            child: const Column(
-                              children: [
-                                Icon(Icons.copy, color: Colors.teal),
-                                SizedBox(height: 4),
-                                Text(
-                                  'Copy Phone',
-                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+                  // Row(
+                  //   children: [
+                  //     // Call Action
+                  //     Expanded(
+                  //       child: InkWell(
+                  //         onTap: () async {
+                  //           if (leadDetails.phone.isNotEmpty) {
+                  //             AutoCallRecordingUploader.makeCallAndAutoUpload(
+                  //               context: context,
+                  //               leadId: leadDetails.id,
+                  //               phoneNumber: leadDetails.phone,
+                  //               leadName: '${leadDetails.firstName} ${leadDetails.lastName}',
+                  //             );
+                  //           } else {
+                  //             ScaffoldMessenger.of(context).showSnackBar(
+                  //               const SnackBar(content: Text('No phone number available for this lead.')),
+                  //             );
+                  //           }
+                  //         },
+                  //         borderRadius: BorderRadius.circular(12),
+                  //         child: Container(
+                  //           padding: const EdgeInsets.symmetric(vertical: 12),
+                  //           decoration: BoxDecoration(
+                  //             color: Colors.white,
+                  //             borderRadius: BorderRadius.circular(12),
+                  //             border: Border.all(color: AppColors.borderEnabled),
+                  //           ),
+                  //           // child: const Column(
+                  //           //   children: [
+                  //           //     Icon(Icons.phone, color: Colors.green),
+                  //           //     SizedBox(height: 4),
+                  //           //     Text(
+                  //           //       'Call Lead',
+                  //           //       style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                  //           //     ),
+                  //           //   ],
+                  //           // ),
+                  //         ),
+                  //       ),
+                  //     ),
+                  //     const SizedBox(width: 12),
+                  //     // Email Action
+                  //     Expanded(
+                  //       child: InkWell(
+                  //         onTap: () => _copyToClipboard(leadDetails.email, 'Email Address'),
+                  //         borderRadius: BorderRadius.circular(12),
+                  //         child: Container(
+                  //           padding: const EdgeInsets.symmetric(vertical: 12),
+                  //           decoration: BoxDecoration(
+                  //             color: Colors.white,
+                  //             borderRadius: BorderRadius.circular(12),
+                  //             border: Border.all(color: AppColors.borderEnabled),
+                  //           ),
+                  //           // child: const Column(
+                  //           //   children: [
+                  //           //     Icon(Icons.email_outlined, color: Colors.indigo),
+                  //           //     SizedBox(height: 4),
+                  //           //     Text(
+                  //           //       'Copy Email',
+                  //           //       style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                  //           //     ),
+                  //           //   ],
+                  //           // ),
+                  //         ),
+                  //       ),
+                  //     ),
+                  //     const SizedBox(width: 12),
+                  //     // Copy Phone
+                  //     Expanded(
+                  //       child: InkWell(
+                  //         onTap: () => _copyToClipboard(leadDetails.phone, 'Phone Number'),
+                  //         borderRadius: BorderRadius.circular(12),
+                  //         child: Container(
+                  //           padding: const EdgeInsets.symmetric(vertical: 12),
+                  //           decoration: BoxDecoration(
+                  //             color: Colors.white,
+                  //             borderRadius: BorderRadius.circular(12),
+                  //             border: Border.all(color: AppColors.borderEnabled),
+                  //           ),
+                  //           // child: const Column(
+                  //           //   children: [
+                  //           //     Icon(Icons.copy, color: Colors.teal),
+                  //           //     SizedBox(height: 4),
+                  //           //     Text(
+                  //           //       'Copy Phone',
+                  //           //       style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                  //           //     ),
+                  //           //   ],
+                  //           // ),
+                  //         ),
+                  //       ),
+                  //     ),
+                  //   ],
+                  // ),
                   const SizedBox(height: 24),
 
                   // 3. Lead Contact Details Section

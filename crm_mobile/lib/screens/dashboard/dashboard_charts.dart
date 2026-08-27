@@ -6,7 +6,7 @@ import 'package:crm_mobile/models/dashboard_models.dart';
 // ─── 1. CUSTOM LINE CHART (LEAD TREND ANALYSIS) ────────────────────────────
 
 class TrendLineChart extends StatelessWidget {
-  final String activePeriod; // 'daily', 'weekly', 'monthly', 'yearly'
+  final String activePeriod; 
   final LeadTrendData? trendData;
 
   const TrendLineChart({
@@ -38,20 +38,34 @@ class TrendLineChart extends StatelessWidget {
       );
     }
 
+    final Set<String> uniqueDates = {};
+    for (var item in createdList) {
+      if (item.date.trim().isNotEmpty) uniqueDates.add(item.date);
+    }
+    for (var item in wonList) {
+      if (item.date.trim().isNotEmpty) uniqueDates.add(item.date);
+    }
+
     final List<double> series1 = [];
     final List<double> series2 = [];
     final List<String> labels = [];
 
-    final bool hasValidDates = createdList.any((e) => e.date.trim().isNotEmpty) || wonList.any((e) => e.date.trim().isNotEmpty);
-
-    if (hasValidDates) {
-      final Set<String> uniqueDates = {};
-      for (var item in createdList) if (item.date.trim().isNotEmpty) uniqueDates.add(item.date);
-      for (var item in wonList) if (item.date.trim().isNotEmpty) uniqueDates.add(item.date);
-
+    if (uniqueDates.isNotEmpty) {
       final sortedDates = uniqueDates.toList()..sort();
 
+      final Set<String> datesWithNonZeroData = {};
       for (final date in sortedDates) {
+        final cCount = createdList.where((e) => e.date == date).fold<int>(0, (sum, e) => sum + e.count);
+        final wCount = wonList.where((e) => e.date == date).fold<int>(0, (sum, e) => sum + e.count);
+        if (cCount > 0 || wCount > 0) {
+          datesWithNonZeroData.add(date);
+        }
+      }
+
+      final int total = sortedDates.length;
+
+      for (int idx = 0; idx < total; idx++) {
+        final date = sortedDates[idx];
         final cCount = createdList.where((e) => e.date == date).fold<int>(0, (sum, e) => sum + e.count);
         final wCount = wonList.where((e) => e.date == date).fold<int>(0, (sum, e) => sum + e.count);
 
@@ -65,6 +79,7 @@ class TrendLineChart extends StatelessWidget {
             rawDate = '${parts[1]}/${parts[2]}';
           }
         }
+
         labels.add(rawDate.isEmpty ? '?' : rawDate);
       }
     } else {
@@ -79,19 +94,57 @@ class TrendLineChart extends StatelessWidget {
       }
     }
 
+    final int totalPoints = series1.length;
+    final bool isScrollable = totalPoints > 8;
+
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (isScrollable)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 6.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                Icon(Icons.swipe_left_rounded, size: 14, color: AppColors.textHint),
+                SizedBox(width: 4),
+                Text(
+                  'Swipe to view full month',
+                  style: TextStyle(fontSize: 11, color: AppColors.textHint, fontStyle: FontStyle.italic),
+                ),
+              ],
+            ),
+          ),
         SizedBox(
           height: 220,
-          child: CustomPaint(
-            size: Size.infinite,
-            painter: _LineChartPainter(
-              series1: series1,
-              series2: series2,
-              labels: labels,
-              line1Color: const Color(0xFFDB222A),
-              line2Color: const Color(0xFF059669),
-            ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final double canvasWidth = isScrollable ? max(constraints.maxWidth, totalPoints * 44.0) : constraints.maxWidth;
+
+              final chartWidget = SizedBox(
+                width: canvasWidth,
+                height: 220,
+                child: CustomPaint(
+                  size: Size(canvasWidth, 220),
+                  painter: _LineChartPainter(
+                    series1: series1,
+                    series2: series2,
+                    labels: labels,
+                    line1Color: const Color(0xFFDB222A),
+                    line2Color: const Color(0xFF059669),
+                  ),
+                ),
+              );
+
+              if (isScrollable) {
+                return SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  child: chartWidget,
+                );
+              }
+              return chartWidget;
+            },
           ),
         ),
         const SizedBox(height: 14),
@@ -186,6 +239,7 @@ class _LineChartPainter extends CustomPainter {
     final double xStep = series1.length > 1 ? chartWidth / (series1.length - 1) : chartWidth;
 
     for (int i = 0; i < labels.length; i++) {
+      if (labels[i].isEmpty) continue;
       final x = leftPadding + (i * xStep);
       textPainter.text = TextSpan(text: labels[i], style: textStyle);
       textPainter.layout();
@@ -257,15 +311,20 @@ class _LineChartPainter extends CustomPainter {
 
       for (int i = 0; i < points.length; i++) {
         final pt = points[i];
-        canvas.drawCircle(pt, 6, haloPaint);
-        canvas.drawCircle(pt, 3.5, dotPaint);
-        canvas.drawCircle(pt, 1.5, dotInnerPaint);
-
         final val = data[i].toInt();
-        textPainter.text = TextSpan(text: '$val', style: valStyle);
-        textPainter.layout();
-        final yOffset = drawValueTop ? pt.dy - 16 : pt.dy + 6;
-        textPainter.paint(canvas, Offset(pt.dx - (textPainter.width / 2), yOffset));
+
+        if (val > 0) {
+          canvas.drawCircle(pt, 5, haloPaint);
+          canvas.drawCircle(pt, 3, dotPaint);
+          canvas.drawCircle(pt, 1.2, dotInnerPaint);
+
+          textPainter.text = TextSpan(text: '$val', style: valStyle);
+          textPainter.layout();
+          final yOffset = drawValueTop ? pt.dy - 16 : pt.dy + 6;
+          textPainter.paint(canvas, Offset(pt.dx - (textPainter.width / 2), yOffset));
+        } else {
+          canvas.drawCircle(pt, 1.5, dotPaint);
+        }
       }
     }
 
@@ -361,7 +420,7 @@ class PipelineBarChart extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Text(
-                '₹${item.value.toInt()}',
+                '${item.value.toInt()}',
                 style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
               ),
             ],

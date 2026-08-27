@@ -161,7 +161,13 @@ class _LeadCustomFormViewState extends State<LeadCustomFormView> {
     return BlocConsumer<SettingsBloc, SettingsState>(
       listener: (context, state) {
         if (state is CustomFieldsLoaded && !_hasLoadedData) {
-          _fieldTypes = state.types;
+          _fieldTypes = List.from(state.types);
+          final defaultTypes = ['TEXT', 'EMAIL', 'PHONE', 'NUMBER', 'DROPDOWN', 'MULTI_SELECT', 'RADIO', 'DATE', 'DATE_TIME', 'ATTACHMENT', 'TEXTAREA'];
+          for (var dt in defaultTypes) {
+            if (!_fieldTypes.contains(dt)) {
+              _fieldTypes.add(dt);
+            }
+          }
           _fields = state.fields.map((f) {
             final rawType = f.type.isNotEmpty ? f.type : f.fieldType;
             return CustomFieldConfig(
