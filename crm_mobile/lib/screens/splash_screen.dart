@@ -7,6 +7,7 @@ import 'package:crm_mobile/core/services/fcm_service.dart';
 import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/screens/home_screen.dart';
 import 'package:crm_mobile/screens/auth/login_screen.dart';
+import 'package:crm_mobile/core/services/call_recording_service.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -17,30 +18,19 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
-  bool _showSpinningLogo = false;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 2), // 2 seconds per full rotation for minute hand
+      duration: const Duration(seconds: 2),
     )..repeat();
 
     _navigateNext();
   }
 
   Future<void> _navigateNext() async {
-    // 1. Show "Tickora CRM" screen first (for 2 seconds)
-    await Future.delayed(const Duration(seconds: 2));
-
-    if (!mounted) return;
-
-    // 2. Switch to spinning logo screen
-    setState(() {
-      _showSpinningLogo = true;
-    });
-
     final startTime = DateTime.now();
 
     final prefs = sl<SharedPreferences>();
@@ -51,6 +41,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
       await sl<PrivilegeService>().fetchPrivileges();
       // Initialize FCM after authentication so the auth token is available
       await FcmService.instance.initialize();
+      await CallRecordingService().requestPermissionsSequentially();
     }
 
     // Ensure the spinning logo screen displays for at least 2 seconds
@@ -79,43 +70,14 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     return Scaffold(
       backgroundColor: AppColors.primary,
       body: Center(
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 600),
-          child: _showSpinningLogo
-              ? KeyedSubtree(
-                  key: const ValueKey('spinning_logo_screen'),
-                  child: AnimatedBuilder(
-                    animation: _controller,
-                    builder: (context, child) {
-                      return CustomPaint(
-                        size: const Size(150, 150),
-                        painter: ClockLogoPainter(animationValue: _controller.value),
-                      );
-                    },
-                  ),
-                )
-              : KeyedSubtree(
-                  key: const ValueKey('tickora_crm_screen'),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Image.asset(
-                        'assets/images/logo.webp',
-                        width: 50,
-                        height: 50,
-                      ),
-                      const SizedBox(width: 16),
-                      const Text(
-                        'Tickora CRM',
-                        style: TextStyle(
-                          fontSize: 32,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+        child: AnimatedBuilder(
+          animation: _controller,
+          builder: (context, child) {
+            return CustomPaint(
+              size: const Size(150, 150),
+              painter: ClockLogoPainter(animationValue: _controller.value),
+            );
+          },
         ),
       ),
     );

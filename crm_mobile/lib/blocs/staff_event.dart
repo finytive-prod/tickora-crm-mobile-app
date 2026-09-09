@@ -50,3 +50,12 @@ class ToggleStaffStatusEvent extends StaffEvent {
   @override
   List<Object?> get props => [id, isActive];
 }
+
+class CreateStaffMemberEvent extends StaffEvent {
+  final Map<String, dynamic> data;
+
+  const CreateStaffMemberEvent(this.data);
+
+  @override
+  List<Object?> get props => [data];
+}

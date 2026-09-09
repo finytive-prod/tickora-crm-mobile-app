@@ -9,6 +9,8 @@ import 'package:crm_mobile/core/network/error_handler.dart';
 import 'package:crm_mobile/models/user.dart';
 import 'package:crm_mobile/models/user_model.dart';
 
+import 'package:crm_mobile/core/network/api_constants.dart';
+
 abstract class LoginRepository {
   Future<Either<Failure, User>> login(String email, String password);
   Future<Either<Failure, void>> verifyMail(String email);
@@ -27,14 +29,7 @@ class LoginRepositoryImpl implements LoginRepository {
   @override
   Future<Either<Failure, User>> login(String email, String password) async {
     try {
-      final baseUrl = dotenv.env['BASE_URL'] ?? '';
-      String loginUrl = baseUrl;
-      if (baseUrl.contains('/api/crm/lead-service')) {
-        loginUrl = baseUrl.replaceAll('/api/crm/lead-service', '/api/crm/identity-service/auth/login');
-      } else {
-        final uri = Uri.parse(baseUrl);
-        loginUrl = '${uri.scheme}://${uri.host}:${uri.port}/api/crm/identity-service/auth/login';
-      }
+      final loginUrl = '${ApiUrl.identityService}/auth/login';
 
       final response = await apiClient.post(
         loginUrl,
@@ -79,14 +74,7 @@ class LoginRepositoryImpl implements LoginRepository {
   @override
   Future<Either<Failure, void>> verifyMail(String email) async {
     try {
-      final baseUrl = dotenv.env['BASE_URL'] ?? '';
-      String verifyUrl = baseUrl;
-      if (baseUrl.contains('/api/crm/lead-service')) {
-        verifyUrl = baseUrl.replaceAll('/api/crm/lead-service', '/api/crm/identity-service/auth/verify-mail');
-      } else {
-        final uri = Uri.parse(baseUrl);
-        verifyUrl = '${uri.scheme}://${uri.host}:${uri.port}/api/crm/identity-service/auth/verify-mail';
-      }
+      final verifyUrl = '${ApiUrl.identityService}/auth/verify-mail';
 
       final response = await apiClient.post(
         verifyUrl,
@@ -109,14 +97,7 @@ class LoginRepositoryImpl implements LoginRepository {
   @override
   Future<Either<Failure, void>> resetPassword(String email, String currentPassword, String newPassword) async {
     try {
-      final baseUrl = dotenv.env['BASE_URL'] ?? '';
-      String resetUrl = baseUrl;
-      if (baseUrl.contains('/api/crm/lead-service')) {
-        resetUrl = baseUrl.replaceAll('/api/crm/lead-service', '/api/crm/identity-service/auth/reset-password');
-      } else {
-        final uri = Uri.parse(baseUrl);
-        resetUrl = '${uri.scheme}://${uri.host}:${uri.port}/api/crm/identity-service/auth/reset-password';
-      }
+      final resetUrl = '${ApiUrl.identityService}/auth/reset-password';
 
       final response = await apiClient.post(
         resetUrl,

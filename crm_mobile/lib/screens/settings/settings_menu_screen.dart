@@ -66,12 +66,12 @@ class SettingsMenuScreen extends StatelessWidget {
                     },
                   ),
                   _buildDivider(),
-                  _buildMenuItem(
-                    context: context,
-                    icon: Icons.show_chart_outlined,
-                    title: 'Pipeline Stages',
-                    onTap: () => _showComingSoon(context, 'Pipeline Stages'),
-                  ),
+                  // _buildMenuItem(
+                  //   context: context,
+                  //   icon: Icons.show_chart_outlined,
+                  //   title: 'Pipeline Stages',
+                  //   onTap: () => _showComingSoon(context, 'Pipeline Stages'),
+                  // ),
                   _buildDivider(),
                   _buildMenuItem(
                     context: context,
@@ -84,17 +84,7 @@ class SettingsMenuScreen extends StatelessWidget {
                       );
                     },
                   ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              ],
-
-              if (sl<PrivilegeService>().hasPrivilege('ROLE_READ') || sl<PrivilegeService>().hasPrivilege('PERMISSION_READ')) ...[
-                _buildSectionTitle('TEAM MANAGEMENT'),
-                _buildSectionContainer(
-                children: [
-                 
-                  _buildDivider(),
+  _buildDivider(),
                   _buildMenuItem(
                     context: context,
                     icon: Icons.admin_panel_settings_outlined,
@@ -106,10 +96,12 @@ class SettingsMenuScreen extends StatelessWidget {
                       );
                     },
                   ),
+
                 ],
               ),
-              const SizedBox(height: 24),
+              // const SizedBox(height: 24),
               ],
+
             ],
           ),
         ),

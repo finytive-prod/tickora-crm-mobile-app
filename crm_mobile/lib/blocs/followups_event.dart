@@ -11,11 +11,21 @@ class FetchFollowUps extends FollowUpsEvent {
   final String category;
   final int page;
   final int size;
+  final bool isLoadMore;
+  final bool isRefresh;
+  final String? searchQuery;
 
-  const FetchFollowUps({required this.category, this.page = 0, this.size = 10});
+  const FetchFollowUps({
+    required this.category,
+    this.page = 0,
+    this.size = 10,
+    this.isLoadMore = false,
+    this.isRefresh = false,
+    this.searchQuery,
+  });
 
   @override
-  List<Object?> get props => [category, page, size];
+  List<Object?> get props => [category, page, size, isLoadMore, isRefresh, searchQuery];
 }
 
 class FetchLeadFollowUps extends FollowUpsEvent {

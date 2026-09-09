@@ -44,6 +44,15 @@ class _CalendarScreenViewState extends State<CalendarScreenView> {
   List<CalendarEventModel> _events = [];
   List<String> _categories = [];
 
+  List<String> get _activeCategories {
+    if (_categories.isNotEmpty) return _categories;
+    try {
+      return context.read<CalendarBloc>().categories;
+    } catch (_) {
+      return [];
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -449,10 +458,85 @@ class _CalendarScreenViewState extends State<CalendarScreenView> {
             final end = DateTime(focusedDay.year, focusedDay.month + 1, 0, 23, 59, 59);
             context.read<CalendarBloc>().add(FetchCalendarEvents(start: start, end: end));
           },
-          calendarStyle: const CalendarStyle(
-            selectedDecoration: BoxDecoration(color: Colors.red, shape: BoxShape.circle),
-            todayDecoration: BoxDecoration(color: AppColors.textHint, shape: BoxShape.circle),
-            markerDecoration: BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+          calendarStyle: CalendarStyle(
+            selectedDecoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
+            todayDecoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.15),
+              shape: BoxShape.circle,
+            ),
+            todayTextStyle: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold),
+          ),
+          calendarBuilders: CalendarBuilders(
+            defaultBuilder: (context, day, focusedDay) {
+              final events = _getEventsForDay(day);
+              if (events.isNotEmpty) {
+                return Container(
+                  margin: const EdgeInsets.all(4),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF3F4F6),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFE5E7EB)),
+                  ),
+                  child: Text(
+                    '${day.day}',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                );
+              }
+              return null;
+            },
+            markerBuilder: (context, date, events) {
+              if (events.isEmpty) return const SizedBox.shrink();
+              
+              final typedEvents = events.cast<CalendarEventModel>();
+              final displayEvents = typedEvents.take(3).toList();
+              final remainingCount = typedEvents.length - displayEvents.length;
+
+              return Positioned(
+                bottom: 6,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ...displayEvents.map((e) {
+                      final color = _getCategoryColor(e.category);
+                      final barWidth = displayEvents.length == 1 ? 16.0 : (displayEvents.length == 2 ? 10.0 : 7.0);
+                      return Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 1.0),
+                        width: barWidth,
+                        height: 3.5,
+                        decoration: BoxDecoration(
+                          color: color,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      );
+                    }),
+                    if (remainingCount > 0)
+                      Container(
+                        margin: const EdgeInsets.only(left: 2),
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0.5),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEEF2FF),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: const Color(0xFFC7D2FE), width: 0.5),
+                        ),
+                        child: Text(
+                          '+$remainingCount',
+                          style: const TextStyle(
+                            fontSize: 7.5,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF4338CA),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            },
           ),
           headerVisible: false,
           daysOfWeekStyle: const DaysOfWeekStyle(
@@ -475,7 +559,7 @@ class _CalendarScreenViewState extends State<CalendarScreenView> {
                 ),
                 const SizedBox(height: 12),
                 Expanded(
-                  child: _categories.isEmpty 
+                  child: _activeCategories.isEmpty 
                       ? const Center(child: Text('No categories found.'))
                       : GridView.count(
                           shrinkWrap: true,
@@ -483,7 +567,7 @@ class _CalendarScreenViewState extends State<CalendarScreenView> {
                           childAspectRatio: 2.5,
                           mainAxisSpacing: 8,
                           crossAxisSpacing: 8,
-                          children: _categories.map((category) {
+                          children: _activeCategories.map((category) {
                             return _buildCategoryCheckbox(category, _getCategoryColor(category));
                           }).toList(),
                         ),
@@ -499,22 +583,22 @@ class _CalendarScreenViewState extends State<CalendarScreenView> {
   Color _getCategoryColor(String category) {
     switch (category.toUpperCase()) {
       case 'EVENT':
-        return Colors.blue;
+        return const Color(0xFF2563EB); // Royal Blue
       case 'MEETING':
-        return Colors.purple;
+        return const Color(0xFF9333EA); // Purple
       case 'TASK':
-        return Colors.green;
+        return const Color(0xFF16A34A); // Emerald Green
       case 'CALL':
-        return Colors.lightBlue;
+        return const Color(0xFF0284C7); // Sky Blue
       case 'REMINDER':
-        return Colors.orange;
+        return const Color(0xFFEA580C); // Orange
       case 'BIRTHDAY':
-        return Colors.pink;
+        return const Color(0xFFDB2777); // Pink
       case 'FOLLOW_UP':
       case 'FOLLOW UP':
-        return Colors.red;
+        return const Color(0xFF4F46E5); // Indigo
       default:
-        return AppColors.primary;
+        return const Color(0xFF2563EB); // Default Royal Blue
     }
   }
 

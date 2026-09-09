@@ -15,11 +15,12 @@ class FollowUpsLoading extends FollowUpsState {}
 
 class FollowUpsLoaded extends FollowUpsState {
   final FollowUpResponse response;
+  final bool isLoadingMore;
 
-  const FollowUpsLoaded(this.response);
+  const FollowUpsLoaded(this.response, {this.isLoadingMore = false});
 
   @override
-  List<Object?> get props => [response];
+  List<Object?> get props => [response, isLoadingMore];
 }
 
 class FollowUpsError extends FollowUpsState {

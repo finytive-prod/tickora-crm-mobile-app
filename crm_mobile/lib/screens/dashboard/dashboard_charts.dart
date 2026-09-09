@@ -83,14 +83,17 @@ class TrendLineChart extends StatelessWidget {
         labels.add(rawDate.isEmpty ? '?' : rawDate);
       }
     } else {
-      final maxLen = max(createdList.length, wonList.length);
+      int maxLen = max(createdList.length, wonList.length);
+      if (activePeriod.toLowerCase() == 'monthly' && maxLen < 31) {
+        maxLen = 31;
+      }
       for (int i = 0; i < maxLen; i++) {
         final createdItem = i < createdList.length ? createdList[i] : null;
         final wonItem = i < wonList.length ? wonList[i] : null;
 
         series1.add(createdItem?.count.toDouble() ?? 0.0);
         series2.add(wonItem?.count.toDouble() ?? 0.0);
-        labels.add('P${i + 1}');
+        labels.add('D${i + 1}');
       }
     }
 
@@ -338,100 +341,123 @@ class _LineChartPainter extends CustomPainter {
 
 // ─── 2. SALES PIPELINE HORIZONTAL BAR CHART ─────────────────────────────────
 
-class PipelineBarChart extends StatelessWidget {
-  final List<SalesPipelineItem> items;
+// class PipelineBarChart extends StatelessWidget {
+//   final List<SalesPipelineItem> items;
 
-  const PipelineBarChart({super.key, this.items = const []});
+//   const PipelineBarChart({super.key, this.items = const []});
 
-  static const List<Color> _palette = [
-    Color(0xFFEF4444),
-    Color(0xFFF97316),
-    Color(0xFFF59E0B),
-    Color(0xFFFF6600),
-    Color(0xFFFB923C),
-    Color(0xFF8B5CF6),
-    Color(0xFF3B82F6),
-  ];
+//   static const List<Color> _palette = [
+//     Color(0xFFEF4444),
+//     Color(0xFFF97316),
+//     Color(0xFFF59E0B),
+//     Color(0xFFFF6600),
+//     Color(0xFFFB923C),
+//     Color(0xFF8B5CF6),
+//     Color(0xFF3B82F6),
+//   ];
 
-  @override
-  Widget build(BuildContext context) {
-    if (items.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 24.0),
-        child: Center(
-          child: Column(
-            children: [
-              Icon(Icons.filter_alt_outlined, size: 44, color: Colors.grey.shade300),
-              const SizedBox(height: 8),
-              const Text(
-                'No sales pipeline data available',
-                style: TextStyle(color: AppColors.textHint, fontSize: 13),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
+//   @override
+//   Widget build(BuildContext context) {
+//     if (items.isEmpty) {
+//       return Padding(
+//         padding: const EdgeInsets.symmetric(vertical: 24.0),
+//         child: Center(
+//           child: Column(
+//             children: [
+//               Icon(Icons.filter_alt_outlined, size: 44, color: Colors.grey.shade300),
+//               const SizedBox(height: 8),
+//               const Text(
+//                 'No sales pipeline data available',
+//                 style: TextStyle(color: AppColors.textHint, fontSize: 13),
+//               ),
+//             ],
+//           ),
+//         ),
+//       );
+//     }
 
-    final double maxValue = items.map((e) => e.value).fold(1.0, (prev, curr) => max(prev, curr));
+//     final double maxValue = items.map((e) => e.value).fold(1.0, (prev, curr) => max(prev, curr));
 
-    return Column(
-      children: items.asMap().entries.map((entry) {
-        final idx = entry.key;
-        final item = entry.value;
-        final color = _palette[idx % _palette.length];
-        final ratio = maxValue > 0 ? item.value / maxValue : 0.0;
+//     return Column(
+//       children: items.asMap().entries.map((entry) {
+//         final idx = entry.key;
+//         final item = entry.value;
+//         final color = _palette[idx % _palette.length];
+//         final ratio = maxValue > 0 ? item.value / maxValue : 0.0;
 
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6.0),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 120,
-                child: Text(
-                  item.stageName,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 12, color: AppColors.textPrimary, fontWeight: FontWeight.w500),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Stack(
-                  children: [
-                    Container(
-                      height: 20,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF3F4F6),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                    ),
-                    FractionallySizedBox(
-                      widthFactor: ratio.clamp(0.05, 1.0),
-                      child: Container(
-                        height: 20,
-                        decoration: BoxDecoration(
-                          color: color,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                '${item.value.toInt()}',
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-              ),
-            ],
-          ),
-        );
-      }).toList(),
-    );
-  }
-}
+//         return Padding(
+//           padding: const EdgeInsets.symmetric(vertical: 6.0),
+//           child: Row(
+//             children: [
+//               SizedBox(
+//                 width: 120,
+//                 child: Text(
+//                   item.stageName,
+//                   overflow: TextOverflow.ellipsis,
+//                   style: const TextStyle(fontSize: 12, color: AppColors.textPrimary, fontWeight: FontWeight.w500),
+//                 ),
+//               ),
+//               const SizedBox(width: 8),
+//               Expanded(
+//                 child: Stack(
+//                   children: [
+//                     Container(
+//                       height: 20,
+//                       decoration: BoxDecoration(
+//                         color: const Color(0xFFF3F4F6),
+//                         borderRadius: BorderRadius.circular(4),
+//                       ),
+//                     ),
+//                     FractionallySizedBox(
+//                       widthFactor: ratio.clamp(0.05, 1.0),
+//                       child: Container(
+//                         height: 20,
+//                         decoration: BoxDecoration(
+//                           color: color,
+//                           borderRadius: BorderRadius.circular(4),
+//                         ),
+//                       ),
+//                     ),
+//                   ],
+//                 ),
+//               ),
+//               const SizedBox(width: 8),
+//               Text(
+//                 '${item.value.toInt()}',
+//                 style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+//               ),
+//             ],
+//           ),
+//         );
+//       }).toList(),
+//     );
+//   }
+// }
 
 // ─── 3. DONUT CHART (LEAD STATUS & SOURCE DISTRIBUTION) ─────────────────────
+
+Color getDynamicChartColor(String label, int index, int totalCount) {
+  final count = max(totalCount, 1);
+  const double goldenAngle = 137.508;
+  
+  int labelHash = 0;
+  for (int i = 0; i < label.length; i++) {
+    labelHash = label.codeUnitAt(i) + ((labelHash << 5) - labelHash);
+  }
+  
+  final double baseHue = (labelHash.abs() % 360).toDouble();
+  final double hue = (baseHue + (index * goldenAngle) + (index * (360.0 / count))) % 360.0;
+  
+  final double lightness = 0.46 + ((index % 4) * 0.06);
+  final double saturation = 0.78 + ((index % 3) * 0.07);
+
+  return HSLColor.fromAHSL(
+    1.0,
+    hue,
+    saturation.clamp(0.40, 0.98),
+    lightness.clamp(0.35, 0.68),
+  ).toColor();
+}
 
 class DonutSegment {
   final String label;
@@ -560,90 +586,90 @@ class _DonutPainter extends CustomPainter {
 
 // ─── 4. MONTHLY REVENUE TARGET CARD ─────────────────────────────────────────
 
-class MonthlyRevenueTargetCard extends StatelessWidget {
-  final RevenueTargetData targetData;
+// class MonthlyRevenueTargetCard extends StatelessWidget {
+//   final RevenueTargetData targetData;
 
-  const MonthlyRevenueTargetCard({
-    super.key,
-    required this.targetData,
-  });
+//   const MonthlyRevenueTargetCard({
+//     super.key,
+//     required this.targetData,
+//   });
 
-  @override
-  Widget build(BuildContext context) {
-    final target = targetData.target;
-    final achieved = targetData.achieved;
-    final progressPct = targetData.progressPercentage.isNaN
-        ? (target > 0 ? (achieved / target * 100) : 0.0)
-        : targetData.progressPercentage;
+//   @override
+//   Widget build(BuildContext context) {
+//     final target = targetData.target;
+//     final achieved = targetData.achieved;
+//     final progressPct = targetData.progressPercentage.isNaN
+//         ? (target > 0 ? (achieved / target * 100) : 0.0)
+//         : targetData.progressPercentage;
 
-    return Column(
-      children: [
-        const SizedBox(height: 8),
-        Center(
-          child: Column(
-            children: [
-              Stack(
-                alignment: Alignment.center,
-                children: [
-                  SizedBox(
-                    width: 90,
-                    height: 90,
-                    child: CircularProgressIndicator(
-                      value: target > 0 ? (achieved / target).clamp(0.0, 1.0) : 0.0,
-                      strokeWidth: 8,
-                      backgroundColor: const Color(0xFFE5E7EB),
-                      valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
-                    ),
-                  ),
-                  Text(
-                    '${progressPct.toStringAsFixed(1)}%',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
+//     return Column(
+//       children: [
+//         const SizedBox(height: 8),
+//         Center(
+//           child: Column(
+//             children: [
+//               Stack(
+//                 alignment: Alignment.center,
+//                 children: [
+//                   SizedBox(
+//                     width: 90,
+//                     height: 90,
+//                     child: CircularProgressIndicator(
+//                       value: target > 0 ? (achieved / target).clamp(0.0, 1.0) : 0.0,
+//                       strokeWidth: 8,
+//                       backgroundColor: const Color(0xFFE5E7EB),
+//                       valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
+//                     ),
+//                   ),
+//                   Text(
+//                     '${progressPct.toStringAsFixed(1)}%',
+//                     style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+//                   ),
+//                 ],
+//               ),
+//               const SizedBox(height: 12),
+//             ],
+//           ),
+//         ),
+//         const SizedBox(height: 12),
 
-        Container(
-          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF9FAFB),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.borderEnabled),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildTargetStat('TARGET', '₹${target.toInt()}'),
-              _buildTargetStat('ACHIEVED', '₹${achieved.toInt()}'),
-              _buildTargetStat('PROGRESS', '${progressPct.toStringAsFixed(1)}%', isPrimary: true),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
+//         Container(
+//           padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+//           decoration: BoxDecoration(
+//             color: const Color(0xFFF9FAFB),
+//             borderRadius: BorderRadius.circular(12),
+//             border: Border.all(color: AppColors.borderEnabled),
+//           ),
+//           child: Row(
+//             mainAxisAlignment: MainAxisAlignment.spaceAround,
+//             children: [
+//               _buildTargetStat('TARGET', '₹${target.toInt()}'),
+//               _buildTargetStat('ACHIEVED', '₹${achieved.toInt()}'),
+//               _buildTargetStat('PROGRESS', '${progressPct.toStringAsFixed(1)}%', isPrimary: true),
+//             ],
+//           ),
+//         ),
+//       ],
+//     );
+//   }
 
-  Widget _buildTargetStat(String label, String value, {bool isPrimary = false}) {
-    return Column(
-      children: [
-        Text(
-          label,
-          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.textHint, letterSpacing: 0.5),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.bold,
-            color: isPrimary ? AppColors.primary : AppColors.textPrimary,
-          ),
-        ),
-      ],
-    );
-  }
-}
+//   Widget _buildTargetStat(String label, String value, {bool isPrimary = false}) {
+//     return Column(
+//       children: [
+//         Text(
+//           label,
+//           style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.textHint, letterSpacing: 0.5),
+//         ),
+//         const SizedBox(height: 4),
+//         Text(
+//           value,
+//           style: TextStyle(
+//             fontSize: 14,
+//             fontWeight: FontWeight.bold,
+//             color: isPrimary ? AppColors.primary : AppColors.textPrimary,
+//           ),
+//         ),
+//       ],
+//     );
+//   }
+// }

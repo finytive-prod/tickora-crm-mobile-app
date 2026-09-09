@@ -6,11 +6,9 @@ import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/blocs/leads_bloc.dart';
 import 'package:crm_mobile/blocs/leads_event.dart';
 import 'package:crm_mobile/blocs/leads_state.dart';
-import 'package:crm_mobile/screens/leads/add_lead_screen.dart';
 import 'package:crm_mobile/screens/leads/lead_details_screen.dart';
 import 'package:crm_mobile/widgets/expandable_fab.dart';
 import 'package:crm_mobile/widgets/spinning_logo.dart';
-import 'package:crm_mobile/core/services/privilege_service.dart';
 
 class LeadsScreen extends StatelessWidget {
   const LeadsScreen({super.key});
@@ -23,7 +21,7 @@ class LeadsScreen extends StatelessWidget {
         ..add(FetchLeadSources())
         ..add(FetchLeadPriorities())
         ..add(const FetchStaffUsers())
-        ..add(const FetchLeads(page: 0, size: 15)),
+        ..add(const FetchLeads(page: 0, size: 15, isActive: true)),
       child: const LeadsScreenView(),
     );
   }
@@ -64,19 +62,38 @@ class LeadsScreenView extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
                   child: Row(
                     children: [
-                      const Text(
-                        'Leads',
-                        style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                      Text(
+                        selectedIsActive == false ? 'Inactive Leads' : 'Leads',
+                        style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
                       ),
                       const Spacer(),
-                      // IconButton(
-                      //   icon: const Icon(Icons.filter_alt_outlined, color: AppColors.textPrimary),
-                      //   onPressed: () {},
-                      // ),
-                      // IconButton(
-                      //   icon: const Icon(Icons.sort, color: AppColors.textPrimary),
-                      //   onPressed: () {},
-                      // ),
+                      PopupMenuButton<bool>(
+                        icon: const Icon(Icons.more_vert, color: AppColors.textPrimary),
+                        onSelected: (bool showActive) {
+                          context.read<LeadsBloc>().add(
+                            FetchLeads(page: 0, size: 15, statusId: selectedStatusId, isActive: showActive),
+                          );
+                        },
+                        itemBuilder: (BuildContext context) => <PopupMenuEntry<bool>>[
+                          PopupMenuItem<bool>(
+                            value: selectedIsActive == false ? true : false,
+                            child: Row(
+                              children: [
+                                Icon(
+                                  selectedIsActive == false ? Icons.check_circle_outline : Icons.pause_circle_outline,
+                                  size: 20,
+                                  color: AppColors.primary,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  selectedIsActive == false ? 'Active Leads' : 'Inactive Leads',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -93,7 +110,7 @@ class LeadsScreenView extends StatelessWidget {
                       onChanged: (query) {
                         final trimmed = query.trim();
                         if (trimmed.isEmpty) {
-                          context.read<LeadsBloc>().add(const FetchLeads(page: 0, size: 15));
+                          context.read<LeadsBloc>().add(FetchLeads(page: 0, size: 15, statusId: selectedStatusId, isActive: selectedIsActive ?? true));
                         } else {
                           context.read<LeadsBloc>().add(SearchLeads(query: trimmed, page: 0, size: 15));
                         }
@@ -120,63 +137,19 @@ class LeadsScreenView extends StatelessWidget {
                           'All Leads',
                           isSelected: selectedStatusId == null,
                           onTap: () {
-                            context.read<LeadsBloc>().add(const FetchLeads(page: 0, size: 15));
+                            context.read<LeadsBloc>().add(FetchLeads(page: 0, size: 15, isActive: selectedIsActive ?? true));
                           },
                         ),
                         ...statuses.map((status) => _buildFilterChip(
                               status.statusName,
                               isSelected: selectedStatusId == status.id,
                               onTap: () {
-                                context.read<LeadsBloc>().add(FetchLeads(page: 0, size: 15, statusId: status.id));
+                                context.read<LeadsBloc>().add(FetchLeads(page: 0, size: 15, statusId: status.id, isActive: selectedIsActive ?? true));
                               },
                             )),
                       ],
                     ),
                   ),
-                const SizedBox(height: 12),
-                // Active/Inactive Toggle
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () {
-                            context.read<LeadsBloc>().add(FetchLeads(page: 0, size: 15, statusId: selectedStatusId, isActive: true));
-                          },
-                          child: Container(
-                            alignment: Alignment.center,
-                            padding: const EdgeInsets.symmetric(vertical: 8),
-                            decoration: BoxDecoration(
-                              color: selectedIsActive == null || selectedIsActive == true ? AppColors.primary : Colors.white,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: AppColors.primary),
-                            ),
-                            child: Text('Active', style: TextStyle(color: selectedIsActive == null || selectedIsActive == true ? Colors.white : AppColors.primary, fontWeight: FontWeight.bold)),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () {
-                            context.read<LeadsBloc>().add(FetchLeads(page: 0, size: 15, statusId: selectedStatusId, isActive: false));
-                          },
-                          child: Container(
-                            alignment: Alignment.center,
-                            padding: const EdgeInsets.symmetric(vertical: 8),
-                            decoration: BoxDecoration(
-                              color: selectedIsActive == false ? AppColors.primary : Colors.white,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: AppColors.primary),
-                            ),
-                            child: Text('Inactive', style: TextStyle(color: selectedIsActive == false ? Colors.white : AppColors.primary, fontWeight: FontWeight.bold)),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
                 const SizedBox(height: 16),
                 // Leads List
                 Expanded(
@@ -187,9 +160,7 @@ class LeadsScreenView extends StatelessWidget {
           },
         ),
       ),
-      floatingActionButton: sl<PrivilegeService>().hasPrivilege('LEAD_CREATE') 
-          ? const ExpandableFab() 
-          : null,
+      floatingActionButton: const ExpandableFab(),
     );
   }
 

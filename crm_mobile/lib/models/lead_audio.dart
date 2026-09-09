@@ -21,34 +21,45 @@ class LeadAudio extends Equatable {
 
   String get displayName => originalFileName.isNotEmpty ? originalFileName : fileName;
 
+  bool get hasExplicitDirection {
+    final lower = displayName.toLowerCase();
+    final lowerFile = fileName.toLowerCase();
+    final combined = '$lower $lowerFile';
+    return combined.contains('incoming') ||
+        combined.contains('inbound') ||
+        combined.contains('outgoing') ||
+        combined.contains('outbound') ||
+        combined.contains('call_in') ||
+        combined.contains('call_out') ||
+        combined.contains('rec_in') ||
+        combined.contains('rec_out');
+  }
+
   String get callType {
     final lower = displayName.toLowerCase();
-    
-    // Explicit Outbound check first
-    if (lower.contains('outgoing') ||
-        lower.contains('outbound') ||
-        lower.contains('_out_') ||
-        lower.contains('_outg_') ||
-        lower.contains('callout') ||
-        lower.contains('sent') ||
-        lower.contains('(out)') ||
-        lower.contains('out_')) {
+    final lowerFile = fileName.toLowerCase();
+    final combined = '$lower $lowerFile';
+
+    // 1. Explicit Outbound check (outgoing calls placed to lead)
+    if (combined.contains('outgoing') ||
+        combined.contains('outbound') ||
+        combined.contains('call_out') ||
+        combined.contains('rec_out') ||
+        combined.contains('sent')) {
       return 'outbound';
     }
 
-    // Explicit Inbound check (without matching 'recording_')
-    if (lower.contains('incoming') ||
-        lower.contains('inbound') ||
-        lower.contains('_in_') ||
-        lower.contains('_inc_') ||
-        lower.contains('callin') ||
-        lower.contains('recv') ||
-        lower.contains('received') ||
-        lower.contains('(in)')) {
+    // 2. Explicit Inbound check (incoming calls received from lead)
+    if (combined.contains('incoming') ||
+        combined.contains('inbound') ||
+        combined.contains('call_in') ||
+        combined.contains('rec_in') ||
+        combined.contains('recv') ||
+        combined.contains('received')) {
       return 'inbound';
     }
 
-    return 'outbound';
+    return 'inbound';
   }
 
   @override

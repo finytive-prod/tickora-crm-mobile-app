@@ -73,46 +73,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     );
   }
 
-  Widget _buildPasswordStrengthIndicator() {
-    final primaryColor = Theme.of(context).primaryColor;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text(
-              'Password Strength',
-              style: TextStyle(
-                fontSize: 12,
-                color: AppColors.textSecondary,
-              ),
-            ),
-            Text(
-              'Strong',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                color: primaryColor,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(child: Container(height: 4, color: primaryColor)),
-            const SizedBox(width: 4),
-            Expanded(child: Container(height: 4, color: primaryColor)),
-            const SizedBox(width: 4),
-            Expanded(child: Container(height: 4, color: primaryColor)),
-            const SizedBox(width: 4),
-            Expanded(child: Container(height: 4, color: AppColors.border)),
-          ],
-        ),
-      ],
-    );
-  }
+  
 
   @override
   Widget build(BuildContext context) {
@@ -167,7 +128,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                 controller: _passwordController,
                 obscureText: _obscurePassword,
                 decoration: InputDecoration(
-                  hintText: '••••••••',
+                  // hintText: '••••••••',
                   hintStyle: const TextStyle(color: AppColors.textHint, fontSize: 14),
                   filled: true,
                   fillColor: Colors.white,
@@ -200,7 +161,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
               ),
               const SizedBox(height: 24),
               // Password Strength
-              _buildPasswordStrengthIndicator(),
+              // _buildPasswordStrengthIndicator(),
               const SizedBox(height: 24),
               // Confirm Password Field
               const Text(
@@ -216,7 +177,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                 controller: _confirmPasswordController,
                 obscureText: _obscureConfirmPassword,
                 decoration: InputDecoration(
-                  hintText: '••••••••',
+                  // hintText: '••••••••',
                   hintStyle: const TextStyle(color: AppColors.textHint, fontSize: 14),
                   filled: true,
                   fillColor: Colors.white,

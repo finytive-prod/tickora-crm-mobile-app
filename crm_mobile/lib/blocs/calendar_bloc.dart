@@ -14,6 +14,16 @@ class CalendarBloc extends Bloc<CalendarEvent, CalendarState> {
   final GetCalendarEventsUseCase getCalendarEventsUseCase;
   final DeleteCalendarEventUseCase deleteCalendarEventUseCase;
 
+  List<String> categories = [
+    "EVENT",
+    "MEETING",
+    "TASK",
+    "CALL",
+    "REMINDER",
+    "BIRTHDAY",
+    "FOLLOW_UP"
+  ];
+
   CalendarBloc({
     required this.getCalendarCategoriesUseCase,
     required this.createCalendarEventUseCase,
@@ -29,11 +39,15 @@ class CalendarBloc extends Bloc<CalendarEvent, CalendarState> {
   }
 
   Future<void> _onFetchCalendarCategories(FetchCalendarCategories event, Emitter<CalendarState> emit) async {
-    emit(CalendarLoading());
     final result = await getCalendarCategoriesUseCase();
     result.fold(
       (failure) => emit(CalendarError(message: failure.message)),
-      (categories) => emit(CalendarCategoriesLoaded(categories: categories)),
+      (fetchedCategories) {
+        if (fetchedCategories.isNotEmpty) {
+          categories = fetchedCategories;
+        }
+        emit(CalendarCategoriesLoaded(categories: categories));
+      },
     );
   }
 

@@ -2,9 +2,9 @@ import 'package:crm_mobile/core/theme/app_colors.dart';
 import 'package:crm_mobile/blocs/leads_bloc.dart';
 import 'package:crm_mobile/screens/leads/add_lead_screen.dart';
 import 'package:crm_mobile/screens/leads/quick_invite_screen.dart';
+import 'package:crm_mobile/widgets/in_app_dialpad_bottom_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-
 
 class ExpandableFab extends StatefulWidget {
   const ExpandableFab({super.key});
@@ -78,6 +78,8 @@ class _ExpandableFabState extends State<ExpandableFab> with SingleTickerProvider
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
+                
+                const SizedBox(height: 12),
                 _buildActionItem(
                   label: 'Quick Invite',
                   icon: Icons.flash_on,
@@ -97,6 +99,7 @@ class _ExpandableFabState extends State<ExpandableFab> with SingleTickerProvider
           ),
         ),
         FloatingActionButton(
+          heroTag: 'expandable_fab_main',
           backgroundColor: AppColors.primary,
           shape: const CircleBorder(),
           onPressed: _toggle,
@@ -105,6 +108,25 @@ class _ExpandableFabState extends State<ExpandableFab> with SingleTickerProvider
             progress: _controller,
             color: Colors.white,
           ),
+        ),
+        const SizedBox(height: 12),
+        FloatingActionButton(
+          heroTag: 'dialer_fab_under_3_line',
+          backgroundColor: Colors.teal,
+          shape: const CircleBorder(),
+          onPressed: () {
+            final bloc = context.read<LeadsBloc>();
+            showModalBottomSheet(
+              context: context,
+              isScrollControlled: true,
+              backgroundColor: Colors.transparent,
+              builder: (modalContext) => BlocProvider<LeadsBloc>.value(
+                value: bloc,
+                child: const InAppDialpadBottomSheet(),
+              ),
+            );
+          },
+          child: const Icon(Icons.dialpad, color: Colors.white, size: 24),
         ),
       ],
     );

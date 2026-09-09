@@ -8,7 +8,7 @@ class GetFollowUpsUseCase {
 
   GetFollowUpsUseCase(this.repository);
 
-  Future<Either<Failure, FollowUpResponse>> call({required String category, int page = 0, int size = 10}) {
-    return repository.getFollowUps(category: category, page: page, size: size);
+  Future<Either<Failure, FollowUpResponse>> call({required String category, int page = 0, int size = 10, String? searchQuery}) {
+    return repository.getFollowUps(category: category, page: page, size: size, searchQuery: searchQuery);
   }
 }

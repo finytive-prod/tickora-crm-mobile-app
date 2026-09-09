@@ -32,12 +32,46 @@ class FollowUpsScreenView extends StatefulWidget {
 
 class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
   String _selectedTab = 'All';
+  final TextEditingController _searchController = TextEditingController();
 
-  int _allCount = 0;
   int _todayCount = 0;
   int _upcomingCount = 0;
   int _missedCount = 0;
   int _completedCount = 0;
+
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    final currentScroll = _scrollController.offset;
+    if (currentScroll >= maxScroll - 200) {
+      final state = context.read<FollowUpsBloc>().state;
+      if (state is FollowUpsLoaded && !state.isLoadingMore && !state.response.last) {
+        context.read<FollowUpsBloc>().add(
+          FetchFollowUps(
+            category: _getApiCategory(_selectedTab),
+            page: state.response.number + 1,
+            isLoadMore: true,
+            searchQuery: _searchController.text.trim(),
+          ),
+        );
+      }
+    }
+  }
 
   String _getApiCategory(String tab) {
     if (tab == 'Today') return 'TODAY';
@@ -51,8 +85,15 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
     setState(() {
       _selectedTab = tabName;
     });
+    if (_scrollController.hasClients) {
+      _scrollController.jumpTo(0);
+    }
     context.read<FollowUpsBloc>().add(
-      FetchFollowUps(category: _getApiCategory(tabName)),
+      FetchFollowUps(
+        category: _getApiCategory(tabName),
+        page: 0,
+        searchQuery: _searchController.text.trim(),
+      ),
     );
   }
 
@@ -107,6 +148,55 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
               ),
             ),
 
+            // Search Bar
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.borderEnabled),
+                ),
+                child: TextField(
+                  controller: _searchController,
+                  onChanged: (query) {
+                    setState(() {});
+                    context.read<FollowUpsBloc>().add(
+                      FetchFollowUps(
+                        category: _getApiCategory(_selectedTab),
+                        page: 0,
+                        searchQuery: query.trim(),
+                      ),
+                    );
+                  },
+                  decoration: InputDecoration(
+                    hintText: 'Search follow-ups...',
+                    hintStyle: const TextStyle(color: AppColors.textHint, fontSize: 14),
+                    prefixIcon: const Icon(Icons.search, color: AppColors.textHint),
+                    suffixIcon: _searchController.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear, color: AppColors.textHint, size: 20),
+                            onPressed: () {
+                              _searchController.clear();
+                              setState(() {});
+                              context.read<FollowUpsBloc>().add(
+                                FetchFollowUps(
+                                  category: _getApiCategory(_selectedTab),
+                                  page: 0,
+                                  searchQuery: '',
+                                ),
+                              );
+                            },
+                          )
+                        : null,
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+
             // Horizontal Tab Chips
             BlocListener<FollowUpsBloc, FollowUpsState>(
               listener: (context, state) {
@@ -116,7 +206,6 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
                     _upcomingCount = state.response.summary.upcoming;
                     _missedCount = state.response.summary.missed;
                     _completedCount = state.response.summary.completed;
-                    _allCount = _todayCount + _upcomingCount + _missedCount + _completedCount;
                   });
                 }
               },
@@ -156,10 +245,28 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
                   } else if (state is FollowUpsLoaded) {
                     final followUps = state.response.followUps;
                     if (followUps.isEmpty) {
-                      return Center(
-                        child: Text(
-                          'No $_selectedTab follow-ups.',
-                          style: const TextStyle(color: AppColors.textHint, fontSize: 15),
+                      return RefreshIndicator(
+                        onRefresh: () async {
+                          context.read<FollowUpsBloc>().add(
+                            FetchFollowUps(
+                              category: _getApiCategory(_selectedTab),
+                              page: 0,
+                              isRefresh: true,
+                              searchQuery: _searchController.text.trim(),
+                            ),
+                          );
+                        },
+                        child: ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          children: [
+                            SizedBox(height: MediaQuery.of(context).size.height * 0.25),
+                            Center(
+                              child: Text(
+                                'No $_selectedTab follow-ups.',
+                                style: const TextStyle(color: AppColors.textHint, fontSize: 15),
+                              ),
+                            ),
+                          ],
                         ),
                       );
                     }
@@ -175,38 +282,78 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
                         grouped[formattedDate]!.add(item);
                       }
                       
-                      return ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                        itemCount: grouped.keys.length,
-                        itemBuilder: (context, index) {
-                          final dateHeader = grouped.keys.elementAt(index);
-                          final groupItems = grouped[dateHeader]!;
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.only(top: 16.0, bottom: 8.0),
-                                child: Text(
-                                  dateHeader,
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: AppColors.textHint,
-                                    letterSpacing: 0.5,
-                                  ),
-                                ),
-                              ),
-                              ...groupItems.map((item) => _buildFollowUpCard(item)),
-                            ],
+                      return RefreshIndicator(
+                        onRefresh: () async {
+                          context.read<FollowUpsBloc>().add(
+                            FetchFollowUps(
+                              category: _getApiCategory(_selectedTab),
+                              page: 0,
+                              isRefresh: true,
+                              searchQuery: _searchController.text.trim(),
+                            ),
                           );
                         },
+                        child: ListView.builder(
+                          controller: _scrollController,
+                          padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                          itemCount: grouped.keys.length + (state.isLoadingMore ? 1 : 0),
+                          itemBuilder: (context, index) {
+                            if (index >= grouped.keys.length) {
+                              return const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 16.0),
+                                child: Center(child: SpinningLogo(size: 36)),
+                              );
+                            }
+                            final dateHeader = grouped.keys.elementAt(index);
+                            final groupItems = grouped[dateHeader]!;
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 16.0, bottom: 8.0),
+                                  child: Text(
+                                    dateHeader,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.textHint,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                ),
+                                ...groupItems.map((item) => _buildFollowUpCard(item)),
+                              ],
+                            );
+                          },
+                        ),
                       );
                     }
 
-                    return ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                      itemCount: followUps.length,
-                      itemBuilder: (context, index) => _buildFollowUpCard(followUps[index]),
+                    return RefreshIndicator(
+                      onRefresh: () async {
+                        context.read<FollowUpsBloc>().add(
+                          FetchFollowUps(
+                            category: _getApiCategory(_selectedTab),
+                            page: 0,
+                            isRefresh: true,
+                            searchQuery: _searchController.text.trim(),
+                          ),
+                        );
+                      },
+                      child: ListView.builder(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                        itemCount: followUps.length + (state.isLoadingMore ? 1 : 0),
+                        itemBuilder: (context, index) {
+                          if (index >= followUps.length) {
+                            return const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 16.0),
+                              child: Center(child: SpinningLogo(size: 36)),
+                            );
+                          }
+                          return _buildFollowUpCard(followUps[index]);
+                        },
+                      ),
                     );
                   }
                   return const SizedBox();
@@ -291,8 +438,9 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
       priorityTextColor = const Color(0xFF059669);
     }
 
-    final String initials = item.leadName.trim().isNotEmpty
-        ? item.leadName.trim().split(' ').map((e) => e[0]).take(2).join('').toUpperCase()
+    final parts = item.leadName.trim().split(' ').where((e) => e.trim().isNotEmpty).toList();
+    final String initials = parts.isNotEmpty
+        ? parts.map((e) => e[0]).take(2).join('').toUpperCase()
         : 'L';
 
     // Parse status color or default
@@ -347,10 +495,11 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
                           item.leadName,
                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.textPrimary),
                         ),
-                        Text(
-                          item.companyName.isNotEmpty ? item.companyName : 'No Company',
-                          style: const TextStyle(color: AppColors.textHint, fontSize: 13),
-                        ),
+                        if (item.companyName.trim().isNotEmpty)
+                          Text(
+                            item.companyName,
+                            style: const TextStyle(color: AppColors.textHint, fontSize: 13),
+                          ),
                       ],
                     ),
                   ),

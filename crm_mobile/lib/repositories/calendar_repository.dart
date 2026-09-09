@@ -1,9 +1,10 @@
+import 'dart:convert';
 import 'package:dartz/dartz.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:crm_mobile/core/error/failure.dart';
 import 'package:crm_mobile/core/network/api_client.dart';
 import 'package:crm_mobile/core/network/api_exception.dart';
 import 'package:crm_mobile/core/network/error_handler.dart';
+import 'package:crm_mobile/core/network/api_constants.dart';
 
 abstract class CalendarRepository {
   Future<Either<Failure, List<String>>> getCalendarCategories();
@@ -21,30 +22,29 @@ class CalendarRepositoryImpl implements CalendarRepository {
   @override
   Future<Either<Failure, List<String>>> getCalendarCategories() async {
     try {
-      final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
-      final taskBaseUrl = leadsBaseUrl.replaceAll('lead-service', 'task-service');
-      
+      final taskBaseUrl = ApiUrl.taskService;
       final response = await apiClient.get('$taskBaseUrl/calendar/categories');
       
-      if (response.data != null && response.data['success'] == true) {
-        final List<dynamic> data = response.data['data'];
+      dynamic body = response.data;
+      if (body is String) {
+        body = jsonDecode(body);
+      }
+      if (body != null && (body['success'] == true || body['statusCode'] == 200) && body['data'] != null) {
+        final List<dynamic> data = body['data'];
         final List<String> categories = data.map((e) => e.toString()).toList();
         return Right(categories);
       } else {
-        return Left(ServerFailure(response.data?['message'] ?? 'Failed to retrieve categories'));
+        return Left(ServerFailure(body?['message'] ?? 'Failed to retrieve categories'));
       }
-    } on ApiException catch (e) {
+    } on Object catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));
-    } catch (e) {
-      return Left(ServerFailure(e.toString()));
     }
   }
 
   @override
   Future<Either<Failure, void>> createEvent(Map<String, dynamic> data) async {
     try {
-      final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
-      final taskBaseUrl = leadsBaseUrl.replaceAll('lead-service', 'task-service');
+      final taskBaseUrl = ApiUrl.taskService;
       
       final response = await apiClient.post(
         '$taskBaseUrl/calendar',
@@ -66,8 +66,7 @@ class CalendarRepositoryImpl implements CalendarRepository {
   @override
   Future<Either<Failure, void>> updateEvent(String id, Map<String, dynamic> data) async {
     try {
-      final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
-      final taskBaseUrl = leadsBaseUrl.replaceAll('lead-service', 'task-service');
+      final taskBaseUrl = ApiUrl.taskService;
       
       final response = await apiClient.put(
         '$taskBaseUrl/calendar/$id',
@@ -89,8 +88,7 @@ class CalendarRepositoryImpl implements CalendarRepository {
   @override
   Future<Either<Failure, List<dynamic>>> getCalendarEvents(String start, String end) async {
     try {
-      final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
-      final taskBaseUrl = leadsBaseUrl.replaceAll('lead-service', 'task-service');
+      final taskBaseUrl = ApiUrl.taskService;
       
       final response = await apiClient.get(
         '$taskBaseUrl/calendar',
@@ -115,8 +113,7 @@ class CalendarRepositoryImpl implements CalendarRepository {
   @override
   Future<Either<Failure, void>> deleteEvent(String id) async {
     try {
-      final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
-      final taskBaseUrl = leadsBaseUrl.replaceAll('lead-service', 'task-service');
+      final taskBaseUrl = ApiUrl.taskService;
       
       final response = await apiClient.delete(
         '$taskBaseUrl/calendar/$id',

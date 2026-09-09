@@ -5,6 +5,7 @@ import 'package:crm_mobile/usecases/update_followup_usecase.dart';
 import 'package:crm_mobile/usecases/add_followup_usecase.dart';
 import 'package:crm_mobile/blocs/followups_event.dart';
 import 'package:crm_mobile/blocs/followups_state.dart';
+import 'package:crm_mobile/models/follow_up.dart';
 
 class FollowUpsBloc extends Bloc<FollowUpsEvent, FollowUpsState> {
   final GetFollowUpsUseCase getFollowUpsUseCase;
@@ -25,12 +26,41 @@ class FollowUpsBloc extends Bloc<FollowUpsEvent, FollowUpsState> {
   }
 
   Future<void> _onFetchFollowUps(FetchFollowUps event, Emitter<FollowUpsState> emit) async {
-    emit(FollowUpsLoading());
-    final result = await getFollowUpsUseCase(category: event.category, page: event.page, size: event.size);
-    result.fold(
-      (failure) => emit(FollowUpsError(failure.message)),
-      (response) => emit(FollowUpsLoaded(response)),
-    );
+    if (event.isLoadMore && state is FollowUpsLoaded) {
+      final currentLoaded = state as FollowUpsLoaded;
+      emit(FollowUpsLoaded(currentLoaded.response, isLoadingMore: true));
+
+      final result = await getFollowUpsUseCase(category: event.category, page: event.page, size: event.size, searchQuery: event.searchQuery);
+
+      result.fold(
+        (failure) => emit(FollowUpsLoaded(currentLoaded.response, isLoadingMore: false)),
+        (newResponse) {
+          final combinedList = List<FollowUp>.from(currentLoaded.response.followUps)..addAll(newResponse.followUps);
+          final updatedResponse = currentLoaded.response.copyWith(
+            summary: newResponse.summary,
+            followUps: combinedList,
+            totalElements: newResponse.totalElements,
+            totalPages: newResponse.totalPages,
+            size: newResponse.size,
+            number: newResponse.number,
+            numberOfElements: combinedList.length,
+            first: currentLoaded.response.first,
+            last: newResponse.last,
+            empty: newResponse.empty && combinedList.isEmpty,
+          );
+          emit(FollowUpsLoaded(updatedResponse, isLoadingMore: false));
+        },
+      );
+    } else {
+      if (!event.isRefresh) {
+        emit(FollowUpsLoading());
+      }
+      final result = await getFollowUpsUseCase(category: event.category, page: event.page, size: event.size, searchQuery: event.searchQuery);
+      result.fold(
+        (failure) => emit(FollowUpsError(failure.message)),
+        (response) => emit(FollowUpsLoaded(response)),
+      );
+    }
   }
 
   Future<void> _onFetchLeadFollowUps(FetchLeadFollowUps event, Emitter<FollowUpsState> emit) async {

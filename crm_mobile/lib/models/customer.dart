@@ -27,10 +27,10 @@ class Customer {
     return Customer(
       id: json['id'] ?? '',
       customerType: json['customerType'] ?? 'INDIVIDUAL',
-      customerName: json['customerName'] ?? '',
+      customerName: json['customerName'] ?? json['name'] ?? '',
       companyName: json['companyName'] ?? '',
       email: json['email'] ?? '',
-      phone: json['phone'] ?? '',
+      phone: json['phone'] ?? json['phoneNumber'] ?? '',
       designation: json['designation'] ?? '',
       address: json['address'] ?? '',
       notes: json['notes'],
@@ -53,11 +53,12 @@ class Customer {
   }
 
   String get initials {
-    if (customerName.isEmpty) return '?';
-    final parts = customerName.split(' ');
-    if (parts.length > 1 && parts[1].isNotEmpty) {
+    if (customerName.trim().isEmpty) return '?';
+    final parts = customerName.trim().split(' ').where((e) => e.trim().isNotEmpty).toList();
+    if (parts.length > 1) {
       return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
     }
-    return customerName.substring(0, customerName.length >= 2 ? 2 : 1).toUpperCase();
+    final trimmed = parts.isNotEmpty ? parts[0] : customerName.trim();
+    return trimmed.substring(0, trimmed.length >= 2 ? 2 : 1).toUpperCase();
   }
 }

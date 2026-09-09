@@ -16,6 +16,7 @@ import 'package:crm_mobile/usecases/get_roles_dropdown_usecase.dart';
 import 'package:crm_mobile/usecases/get_role_details_usecase.dart';
 import 'package:crm_mobile/usecases/create_role_usecase.dart';
 import 'package:crm_mobile/usecases/update_role_usecase.dart';
+import 'package:crm_mobile/usecases/reorder_role_priority_usecase.dart';
 import 'package:crm_mobile/blocs/settings_event.dart';
 import 'package:crm_mobile/blocs/settings_state.dart';
 
@@ -37,6 +38,7 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
   final GetRoleDetailsUseCase getRoleDetailsUseCase;
   final CreateRoleUseCase createRoleUseCase;
   final UpdateRoleUseCase updateRoleUseCase;
+  final ReorderRolePriorityUseCase reorderRolePriorityUseCase;
 
   SettingsBloc({
     required this.getCustomFieldsListUseCase,
@@ -56,6 +58,7 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     required this.getRoleDetailsUseCase,
     required this.createRoleUseCase,
     required this.updateRoleUseCase,
+    required this.reorderRolePriorityUseCase,
   }) : super(SettingsInitial()) {
     on<FetchCustomFields>(_onFetchCustomFields);
     on<SaveCustomFields>(_onSaveCustomFields);
@@ -72,6 +75,7 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     on<FetchRoleDetails>(_onFetchRoleDetails);
     on<CreateRole>(_onCreateRole);
     on<UpdateRole>(_onUpdateRole);
+    on<ReorderRolePriority>(_onReorderRolePriority);
   }
 
   Future<void> _onFetchCustomFields(
@@ -284,6 +288,19 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     result.fold(
       (failure) => emit(SettingsError(failure.message)),
       (_) => emit(RoleUpdated()),
+    );
+  }
+
+  Future<void> _onReorderRolePriority(
+    ReorderRolePriority event,
+    Emitter<SettingsState> emit,
+  ) async {
+    final result = await reorderRolePriorityUseCase(event.roleId, event.newPriority);
+    result.fold(
+      (failure) => emit(SettingsError(failure.message)),
+      (_) {
+        add(FetchRolesDropdown());
+      },
     );
   }
 }

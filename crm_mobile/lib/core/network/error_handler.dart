@@ -86,9 +86,11 @@ class ErrorHandler {
     }
   }
 
-  static Failure mapExceptionToFailure(Exception e) {
+  static Failure mapExceptionToFailure(Object e) {
     if (e is ApiException) {
       return ServerFailure(e.message);
+    } else if (e is DioException) {
+      return ServerFailure(handle(e).message);
     }
     return ServerFailure(e.toString());
   }

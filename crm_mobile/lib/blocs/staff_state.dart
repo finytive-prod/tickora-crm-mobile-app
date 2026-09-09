@@ -88,3 +88,21 @@ class StaffStatusToggleError extends StaffState {
   @override
   List<Object?> get props => [message];
 }
+
+class StaffCreateSuccess extends StaffState {
+  final StaffMember member;
+
+  const StaffCreateSuccess(this.member);
+
+  @override
+  List<Object?> get props => [member];
+}
+
+class StaffCreateError extends StaffState {
+  final String message;
+
+  const StaffCreateError(this.message);
+
+  @override
+  List<Object?> get props => [message];
+}
