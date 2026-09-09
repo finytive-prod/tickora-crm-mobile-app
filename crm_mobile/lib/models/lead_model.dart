@@ -60,14 +60,25 @@ class LeadModel extends Lead {
   });
 
   factory LeadModel.fromJson(Map<String, dynamic> json) {
+    String fName = json['firstName'] ?? '';
+    String lName = json['lastName'] ?? '';
+    if (fName.isEmpty && lName.isEmpty && json['name'] != null && json['name'].toString().isNotEmpty) {
+      final parts = json['name'].toString().trim().split(' ');
+      fName = parts.isNotEmpty ? parts.first : '';
+      lName = parts.length > 1 ? parts.sublist(1).join(' ') : '';
+    }
+    final phone = (json['phone'] != null && json['phone'].toString().isNotEmpty)
+        ? json['phone']
+        : (json['phoneNumber'] ?? '');
+
     return LeadModel(
       id: json['id'] ?? '',
       leadNumber: json['leadNumber'] ?? '',
-      firstName: json['firstName'] ?? '',
-      lastName: json['lastName'] ?? '',
+      firstName: fName,
+      lastName: lName,
       companyName: json['companyName'] ?? '',
       email: json['email'] ?? '',
-      phone: json['phone'] ?? '',
+      phone: phone,
       source: json['source'] != null ? LeadSourceModel.fromJson(json['source']) : null,
       status: json['status'] != null ? LeadStatusModel.fromJson(json['status']) : null,
       priority: json['priority'],

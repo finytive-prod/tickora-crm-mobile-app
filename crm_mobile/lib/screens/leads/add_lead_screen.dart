@@ -23,6 +23,10 @@ class AddLeadScreen extends StatefulWidget {
 
 class _AddLeadScreenState extends State<AddLeadScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _step1FormKey = GlobalKey<FormState>();
+  final _step2FormKey = GlobalKey<FormState>();
+  final _step3FormKey = GlobalKey<FormState>();
+  final Map<String, TextEditingController> _customFieldControllers = {};
   
   // Wizard State
   final PageController _pageController = PageController();
@@ -130,6 +134,9 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
 
   @override
   void dispose() {
+    for (var c in _customFieldControllers.values) {
+      c.dispose();
+    }
     _pageController.dispose();
     _firstNameController.dispose();
     _lastNameController.dispose();
@@ -160,8 +167,29 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
     super.dispose();
   }
 
+  TextEditingController _getCustomController(dynamic fieldId, {String defaultText = ''}) {
+    final key = fieldId.toString();
+    if (!_customFieldControllers.containsKey(key)) {
+      final initialText = _customFieldValues[fieldId] != null
+          ? _customFieldValues[fieldId].toString()
+          : defaultText;
+      final c = TextEditingController(text: initialText);
+      c.addListener(() {
+        _customFieldValues[fieldId] = c.text;
+      });
+      _customFieldControllers[key] = c;
+    }
+    return _customFieldControllers[key]!;
+  }
+
   void _nextPage() {
-    if (_currentPage == 0 && !validateAndScrollToError(_formKey)) {
+    if (_currentPage == 0 && !validateAndScrollToError(_step1FormKey)) {
+      return;
+    }
+    if (_currentPage == 1 && _step2FormKey.currentState != null && !_step2FormKey.currentState!.validate()) {
+      return;
+    }
+    if (_currentPage == 2 && _step3FormKey.currentState != null && !_step3FormKey.currentState!.validate()) {
       return;
     }
 
@@ -196,7 +224,31 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
   }
 
   void _onSaveLead() {
-    if (validateAndScrollToError(_formKey)) {
+    bool isStep1Valid = validateAndScrollToError(_step1FormKey);
+    bool isStep2Valid = _step2FormKey.currentState == null || _step2FormKey.currentState!.validate();
+    bool isStep3Valid = _step3FormKey.currentState == null || _step3FormKey.currentState!.validate();
+
+    if (!isStep1Valid) {
+      _pageController.animateToPage(0, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please complete all required fields in Step 1'), backgroundColor: Colors.orange),
+      );
+      return;
+    }
+    if (!isStep2Valid) {
+      _pageController.animateToPage(1, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please complete all required fields in Step 2'), backgroundColor: Colors.orange),
+      );
+      return;
+    }
+    if (!isStep3Valid) {
+      _pageController.animateToPage(2, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please complete all required custom fields in Step 3'), backgroundColor: Colors.orange),
+      );
+      return;
+    }
       final leadData = {
         'firstName': _firstNameController.text,
         'lastName': _lastNameController.text,
@@ -288,7 +340,6 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         context.read<LeadsBloc>().add(CreateLead(leadData, filePaths: filePaths));
       }
     }
-  }
 
   String _formatDateForApi(String dateStr) {
     if (dateStr.isEmpty) return '';
@@ -349,9 +400,6 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
           );
           Navigator.pop(context, true);
         } else if (state is LeadActionError) {
-          setState(() {
-            _hasCompletedOptionalSteps = false;
-          });
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(state.message), backgroundColor: Colors.red),
           );
@@ -373,23 +421,83 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
           centerTitle: false,
         ),
         body: SafeArea(
-          child: BlocBuilder<LeadsBloc, LeadsState>(
-            buildWhen: (prev, current) => current is LeadsLoaded,
-            builder: (context, state) {
-              return PageView(
-                controller: _pageController,
-                physics: const NeverScrollableScrollPhysics(),
-                onPageChanged: (index) => setState(() => _currentPage = index),
-                children: [
-                  _buildLeadDetailsForm(state),
-                  _buildFollowUpTab(),
-                  _buildCustomFieldsTab(state),
-                ],
-              );
-            },
+          child: Column(
+            children: [
+              _buildStepProgressHeader(),
+              Expanded(
+                child: BlocBuilder<LeadsBloc, LeadsState>(
+                  buildWhen: (prev, current) => current is LeadsLoaded,
+                  builder: (context, state) {
+                    return PageView(
+                      controller: _pageController,
+                      physics: const NeverScrollableScrollPhysics(),
+                      onPageChanged: (index) => setState(() => _currentPage = index),
+                      children: [
+                        KeepAliveWrapper(child: _buildLeadDetailsForm(state)),
+                        KeepAliveWrapper(child: _buildFollowUpTab()),
+                        KeepAliveWrapper(child: _buildCustomFieldsTab(state)),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ],
           ),
         ),
         bottomNavigationBar: _buildBottomNavigationBar(),
+      ),
+    );
+  }
+
+  Widget _buildStepProgressHeader() {
+    final steps = ['1. Lead Details', '2. Follow-Up', '3. Custom Fields'];
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: Colors.white,
+      child: Row(
+        children: List.generate(steps.length, (index) {
+          final isActive = index == _currentPage;
+          final isCompleted = index < _currentPage || _hasCompletedOptionalSteps;
+          return Expanded(
+            child: GestureDetector(
+              onTap: () {
+                _pageController.animateToPage(
+                  index,
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeInOut,
+                );
+              },
+              child: Container(
+                margin: EdgeInsets.only(right: index == steps.length - 1 ? 0 : 8),
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                decoration: BoxDecoration(
+                  color: isActive
+                      ? AppColors.primary
+                      : (isCompleted ? AppColors.primary.withValues(alpha: 0.1) : Colors.grey.shade100),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: isActive
+                        ? AppColors.primary
+                        : (isCompleted ? AppColors.primary.withValues(alpha: 0.3) : AppColors.borderEnabled),
+                  ),
+                ),
+                child: Center(
+                  child: Text(
+                    steps[index],
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: isActive
+                          ? Colors.white
+                          : (isCompleted ? AppColors.primary : AppColors.textHint),
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }),
       ),
     );
   }
@@ -755,7 +863,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
       child: Form(
-        key: _formKey,
+        key: _step1FormKey,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -814,107 +922,110 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
   Widget _buildFollowUpTab() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          CustomTextField(label: 'Lead Name', controller: _leadNameController),
-          const SizedBox(height: 16),
-          _buildRow(
-            _buildIconTextField('Date', Icons.calendar_today_outlined, _reminderDateController, onTap: _pickReminderDate),
-            _buildIconTextField('Time', Icons.access_time, _reminderTimeController, onTap: _pickReminderTime),
-          ),
-          const SizedBox(height: 16),
-          
-          const Text('Notification Channel', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textLabel)),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              _buildCheckbox('Email', _emailAlert, (v) => setState(() => _emailAlert = v!)),
-              const SizedBox(width: 16),
-              _buildCheckbox('Push', _pushNotification, (v) => setState(() => _pushNotification = v!)),
-              const SizedBox(width: 16),
-              _buildCheckbox('SMS', _smsAlert, (v) => setState(() => _smsAlert = v!)),
-            ],
-          ),
-          const SizedBox(height: 16),
-          
-          const SizedBox(height: 24),
-          const Text('Add Note', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary)),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              border: Border.all(color: AppColors.borderEnabled),
-              borderRadius: BorderRadius.circular(8),
+      child: Form(
+        key: _step2FormKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CustomTextField(label: 'Lead Name', controller: _leadNameController),
+            const SizedBox(height: 16),
+            _buildRow(
+              _buildIconTextField('Date', Icons.calendar_today_outlined, _reminderDateController, onTap: _pickReminderDate),
+              _buildIconTextField('Time', Icons.access_time, _reminderTimeController, onTap: _pickReminderTime),
             ),
-            child: TextField(
-              controller: _notesController,
-              maxLines: 4,
-              decoration: const InputDecoration(border: InputBorder.none, hintText: 'Write internal activity report here...', hintStyle: TextStyle(color: AppColors.textHint, fontSize: 14)),
+            const SizedBox(height: 16),
+            
+            const Text('Notification Channel', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textLabel)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                _buildCheckbox('Email', _emailAlert, (v) => setState(() => _emailAlert = v!)),
+                const SizedBox(width: 16),
+                _buildCheckbox('Push', _pushNotification, (v) => setState(() => _pushNotification = v!)),
+                const SizedBox(width: 16),
+                _buildCheckbox('SMS', _smsAlert, (v) => setState(() => _smsAlert = v!)),
+              ],
             ),
-          ),
-          const SizedBox(height: 24),
-          const Text('Files & Attachments', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary)),
-          const SizedBox(height: 12),
-          GestureDetector(
-            onTap: _pickFollowUpFiles,
-            child: Container(
-              padding: const EdgeInsets.all(24),
-              width: double.infinity,
+            const SizedBox(height: 16),
+            
+            const SizedBox(height: 24),
+            const Text('Add Note', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary)),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                 color: Colors.white, 
-                 borderRadius: BorderRadius.circular(8),
-                 border: Border.all(color: AppColors.primary.withValues(alpha: 0.5), style: BorderStyle.solid),
+                border: Border.all(color: AppColors.borderEnabled),
+                borderRadius: BorderRadius.circular(8),
               ),
-              child: Column(
-                children: [
-                  Icon(Icons.file_upload_outlined, color: AppColors.primary, size: 32),
-                  const SizedBox(height: 8),
-                  const Text('Tap to upload files', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 13)),
-                  const SizedBox(height: 4),
-                  const Text('PDF, PNG, JPG, or DOC (Max 10MB)', style: TextStyle(color: AppColors.textHint, fontSize: 12)),
-                ],
+              child: TextField(
+                controller: _notesController,
+                maxLines: 4,
+                decoration: const InputDecoration(border: InputBorder.none, hintText: 'Write internal activity report here...', hintStyle: TextStyle(color: AppColors.textHint, fontSize: 14)),
               ),
             ),
-          ),
-          // Show attached files list
-          if (_followUpFiles.isNotEmpty) ...[
+            const SizedBox(height: 24),
+            const Text('Files & Attachments', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary)),
             const SizedBox(height: 12),
-            ..._followUpFiles.asMap().entries.map((entry) {
-              final index = entry.key;
-              final file = entry.value;
-              return Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            GestureDetector(
+              onTap: _pickFollowUpFiles,
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                width: double.infinity,
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppColors.borderEnabled),
+                   color: Colors.white, 
+                   borderRadius: BorderRadius.circular(8),
+                   border: Border.all(color: AppColors.primary.withValues(alpha: 0.5), style: BorderStyle.solid),
                 ),
-                child: Row(
+                child: Column(
                   children: [
-                    Icon(Icons.insert_drive_file, color: AppColors.primary, size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(file.name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500), overflow: TextOverflow.ellipsis),
-                          Text('${(file.size / 1024).toStringAsFixed(1)} KB', style: const TextStyle(fontSize: 11, color: AppColors.textHint)),
-                        ],
-                      ),
-                    ),
-                    GestureDetector(
-                      onTap: () => setState(() => _followUpFiles.removeAt(index)),
-                      child: const Icon(Icons.close, size: 18, color: Colors.red),
-                    ),
+                    Icon(Icons.file_upload_outlined, color: AppColors.primary, size: 32),
+                    const SizedBox(height: 8),
+                    const Text('Tap to upload files', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 13)),
+                    const SizedBox(height: 4),
+                    const Text('PDF, PNG, JPG, or DOC (Max 10MB)', style: TextStyle(color: AppColors.textHint, fontSize: 12)),
                   ],
                 ),
-              );
-            }),
+              ),
+            ),
+            // Show attached files list
+            if (_followUpFiles.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              ..._followUpFiles.asMap().entries.map((entry) {
+                final index = entry.key;
+                final file = entry.value;
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.borderEnabled),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.insert_drive_file, color: AppColors.primary, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(file.name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500), overflow: TextOverflow.ellipsis),
+                            Text('${(file.size / 1024).toStringAsFixed(1)} KB', style: const TextStyle(fontSize: 11, color: AppColors.textHint)),
+                          ],
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: () => setState(() => _followUpFiles.removeAt(index)),
+                        child: const Icon(Icons.close, size: 18, color: Colors.red),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+            const SizedBox(height: 40),
           ],
-          const SizedBox(height: 40),
-        ],
+        ),
       ),
     );
   }
@@ -933,19 +1044,22 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Lead Custom Fields', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary)),
-          const SizedBox(height: 16),
-          ...fields.map((field) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 16.0),
-              child: _buildDynamicField(field),
-            );
-          }),
-          const SizedBox(height: 40),
-        ],
+      child: Form(
+        key: _step3FormKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Lead Custom Fields', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary)),
+            const SizedBox(height: 16),
+            ...fields.map((field) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 16.0),
+                child: _buildDynamicField(field),
+              );
+            }),
+            const SizedBox(height: 40),
+          ],
+        ),
       ),
     );
   }
@@ -1083,9 +1197,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         },
       );
     } else if (rawType == 'DATE') {
-      final controller = TextEditingController(
-        text: _customFieldValues[field.fieldId] != null ? _customFieldValues[field.fieldId].toString() : '',
-      );
+      final controller = _getCustomController(field.fieldId);
       return InkWell(
         onTap: () async {
           final DateTime? picked = await showDatePicker(
@@ -1113,9 +1225,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         ),
       );
     } else if (rawType == 'DATE_TIME' || rawType == 'DATETIME') {
-      final controller = TextEditingController(
-        text: _customFieldValues[field.fieldId] != null ? _customFieldValues[field.fieldId].toString() : '',
-      );
+      final controller = _getCustomController(field.fieldId);
       return InkWell(
         onTap: () async {
           final DateTime? pickedDate = await showDatePicker(
@@ -1250,74 +1360,49 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         ],
       );
     } else if (rawType == 'EMAIL' || rawLabel.contains('email') || rawLabel.contains('mail')) {
-      final controller = TextEditingController(
-        text: _customFieldValues[field.fieldId] != null ? _customFieldValues[field.fieldId].toString() : '',
-      );
+      final controller = _getCustomController(field.fieldId);
       return CustomTextField(
         label: displayLabel,
         isRequired: isRequired,
         keyboardType: TextInputType.emailAddress,
         controller: controller,
-        onChanged: (val) {
-          _customFieldValues[field.fieldId] = val;
-        },
         validator: (val) => AppValidators.validateEmail(val, isRequired: isRequired),
       );
     } else if (rawType == 'PHONE' || rawType == 'MOBILE' || rawLabel.contains('phone') || rawLabel.contains('mobile') || rawLabel.contains('contact') || rawLabel.contains('tel') || rawLabel.contains('cell') || rawLabel.contains('whatsapp')) {
-      final controller = TextEditingController(
-        text: _customFieldValues[field.fieldId] != null ? _customFieldValues[field.fieldId].toString() : '',
-      );
+      final controller = _getCustomController(field.fieldId);
       return CustomTextField(
         label: displayLabel,
         isRequired: isRequired,
         keyboardType: TextInputType.phone,
         controller: controller,
         inputFormatters: AppInputFormatters.phoneFormatters,
-        onChanged: (val) {
-          _customFieldValues[field.fieldId] = val;
-        },
         validator: (val) => AppValidators.validateMobile(val, isRequired: isRequired),
       );
     } else if (rawType == 'NUMBER') {
-      final controller = TextEditingController(
-        text: _customFieldValues[field.fieldId] != null ? _customFieldValues[field.fieldId].toString() : '',
-      );
+      final controller = _getCustomController(field.fieldId);
       return CustomTextField(
         label: displayLabel,
         isRequired: isRequired,
         keyboardType: TextInputType.number,
         controller: controller,
         inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-        onChanged: (val) {
-          _customFieldValues[field.fieldId] = val;
-        },
         validator: isRequired ? (val) => (val == null || val.trim().isEmpty) ? '$displayLabel is required' : null : null,
       );
     } else if (rawType == 'TEXTAREA') {
-      final controller = TextEditingController(
-        text: _customFieldValues[field.fieldId] != null ? _customFieldValues[field.fieldId].toString() : '',
-      );
+      final controller = _getCustomController(field.fieldId);
       return CustomTextField(
         label: displayLabel,
         isRequired: isRequired,
         maxLines: 3,
         controller: controller,
-        onChanged: (val) {
-          _customFieldValues[field.fieldId] = val;
-        },
         validator: isRequired ? (val) => val == null || val.isEmpty ? '$displayLabel is required' : null : null,
       );
     } else {
-      final controller = TextEditingController(
-        text: _customFieldValues[field.fieldId] != null ? _customFieldValues[field.fieldId].toString() : '',
-      );
+      final controller = _getCustomController(field.fieldId);
       return CustomTextField(
         label: displayLabel,
         isRequired: isRequired,
         controller: controller,
-        onChanged: (val) {
-          _customFieldValues[field.fieldId] = val;
-        },
         validator: isRequired ? (val) => val == null || val.isEmpty ? '$displayLabel is required' : null : null,
       );
     }
@@ -1414,5 +1499,24 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         Expanded(child: child2),
       ],
     );
+  }
+}
+
+class KeepAliveWrapper extends StatefulWidget {
+  final Widget child;
+  const KeepAliveWrapper({super.key, required this.child});
+
+  @override
+  State<KeepAliveWrapper> createState() => _KeepAliveWrapperState();
+}
+
+class _KeepAliveWrapperState extends State<KeepAliveWrapper> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
   }
 }

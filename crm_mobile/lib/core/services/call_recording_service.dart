@@ -1,7 +1,19 @@
 import 'package:flutter/services.dart';
+import 'package:flutter/material.dart';
+import 'package:crm_mobile/widgets/in_app_audio_player_modal.dart';
 
 class CallRecordingService {
   static const MethodChannel _channel = MethodChannel('com.example.crm_mobile/call_recording');
+
+  Future<bool> requestPermissionsSequentially() async {
+    try {
+      final bool result = await _channel.invokeMethod('requestPermissionsSequentially');
+      return result;
+    } on PlatformException catch (e) {
+      print("Failed to request permissions sequentially: '${e.message}'.");
+      return false;
+    }
+  }
 
   Future<bool> hasStoragePermission() async {
     try {
@@ -38,10 +50,11 @@ class CallRecordingService {
     }
   }
 
-  Future<List<Map<String, dynamic>>> getAllSystemRecordings(String phoneNumber) async {
+  Future<List<Map<String, dynamic>>> getAllSystemRecordings(String phoneNumber, {int callTimestamp = 0}) async {
     try {
       final List<dynamic>? recordings = await _channel.invokeMethod('getAllSystemRecordings', {
         'phoneNumber': phoneNumber,
+        'callTimestamp': callTimestamp,
       });
       if (recordings == null) return [];
       
@@ -55,7 +68,12 @@ class CallRecordingService {
     }
   }
 
-  Future<void> playRecording(String path) async {
+  Future<void> playRecording(String path, {BuildContext? context, String? title}) async {
+    if (context != null && context.mounted) {
+      InAppAudioPlayerModal.show(context, filePath: path, title: title ?? 'Recording');
+      return;
+    }
+
     try {
       await _channel.invokeMethod('playRecording', {
         'path': path,
@@ -80,6 +98,38 @@ class CallRecordingService {
     } on PlatformException catch (e) {
       print("Failed to save to downloads: '${e.message}'.");
       return null;
+    }
+  }
+
+  Future<String> detectCallType({
+    required String filePath,
+    required String fileName,
+    required String phoneNumber,
+    required int timestamp,
+    int callTimestamp = 0,
+  }) async {
+    try {
+      final String? type = await _channel.invokeMethod('detectCallType', {
+        'filePath': filePath,
+        'fileName': fileName,
+        'phoneNumber': phoneNumber,
+        'timestamp': timestamp,
+        'callTimestamp': callTimestamp,
+      });
+      return type ?? 'inbound';
+    } on PlatformException catch (e) {
+      print("Failed to detect call type: '${e.message}'.");
+      return 'inbound';
+    }
+  }
+
+  Future<void> playNativeAudio(String path) async {
+    try {
+      await _channel.invokeMethod('playNativeAudio', {
+        'path': path,
+      });
+    } on PlatformException catch (e) {
+      print("Failed to play native audio: '${e.message}'.");
     }
   }
 }

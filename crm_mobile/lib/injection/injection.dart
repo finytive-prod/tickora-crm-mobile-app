@@ -37,6 +37,7 @@ import 'package:crm_mobile/usecases/create_calendar_event_usecase.dart';
 import 'package:crm_mobile/usecases/update_calendar_event_usecase.dart';
 import 'package:crm_mobile/usecases/get_calendar_events_usecase.dart';
 import 'package:crm_mobile/usecases/delete_calendar_event_usecase.dart';
+import 'package:crm_mobile/usecases/reorder_role_priority_usecase.dart';
 
 import 'package:crm_mobile/usecases/get_leads_usecase.dart';
 import 'package:crm_mobile/usecases/search_leads_usecase.dart';
@@ -79,6 +80,7 @@ import 'package:crm_mobile/usecases/get_staff_members_usecase.dart';
 import 'package:crm_mobile/usecases/get_staff_stats_usecase.dart';
 import 'package:crm_mobile/usecases/update_staff_member_usecase.dart';
 import 'package:crm_mobile/usecases/toggle_staff_status_usecase.dart';
+import 'package:crm_mobile/usecases/create_staff_member_usecase.dart';
 
 final sl = GetIt.instance;
 
@@ -219,6 +221,7 @@ Future<void> init() async {
       getRoleDetailsUseCase: sl(),
       createRoleUseCase: sl(),
       updateRoleUseCase: sl(),
+      reorderRolePriorityUseCase: sl(),
     ),
   );
 
@@ -240,6 +243,7 @@ Future<void> init() async {
   sl.registerLazySingleton(() => GetRoleDetailsUseCase(sl()));
   sl.registerLazySingleton(() => CreateRoleUseCase(sl()));
   sl.registerLazySingleton(() => UpdateRoleUseCase(sl()));
+  sl.registerLazySingleton(() => ReorderRolePriorityUseCase(sl()));
 
   sl.registerLazySingleton<SettingsRepository>(
     () => SettingsRepositoryImpl(apiClient: sl()),
@@ -252,6 +256,7 @@ Future<void> init() async {
       getStaffStatsUseCase: sl(),
       updateStaffMemberUseCase: sl(),
       toggleStaffStatusUseCase: sl(),
+      createStaffMemberUseCase: sl(),
     ),
   );
 
@@ -259,6 +264,7 @@ Future<void> init() async {
   sl.registerLazySingleton(() => GetStaffStatsUseCase(sl()));
   sl.registerLazySingleton(() => UpdateStaffMemberUseCase(sl()));
   sl.registerLazySingleton(() => ToggleStaffStatusUseCase(sl()));
+  sl.registerLazySingleton(() => CreateStaffMemberUseCase(sl()));
 
   // Calendar BLoC, Usecases & Repositories
   sl.registerFactory(

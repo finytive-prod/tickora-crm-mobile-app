@@ -9,6 +9,8 @@ import 'package:crm_mobile/blocs/staff_state.dart';
 import 'package:crm_mobile/widgets/staff_card.dart';
 import 'package:crm_mobile/widgets/spinning_logo.dart';
 import 'package:crm_mobile/screens/staff/staff_detail_screen.dart';
+import 'package:crm_mobile/screens/staff/add_staff_bottom_sheet.dart';
+import 'package:crm_mobile/repositories/settings_repository.dart';
 
 class StaffListScreen extends StatelessWidget {
   const StaffListScreen({super.key});
@@ -65,6 +67,24 @@ class _StaffListViewState extends State<_StaffListView> {
     }
   }
 
+  void _openAddStaffBottomSheet() async {
+    final repo = sl<SettingsRepository>();
+    final result = await AddStaffBottomSheet.show(context, (data) async {
+      final res = await repo.createStaffMember(data);
+      return res.fold(
+        (failure) => failure.message,
+        (member) => null,
+      );
+    });
+
+    if (result == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Staff member created successfully!')),
+      );
+      context.read<StaffBloc>().add(FetchStaffMembers(status: _selectedStatus));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -76,17 +96,64 @@ class _StaffListViewState extends State<_StaffListView> {
           icon: const Icon(Icons.arrow_back_ios, color: AppColors.textPrimary, size: 20),
           onPressed: () => Navigator.of(context).pop(),
         ),
-        title: const Text(
-          'Staff',
-          style: TextStyle(
+        title: Text(
+          _selectedStatus == 'ACTIVE' ? 'Staff' : 'Inactive Staff',
+          style: const TextStyle(
             color: AppColors.textPrimary,
             fontWeight: FontWeight.bold,
             fontSize: 20,
           ),
         ),
+        actions: [
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, color: AppColors.textPrimary),
+            onSelected: (String status) {
+              _onStatusChanged(status);
+            },
+            itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+              PopupMenuItem<String>(
+                value: _selectedStatus == 'ACTIVE' ? 'INACTIVE' : 'ACTIVE',
+                child: Row(
+                  children: [
+                    Icon(
+                      _selectedStatus == 'ACTIVE' ? Icons.person_off_outlined : Icons.person_outline,
+                      size: 20,
+                      color: AppColors.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      _selectedStatus == 'ACTIVE' ? 'Inactive Staff' : 'Active Staff',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
-      body: Column(
-        children: [
+      floatingActionButton: FloatingActionButton(
+        onPressed: _openAddStaffBottomSheet,
+        backgroundColor: AppColors.primary,
+        elevation: 4,
+        shape: const CircleBorder(),
+        child: const Icon(Icons.add, color: Colors.white, size: 28),
+      ),
+      body: BlocListener<StaffBloc, StaffState>(
+        listener: (context, state) {
+          if (state is StaffCreateSuccess) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Staff member created successfully!')),
+            );
+            context.read<StaffBloc>().add(FetchStaffMembers(status: _selectedStatus));
+          } else if (state is StaffCreateError) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(state.message)),
+            );
+          }
+        },
+        child: Column(
+          children: [
           // Summary Cards
           BlocBuilder<StaffBloc, StaffState>(
             builder: (context, state) {
@@ -165,47 +232,6 @@ class _StaffListViewState extends State<_StaffListView> {
                   contentPadding: EdgeInsets.symmetric(vertical: 14),
                 ),
               ),
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          // Filter Chips
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => _onStatusChanged('ACTIVE'),
-                    child: Container(
-                      alignment: Alignment.center,
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      decoration: BoxDecoration(
-                        color: _selectedStatus == 'ACTIVE' ? AppColors.primary : Colors.white,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AppColors.primary),
-                      ),
-                      child: Text('Active', style: TextStyle(color: _selectedStatus == 'ACTIVE' ? Colors.white : AppColors.primary, fontWeight: FontWeight.bold)),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => _onStatusChanged('INACTIVE'),
-                    child: Container(
-                      alignment: Alignment.center,
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      decoration: BoxDecoration(
-                        color: _selectedStatus == 'INACTIVE' ? AppColors.primary : Colors.white,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AppColors.primary),
-                      ),
-                      child: Text('Inactive', style: TextStyle(color: _selectedStatus == 'INACTIVE' ? Colors.white : AppColors.primary, fontWeight: FontWeight.bold)),
-                    ),
-                  ),
-                ),
-              ],
             ),
           ),
           const SizedBox(height: 12),
@@ -335,6 +361,7 @@ class _StaffListViewState extends State<_StaffListView> {
           ),
         ],
       ),
+    ),
     );
   }
 

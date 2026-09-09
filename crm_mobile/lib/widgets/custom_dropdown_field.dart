@@ -6,6 +6,7 @@ class CustomDropdownField<T> extends StatelessWidget {
   final bool isRequired;
   final List<DropdownMenuItem<T>> items;
   final T? value;
+  final String? hintText;
   final void Function(T?)? onChanged;
   final String? Function(T?)? validator;
 
@@ -15,6 +16,7 @@ class CustomDropdownField<T> extends StatelessWidget {
     required this.items,
     this.isRequired = false,
     this.value,
+    this.hintText,
     this.onChanged,
     this.validator,
   });
@@ -47,6 +49,7 @@ class CustomDropdownField<T> extends StatelessWidget {
         DropdownButtonFormField<T>(
           isExpanded: true,
           value: items.any((item) => item.value == value) ? value : null,
+          hint: hintText != null ? Text(hintText!, style: const TextStyle(color: AppColors.textHint, fontSize: 14)) : null,
           icon: const Icon(Icons.keyboard_arrow_down, color: AppColors.textHint),
           decoration: InputDecoration(
             filled: true,

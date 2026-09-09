@@ -6,6 +6,7 @@ import 'package:crm_mobile/core/error/failure.dart';
 import 'package:crm_mobile/core/network/api_client.dart';
 import 'package:crm_mobile/core/network/error_handler.dart';
 import 'package:crm_mobile/models/dashboard_models.dart';
+import 'package:crm_mobile/core/network/api_constants.dart';
 
 class DashboardWidgetKeys {
   static const String totalLeads = "TOTAL_LEADS";
@@ -85,16 +86,11 @@ class DashboardRepositoryImpl implements DashboardRepository {
   DashboardRepositoryImpl({required this.apiClient});
 
   String _getDashboardBaseUrl() {
-    final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
-    return '$leadsBaseUrl/dashboard';
+    return '${ApiUrl.leadService}/dashboard';
   }
 
   String _getIdentityBaseUrl() {
-    final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
-    if (leadsBaseUrl.contains('lead-service')) {
-      return leadsBaseUrl.replaceAll('lead-service', 'identity-service');
-    }
-    return leadsBaseUrl;
+    return ApiUrl.identityService;
   }
 
   @override

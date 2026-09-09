@@ -45,11 +45,11 @@ class StaffMember extends Equatable {
   }
 
   String get initials {
-    final parts = fullName.trim().split(' ');
+    final parts = fullName.trim().split(' ').where((e) => e.trim().isNotEmpty).toList();
     if (parts.length >= 2) {
       return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
     }
-    return fullName.isNotEmpty ? fullName[0].toUpperCase() : '?';
+    return parts.isNotEmpty ? parts.first[0].toUpperCase() : '?';
   }
 
   String get primaryRole {
@@ -115,24 +115,40 @@ class StaffMemberModel extends StaffMember {
   }
 
   factory StaffMemberModel.fromJson(Map<String, dynamic> json) {
+    List<String> parsedRoles = [];
+    if (json['roles'] is List) {
+      parsedRoles = (json['roles'] as List<dynamic>).map((e) => e.toString()).toList();
+    } else if (json['role'] != null) {
+      parsedRoles = [json['role'].toString()];
+    }
+
+    String fullName = '';
+    if (json['fullName'] != null && json['fullName'].toString().isNotEmpty) {
+      fullName = json['fullName'].toString();
+    } else if (json['name'] != null && json['name'].toString().isNotEmpty) {
+      fullName = json['name'].toString();
+    } else if (json['username'] != null && json['username'].toString().isNotEmpty) {
+      fullName = json['username'].toString();
+    }
+
     return StaffMemberModel(
       id: json['id'] ?? '',
       organizationId: json['organizationId'],
       userCode: json['userCode'] ?? '',
       username: json['username'] ?? '',
       email: json['email'] ?? '',
-      phone: json['phone'] ?? '',
+      phone: json['phone'] ?? json['phoneNumber'] ?? '',
       accountStatus: _parseAccountStatus(json),
       emailVerified: json['emailVerified'] ?? false,
       phoneVerified: json['phoneVerified'] ?? false,
       lastLogin: json['lastLogin'],
       createdAt: json['createdAt'] ?? '',
       updatedAt: json['updatedAt'],
-      fullName: json['fullName'] ?? '',
+      fullName: fullName,
       gender: json['gender'],
       joiningDate: json['joiningDate'],
       designation: json['designation'],
-      roles: (json['roles'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],
+      roles: parsedRoles,
     );
   }
 }

@@ -26,17 +26,23 @@ class _AddEventScreenState extends State<AddEventScreen> {
   final _locationController = TextEditingController();
   final _notesController = TextEditingController();
   
-  String? _selectedCategory = 'Meeting';
+  String? _selectedCategory;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context.read<CalendarBloc>().add(FetchCalendarCategories());
+      }
+    });
+
     if (widget.initialData != null) {
       final data = widget.initialData!;
       _titleController.text = data['title'] ?? '';
       _notesController.text = data['description'] ?? '';
       _locationController.text = data['location'] ?? '';
-      _selectedCategory = data['category'] ?? 'MEETING';
+      _selectedCategory = data['category'];
       
       try {
         if (data['startTime'] != null) {
@@ -109,12 +115,20 @@ class _AddEventScreenState extends State<AddEventScreen> {
       final startDateTime = DateTime(date.year, date.month, date.day, startTime.hour, startTime.minute);
       final endDateTime = DateTime(date.year, date.month, date.day, endTime.hour, endTime.minute);
 
+      final blocCategories = context.read<CalendarBloc>().categories;
+      String categoryToSave = _selectedCategory ?? (blocCategories.isNotEmpty ? blocCategories.first : 'EVENT');
+      
+      final matchIndex = blocCategories.indexWhere((c) => c.toUpperCase() == categoryToSave.toUpperCase());
+      if (matchIndex != -1) {
+        categoryToSave = blocCategories[matchIndex];
+      }
+
       final data = {
         "title": _titleController.text,
         "description": _notesController.text,
         "startTime": startDateTime.toIso8601String(),
         "endTime": endDateTime.toIso8601String(),
-        "category": _selectedCategory ?? 'EVENT',
+        "category": categoryToSave,
         "location": _locationController.text,
       };
 
@@ -212,22 +226,46 @@ class _AddEventScreenState extends State<AddEventScreen> {
               const SizedBox(height: 16),
               BlocBuilder<CalendarBloc, CalendarState>(
                 builder: (context, state) {
-                  List<DropdownMenuItem<String>> items = [];
-                  if (state is CalendarCategoriesLoaded) {
-                    items = state.categories.map((category) {
-                      return DropdownMenuItem(value: category, child: Text(category));
-                    }).toList();
-                  } else {
-                    items = [
-                      const DropdownMenuItem(value: 'Loading...', child: Text('Loading...')),
+                  final bloc = context.read<CalendarBloc>();
+                  List<String> activeCategories = bloc.categories;
+                  if (state is CalendarCategoriesLoaded && state.categories.isNotEmpty) {
+                    activeCategories = state.categories;
+                  }
+
+                  if (activeCategories.isEmpty) {
+                    activeCategories = [
+                      "EVENT",
+                      "MEETING",
+                      "TASK",
+                      "CALL",
+                      "REMINDER",
+                      "BIRTHDAY",
+                      "FOLLOW_UP"
                     ];
                   }
 
+                  String? matchedCategory;
+                  if (_selectedCategory != null && _selectedCategory!.isNotEmpty) {
+                    final index = activeCategories.indexWhere(
+                      (cat) => cat.toUpperCase() == _selectedCategory!.toUpperCase()
+                    );
+                    if (index != -1) {
+                      matchedCategory = activeCategories[index];
+                    }
+                  }
+
+                  final currentValue = matchedCategory ?? (activeCategories.isNotEmpty ? activeCategories.first : null);
+
+                  final items = activeCategories.map((category) {
+                    return DropdownMenuItem<String>(
+                      value: category,
+                      child: Text(category),
+                    );
+                  }).toList();
+
                   return CustomDropdownField<String>(
                     label: 'Category',
-                    value: _selectedCategory != null && items.any((i) => i.value == _selectedCategory) 
-                        ? _selectedCategory 
-                        : null,
+                    value: currentValue,
                     items: items,
                     onChanged: (val) {
                       setState(() {
@@ -253,6 +291,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
               ),
               const SizedBox(height: 24),
               SizedBox(
+                
                 width: double.infinity,
                 child: BlocBuilder<CalendarBloc, CalendarState>(
                   builder: (context, state) {

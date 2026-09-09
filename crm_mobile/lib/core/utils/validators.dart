@@ -84,8 +84,7 @@ class AppInputFormatters {
   ];
   
   static List<TextInputFormatter> get phoneFormatters => [
-    FilteringTextInputFormatter.digitsOnly,
-    LengthLimitingTextInputFormatter(10),
+    MobileNumberInputFormatter(),
   ];
 
   /// Denies all emoji inputs
@@ -95,4 +94,35 @@ class AppInputFormatters {
   static List<TextInputFormatter> get noEmojiFormatters => [
     FilteringTextInputFormatter.deny(AppValidators.emojiRegExp),
   ];
+}
+
+class MobileNumberInputFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    String input = newValue.text;
+    if (input.isEmpty) return newValue;
+
+    // Remove all non-digit characters
+    String digits = input.replaceAll(RegExp(r'[^\d]'), '');
+
+    // Automatically strip country code (+91, 91, 0, etc.) if total digits > 10
+    while (digits.length > 10) {
+      if (digits.startsWith('91') && digits.length > 10) {
+        digits = digits.substring(2);
+      } else if (digits.startsWith('0')) {
+        digits = digits.substring(1);
+      } else if (newValue.text.startsWith('+')) {
+        digits = digits.substring(digits.length - 10);
+      } else if (oldValue.text.length == 10) {
+        digits = digits.substring(0, 10);
+      } else {
+        digits = digits.substring(digits.length - 10);
+      }
+    }
+
+    return TextEditingValue(
+      text: digits,
+      selection: TextSelection.collapsed(offset: digits.length),
+    );
+  }
 }

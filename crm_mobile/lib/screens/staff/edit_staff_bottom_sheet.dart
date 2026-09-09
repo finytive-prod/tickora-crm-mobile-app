@@ -7,6 +7,7 @@ import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/widgets/custom_text_field.dart';
 import 'package:crm_mobile/widgets/custom_dropdown_field.dart';
 import 'package:crm_mobile/core/utils/form_validator_utils.dart';
+import 'package:crm_mobile/core/utils/validators.dart';
 
 class EditStaffBottomSheet extends StatefulWidget {
   final StaffMember staff;
@@ -234,6 +235,8 @@ class _EditStaffBottomSheetState extends State<EditStaffBottomSheet> {
                         isRequired: true,
                         keyboardType: TextInputType.phone,
                         controller: _phoneController,
+                        inputFormatters: AppInputFormatters.phoneFormatters,
+                        validator: (val) => AppValidators.validateMobile(val, isRequired: true),
                       ),
                       const SizedBox(height: 16),
                       CustomDropdownField<String>(

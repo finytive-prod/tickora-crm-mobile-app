@@ -117,3 +117,13 @@ class UpdateRole extends SettingsEvent {
   @override
   List<Object?> get props => [id, roleData];
 }
+
+class ReorderRolePriority extends SettingsEvent {
+  final String roleId;
+  final int newPriority;
+
+  const ReorderRolePriority(this.roleId, this.newPriority);
+
+  @override
+  List<Object?> get props => [roleId, newPriority];
+}

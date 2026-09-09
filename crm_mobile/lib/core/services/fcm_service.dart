@@ -3,6 +3,8 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:crm_mobile/core/network/api_client.dart';
+import 'package:crm_mobile/core/network/api_constants.dart';
+import 'package:crm_mobile/core/services/notification_service.dart';
 import 'package:crm_mobile/injection/injection.dart';
 import 'package:logger/logger.dart';
 
@@ -10,19 +12,16 @@ import 'package:logger/logger.dart';
 /// Must be a top-level function (not a class method) for Firebase Messaging.
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  // Firebase is already initialized in main.dart before this is registered.
-  // Background messages are automatically shown by the system tray.
-  // Add any custom background processing here if needed.
+  final title = message.notification?.title ?? message.data['title']?.toString() ?? 'New Notification';
+  final body = message.notification?.body ?? message.data['body']?.toString() ?? '';
+  NotificationService.instance.addNotification(
+    title: title,
+    body: body,
+    data: message.data,
+  );
 }
 
 /// Singleton service that manages Firebase Cloud Messaging (FCM).
-///
-/// Responsibilities:
-/// - Request notification permissions (Android 13+ / iOS)
-/// - Obtain and refresh FCM device tokens
-/// - Send device tokens to the backend API
-/// - Display foreground notifications via flutter_local_notifications
-/// - Handle notification tap actions
 class FcmService {
   FcmService._();
   static final FcmService instance = FcmService._();
@@ -35,7 +34,7 @@ class FcmService {
 
   /// The Android notification channel used for foreground notifications.
   static const AndroidNotificationChannel _channel = AndroidNotificationChannel(
-    'tickora_crm_notifications', // Must match AndroidManifest meta-data value
+    'tickora_crm_notifications',
     'Tickora CRM Notifications',
     description: 'Notifications from Tickora CRM',
     importance: Importance.high,
@@ -92,23 +91,17 @@ class FcmService {
     });
   }
 
-  /// Sends the FCM device token to the backend for push notification targeting.
+  /// Sends the FCM device token to the backend API: POST /api/crm/notification-service/fcm/register
   Future<void> _sendTokenToBackend(String token) async {
     final logger = sl<Logger>();
-    logger.i('FCM Token: $token');
+    logger.i('FCM Token generated: $token');
 
     try {
-      final baseUrl = dotenv.env['BASE_URL'] ?? '';
-      final candidateUrls = <String>[];
-
-      if (baseUrl.contains('/api/crm/lead-service')) {
-        candidateUrls.add(baseUrl.replaceAll('/api/crm/lead-service', '/api/crm/identity-service/users/device-token'));
-        candidateUrls.add(baseUrl.replaceAll('/api/crm/lead-service', '/api/crm/identity-service/auth/device-token'));
-        candidateUrls.add(baseUrl.replaceAll('/api/crm/lead-service', '/api/crm/identity-service/device-token'));
-        candidateUrls.add('$baseUrl/device-token');
-      } else {
-        candidateUrls.add('$baseUrl/device-token');
-      }
+      final candidateUrls = <String>[
+        '${ApiUrl.notificationService}/fcm/register',
+        '${ApiUrl.identityService}/users/device-token',
+        '${ApiUrl.identityService}/auth/device-token',
+      ];
 
       final apiClient = sl<ApiClient>();
       bool success = false;
@@ -119,23 +112,21 @@ class FcmService {
             url,
             data: {
               'token': token,
-              'fcmToken': token,
-              'deviceToken': token,
-              'platform': 'android',
+              'deviceType': 'android',
             },
           );
           if (res.statusCode == 200 || res.statusCode == 201) {
-            logger.i('FCM token sent to backend successfully via $url');
+            logger.i('FCM token registered successfully via $url');
             success = true;
             break;
           }
-        } catch (_) {
-          // Try next candidate URL silently
+        } catch (err) {
+          logger.d('Endpoint candidate $url failed: $err');
         }
       }
 
       if (!success) {
-        logger.w('Device token endpoint not active on backend. FCM initialized locally.');
+        logger.w('Device token endpoint pending backend active status. FCM initialized locally.');
       }
     } catch (e) {
       logger.w('FCM token registration warning: $e');
@@ -147,13 +138,11 @@ class FcmService {
   // ---------------------------------------------------------------------------
 
   Future<void> _setupLocalNotifications() async {
-    // Create the Android notification channel
     await _localNotifications
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(_channel);
 
-    // Initialize with Android settings
     const androidSettings =
         AndroidInitializationSettings('@mipmap/launcher_icon');
 
@@ -172,14 +161,20 @@ class FcmService {
   void _listenForForegroundMessages() {
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       final notification = message.notification;
-      final android = message.notification?.android;
+      final title = notification?.title ?? message.data['title']?.toString() ?? 'New Notification';
+      final body = notification?.body ?? message.data['body']?.toString() ?? '';
 
-      // Show a local notification only when the app is in the foreground
-      if (notification != null && android != null) {
+      NotificationService.instance.addNotification(
+        title: title,
+        body: body,
+        data: message.data,
+      );
+
+      if (notification != null) {
         _localNotifications.show(
           notification.hashCode,
-          notification.title,
-          notification.body,
+          title,
+          body,
           NotificationDetails(
             android: AndroidNotificationDetails(
               _channel.id,
@@ -201,10 +196,8 @@ class FcmService {
   // ---------------------------------------------------------------------------
 
   void _handleNotificationTaps() {
-    // When the app is in background and the user taps the notification
     FirebaseMessaging.onMessageOpenedApp.listen(_onMessageOpenedApp);
 
-    // When the app was terminated and launched via a notification tap
     _messaging.getInitialMessage().then((message) {
       if (message != null) {
         _onMessageOpenedApp(message);
@@ -212,16 +205,15 @@ class FcmService {
     });
   }
 
-  /// Called when a user taps on a notification (background/terminated).
   void _onMessageOpenedApp(RemoteMessage message) {
-    final logger = sl<Logger>();
-    logger.i('Notification tapped — data: ${message.data}');
+    final title = message.notification?.title ?? message.data['title']?.toString() ?? 'Notification';
+    final body = message.notification?.body ?? message.data['body']?.toString() ?? '';
 
-    // TODO: Implement deep-link navigation based on message.data
-    // Example:
-    // final type = message.data['type'];    // e.g. 'lead', 'followup'
-    // final id = message.data['id'];        // e.g. '12345'
-    // Navigate to the appropriate screen using a GlobalKey<NavigatorState>
+    NotificationService.instance.addNotification(
+      title: title,
+      body: body,
+      data: message.data,
+    );
   }
 
   /// Called when a user taps on a foreground local notification.

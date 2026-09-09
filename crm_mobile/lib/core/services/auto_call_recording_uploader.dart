@@ -4,6 +4,7 @@ import 'package:flutter_phone_direct_caller/flutter_phone_direct_caller.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crm_mobile/core/services/call_recording_service.dart';
 import 'package:crm_mobile/repositories/leads_repository.dart';
+import 'package:crm_mobile/models/lead_audio.dart';
 import 'package:crm_mobile/injection/injection.dart';
 
 class AutoCallRecordingUploader {
@@ -13,9 +14,16 @@ class AutoCallRecordingUploader {
   static final Set<String> _currentlyUploadingPaths = {};
   static bool _prefsLoaded = false;
 
-  static void clearFailedUploads() {
+  static Future<void> clearFailedUploads() async {
     _failedUploads.clear();
     _currentlyUploadingPaths.clear();
+    _uploadedPaths.clear();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_prefKey);
+    } catch (e) {
+      debugPrint('Error clearing uploaded recording prefs: $e');
+    }
   }
 
   static Future<void> _ensurePrefsLoaded() async {
@@ -38,6 +46,8 @@ class AutoCallRecordingUploader {
     _uploadedPaths.add('${path}_$length');
     _uploadedPaths.add('${fileName}_$length');
     _uploadedPaths.add('${cleanName}_$length');
+    _uploadedPaths.add(fileName);
+    _uploadedPaths.add(cleanName);
 
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -48,42 +58,50 @@ class AutoCallRecordingUploader {
   }
 
   static String cleanFileName(String name) {
-    var clean = name;
-    while (clean.startsWith('REC_')) {
-      final parts = clean.split('_');
-      if (parts.length >= 4 && (parts[1] == 'INCOMING' || parts[1] == 'OUTGOING')) {
-        clean = parts.sublist(3).join('_');
-      } else if (parts.length >= 3) {
-        clean = parts.sublist(2).join('_');
-      } else {
-        clean = clean.substring(4);
-      }
+    var clean = name.trim();
+    while (true) {
+      final old = clean;
+      clean = clean
+          .replaceAll(RegExp(r'^REC_', caseSensitive: false), '')
+          .replaceAll(RegExp(r'^INBOUND_', caseSensitive: false), '')
+          .replaceAll(RegExp(r'^OUTBOUND_', caseSensitive: false), '')
+          .replaceAll(RegExp(r'^INCOMING_', caseSensitive: false), '')
+          .replaceAll(RegExp(r'^OUTGOING_', caseSensitive: false), '')
+          .replaceAll(RegExp(r'^\d{7,15}_', caseSensitive: false), '');
+      if (clean == old) break;
     }
     return clean;
   }
 
-  static Future<bool> isAlreadyUploaded(String path, int length) async {
+  static Future<bool> isAlreadyUploaded(String path, int length, {List<LeadAudio>? existingServerAudios}) async {
     await _ensurePrefsLoaded();
 
-    // Ignore tiny incomplete fragments under 25 KB (< 3 seconds of speech)
-    if (length < 25000) return true;
+    // Ignore empty/corrupted fragments under 100 bytes
+    if (length < 100) return true;
 
     if (_uploadedPaths.contains('${path}_$length')) return true;
 
     final fileName = path.split('/').last;
-    if (_uploadedPaths.contains('${fileName}_$length')) return true;
+    if (_uploadedPaths.contains(fileName) || _uploadedPaths.contains('${fileName}_$length')) return true;
 
     final clean = cleanFileName(fileName);
-    if (_uploadedPaths.contains('${clean}_$length')) return true;
+    if (_uploadedPaths.contains(clean) || _uploadedPaths.contains('${clean}_$length')) return true;
+
+    // Check against existing server audios list for this lead
+    if (existingServerAudios != null && existingServerAudios.isNotEmpty) {
+      for (final sAudio in existingServerAudios) {
+        final serverClean = cleanFileName(sAudio.displayName.toLowerCase());
+        if (serverClean == clean.toLowerCase() || sAudio.size == length) {
+          await _markAsUploaded(path, length);
+          return true;
+        }
+      }
+    }
 
     // If an equal or larger version (or within 5 KB tolerance) was uploaded, skip re-uploading
     for (final key in _uploadedPaths) {
-      if (key.startsWith('${clean}_') || key.startsWith('${fileName}_')) {
-        final parts = key.split('_');
-        final prevLength = int.tryParse(parts.last) ?? 0;
-        if (prevLength > 0 && (length <= prevLength || (length - prevLength).abs() < 5120)) {
-          return true;
-        }
+      if (key.startsWith('${clean}_') || key.startsWith('${fileName}_') || key == clean || key == fileName) {
+        return true;
       }
     }
 
@@ -115,19 +133,22 @@ class AutoCallRecordingUploader {
       );
     }
 
+    final callTimestamp = DateTime.now().millisecondsSinceEpoch;
+
     try {
       await FlutterPhoneDirectCaller.callNumber(phoneNumber);
     } catch (e) {
       debugPrint('Error placing phone call: $e');
     }
 
-    // Schedule post-call scans (3s, 8s, 15s, 30s) so finalized recordings are uploaded quickly after call ends
-    for (final delaySec in [3, 8, 15, 30]) {
+    // Schedule multi-stage post-call scans (3s to 300s) so recordings for calls of any duration (short or long) are captured
+    for (final delaySec in [3, 8, 15, 30, 45, 60, 90, 120, 180, 240, 300]) {
       Future.delayed(Duration(seconds: delaySec), () {
         autoScanAndUploadLeadRecordings(
           context: context,
           leadId: leadId,
           phoneNumber: phoneNumber,
+          callTimestamp: callTimestamp,
           onUploadSuccess: onUploadSuccess,
         );
       });
@@ -162,8 +183,14 @@ class AutoCallRecordingUploader {
       if (recordingPath != null && recordingPath.isNotEmpty) {
         final file = File(recordingPath);
         if (await file.exists()) {
-          final length = await file.length();
-          if (length > 0) {
+          // Wait for file length stability to ensure phone recorder has finished writing complete file
+          int length = await file.length();
+          await Future.delayed(const Duration(milliseconds: 600));
+          if (await file.exists()) {
+            length = await file.length();
+          }
+
+          if (length >= 100) {
             if (await isAlreadyUploaded(recordingPath, length)) {
               debugPrint('Recording $recordingPath already uploaded.');
               if (onUploadSuccess != null) onUploadSuccess();
@@ -206,13 +233,14 @@ class AutoCallRecordingUploader {
     required BuildContext? context,
     required String leadId,
     required String phoneNumber,
+    int callTimestamp = 0,
     VoidCallback? onUploadSuccess,
   }) async {
     if (phoneNumber.isEmpty) return;
 
     try {
       final service = CallRecordingService();
-      final allRecordings = await service.getAllSystemRecordings(phoneNumber);
+      final allRecordings = await service.getAllSystemRecordings(phoneNumber, callTimestamp: callTimestamp);
 
       bool uploadedAny = false;
 
@@ -225,11 +253,15 @@ class AutoCallRecordingUploader {
         final length = await file.length();
         if (length <= 0) continue;
 
-        // Perform stability check ONLY if file was modified in the last 4 seconds
+        // Auto-upload recordings created within the last 24 hours (covers calls made earlier in the day)
+        // Skip files older than 24 hours so historic deleted recordings are never re-uploaded!
         final lastMod = await file.lastModified();
         final ageMs = DateTime.now().millisecondsSinceEpoch - lastMod.millisecondsSinceEpoch;
-        var finalLength = length;
+        if (ageMs > 24 * 60 * 60 * 1000) {
+          continue; // Skip recordings older than 24 hours
+        }
 
+        var finalLength = length;
         if (ageMs < 4000) {
           await Future.delayed(const Duration(milliseconds: 250));
           if (!await file.exists()) continue;

@@ -1,3 +1,5 @@
+import 'package:flutter/material.dart';
+
 int _parseInt(dynamic val) {
   if (val == null) return 0;
   if (val is int) return val;
@@ -58,14 +60,29 @@ class SummaryMetrics {
 class StatusDistributionItem {
   final String statusName;
   final int count;
+  final Color? color;
 
-  StatusDistributionItem({required this.statusName, required this.count});
+  StatusDistributionItem({required this.statusName, required this.count, this.color});
 
   factory StatusDistributionItem.fromJson(Map<String, dynamic> json) {
     final name = json['statusName'] ?? json['name'] ?? json['status'] ?? json['label'] ?? json['stage'] ?? json['key'] ?? '';
+    final colorHex = json['color'] ?? json['hexColor'] ?? json['statusColor'] ?? json['hex'];
+    Color? parsedColor;
+    if (colorHex is String && colorHex.isNotEmpty) {
+      try {
+        final buffer = StringBuffer();
+        if (colorHex.length == 6 || colorHex.length == 7) {
+          buffer.write('ff');
+          buffer.write(colorHex.replaceFirst('#', ''));
+          parsedColor = Color(int.parse(buffer.toString(), radix: 16));
+        }
+      } catch (_) {}
+    }
+
     return StatusDistributionItem(
       statusName: name.toString(),
       count: _parseInt(json['count'] ?? json['value'] ?? json['total'] ?? json['amount']),
+      color: parsedColor,
     );
   }
 }
@@ -73,14 +90,29 @@ class StatusDistributionItem {
 class SourceDistributionItem {
   final String sourceName;
   final int count;
+  final Color? color;
 
-  SourceDistributionItem({required this.sourceName, required this.count});
+  SourceDistributionItem({required this.sourceName, required this.count, this.color});
 
   factory SourceDistributionItem.fromJson(Map<String, dynamic> json) {
     final name = json['sourceName'] ?? json['name'] ?? json['source'] ?? json['label'] ?? json['key'] ?? '';
+    final colorHex = json['color'] ?? json['hexColor'] ?? json['sourceColor'] ?? json['hex'];
+    Color? parsedColor;
+    if (colorHex is String && colorHex.isNotEmpty) {
+      try {
+        final buffer = StringBuffer();
+        if (colorHex.length == 6 || colorHex.length == 7) {
+          buffer.write('ff');
+          buffer.write(colorHex.replaceFirst('#', ''));
+          parsedColor = Color(int.parse(buffer.toString(), radix: 16));
+        }
+      } catch (_) {}
+    }
+
     return SourceDistributionItem(
       sourceName: name.toString(),
       count: _parseInt(json['count'] ?? json['value'] ?? json['total'] ?? json['amount']),
+      color: parsedColor,
     );
   }
 }
@@ -344,16 +376,24 @@ class DashboardRecentActivity {
             '')
         .toString();
 
-    final perf = (json['actionBy'] ??
+    // Prioritize human-readable actionByName or userName over raw actionBy UUID
+    String perf = (json['actionByName'] ??
             json['actionByUser'] ??
-            json['action_by'] ??
-            json['performedBy'] ??
-            json['user'] ??
             json['userName'] ??
             json['createdByName'] ??
+            json['performedBy'] ??
+            json['user'] ??
             json['assignedTo'] ??
             '')
         .toString();
+
+    if (perf.isEmpty) {
+      final rawBy = (json['actionBy'] ?? json['action_by'] ?? '').toString();
+      // Only fallback to actionBy if it is not a 36-character UUID
+      if (rawBy.isNotEmpty && !RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$').hasMatch(rawBy)) {
+        perf = rawBy;
+      }
+    }
 
     final lead = (json['leadName'] ??
             json['lead'] ??
@@ -362,6 +402,7 @@ class DashboardRecentActivity {
         .toString();
 
     String ts = (json['timestamp'] ??
+            json['actionAt'] ??
             json['createdAt'] ??
             json['date'] ??
             json['time'] ??
@@ -378,7 +419,7 @@ class DashboardRecentActivity {
     }
 
     return DashboardRecentActivity(
-      activityId: (json['activityId'] ?? json['id'] ?? '').toString(),
+      activityId: (json['auditId'] ?? json['activityId'] ?? json['id'] ?? '').toString(),
       leadName: lead,
       actionType: actType.isNotEmpty ? actType : (desc.isNotEmpty ? desc : 'UPDATE'),
       description: desc.isNotEmpty ? desc : (lead.isNotEmpty ? 'Updated lead $lead' : 'Updated lead details'),

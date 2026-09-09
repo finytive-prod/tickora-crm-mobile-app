@@ -4,15 +4,21 @@ class RoleDropdownItem extends Equatable {
   final String id;
   final String roleName;
   final String roleCode;
+  final String description;
+  final int priority;
+  final bool systemRole;
 
   const RoleDropdownItem({
     required this.id,
     required this.roleName,
     required this.roleCode,
+    this.description = '',
+    this.priority = 0,
+    this.systemRole = false,
   });
 
   @override
-  List<Object?> get props => [id, roleName, roleCode];
+  List<Object?> get props => [id, roleName, roleCode, description, priority, systemRole];
 }
 
 class RoleDropdownItemModel extends RoleDropdownItem {
@@ -20,6 +26,9 @@ class RoleDropdownItemModel extends RoleDropdownItem {
     required super.id,
     required super.roleName,
     required super.roleCode,
+    super.description = '',
+    super.priority = 0,
+    super.systemRole = false,
   });
 
   factory RoleDropdownItemModel.fromJson(Map<String, dynamic> json) {
@@ -27,6 +36,9 @@ class RoleDropdownItemModel extends RoleDropdownItem {
       id: json['id'] ?? '',
       roleName: json['roleName'] ?? '',
       roleCode: json['roleCode'] ?? '',
+      description: json['description'] ?? json['roleDescription'] ?? '',
+      priority: (json['priority'] as num?)?.toInt() ?? (json['displayOrder'] as num?)?.toInt() ?? 0,
+      systemRole: json['systemRole'] ?? false,
     );
   }
 }
@@ -86,6 +98,7 @@ class RoleDetail extends Equatable {
   final String roleName;
   final String description;
   final bool systemRole;
+  final int priority;
   final List<RolePermission> permissions;
 
   const RoleDetail({
@@ -94,11 +107,12 @@ class RoleDetail extends Equatable {
     required this.roleName,
     required this.description,
     required this.systemRole,
+    this.priority = 0,
     required this.permissions,
   });
 
   @override
-  List<Object?> get props => [id, roleCode, roleName, description, systemRole, permissions];
+  List<Object?> get props => [id, roleCode, roleName, description, systemRole, priority, permissions];
 }
 
 class RoleDetailModel extends RoleDetail {
@@ -108,6 +122,7 @@ class RoleDetailModel extends RoleDetail {
     required super.roleName,
     required super.description,
     required super.systemRole,
+    super.priority = 0,
     required super.permissions,
   });
 
@@ -124,6 +139,7 @@ class RoleDetailModel extends RoleDetail {
       roleName: json['roleName'] ?? '',
       description: json['description'] ?? '',
       systemRole: json['systemRole'] ?? false,
+      priority: (json['priority'] as num?)?.toInt() ?? (json['displayOrder'] as num?)?.toInt() ?? 0,
       permissions: perms,
     );
   }

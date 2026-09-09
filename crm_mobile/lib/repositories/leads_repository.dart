@@ -20,6 +20,9 @@ import 'package:crm_mobile/models/attachment.dart';
 import 'package:crm_mobile/models/attachment_model.dart';
 import 'package:crm_mobile/models/lead_audio.dart';
 import 'package:crm_mobile/models/lead_audio_model.dart';
+import 'package:crm_mobile/models/pipeline_model.dart';
+import 'package:crm_mobile/models/dialpad_lead_search_result.dart';
+import 'package:crm_mobile/core/network/api_constants.dart';
 
 abstract class LeadsRepository {
   Future<Either<Failure, List<Lead>>> getLeads(int page, int size, {String? statusId, bool? isActive});
@@ -36,6 +39,9 @@ abstract class LeadsRepository {
   Future<Either<Failure, LeadAudio>> uploadLeadAudio(String leadId, String filePath);
   Future<Either<Failure, void>> updateLeadActiveStatus(String leadId, bool isActive);
   Future<Either<Failure, String>> exportLeadReport(Map<String, dynamic> payload);
+  Future<Either<Failure, List<PipelineColumnData>>> getLeadPipeline({int page = 0, int size = 50});
+  Future<Either<Failure, void>> updateLeadStatusInPipeline(String leadId, String statusId);
+  Future<Either<Failure, DialpadLeadSearchResult>> searchLeadByNumber(String phoneNumber);
 }
 
 class LeadsRepositoryImpl implements LeadsRepository {
@@ -43,25 +49,83 @@ class LeadsRepositoryImpl implements LeadsRepository {
 
   LeadsRepositoryImpl({required this.apiClient});
 
+  String get _leadsBaseUrl => ApiUrl.leadService;
+  String get _identityBaseUrl => ApiUrl.identityService;
+
   @override
   Future<Either<Failure, List<Lead>>> getLeads(int page, int size, {String? statusId, bool? isActive}) async {
     try {
-      final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
-      final queryParameters = <String, dynamic>{
-        'page': page,
-        'size': size,
-        'sort': 'createdAt,desc',
-      };
-      if (statusId != null) {
-        queryParameters['statusId'] = statusId;
+      final leadsBaseUrl = _leadsBaseUrl;
+
+      // If specific filters like statusId or isActive are provided, use standard filter endpoint
+      if (statusId != null || isActive != null) {
+        final queryParameters = <String, dynamic>{
+          'page': page,
+          'size': size,
+          'sort': 'createdAt,desc',
+        };
+        if (statusId != null) queryParameters['statusId'] = statusId;
+        if (isActive != null) queryParameters['isActive'] = isActive;
+
+        final response = await apiClient.get(
+          '$leadsBaseUrl/leads',
+          queryParameters: queryParameters,
+        );
+
+        final body = response.data;
+        if (body['success'] == true && body['data'] != null && body['data']['content'] != null) {
+          final List<dynamic> content = body['data']['content'];
+          final leads = content.map((json) => LeadModel.fromJson(json)).toList();
+          return Right(leads);
+        } else {
+          throw ApiException(message: body['message'] ?? 'Failed to load leads');
+        }
       }
-      if (isActive != null) {
-        queryParameters['isActive'] = isActive;
-      }
+
+      try {
+        final response = await apiClient.post(
+          '$leadsBaseUrl/leads/search/global',
+          queryParameters: {
+            'page': page,
+            'size': size,
+          },
+          data: {
+            'query': null,
+            'isLead': true,
+            'isCustomer': false,
+            'isUser': false,
+            'isFollowup': false,
+          },
+        );
+
+        final body = response.data;
+        if (body['success'] == true && body['data'] != null && body['data']['content'] != null) {
+          final List<dynamic> content = body['data']['content'];
+          final leads = content
+              .where((json) {
+                if (json is Map && json['role'] != null) {
+                  final roleStr = json['role'].toString().toUpperCase();
+                  if (roleStr.isNotEmpty && !roleStr.contains('LEAD')) {
+                    return false;
+                  }
+                }
+                return true;
+              })
+              .map((json) => LeadModel.fromJson(json))
+              .toList();
+          if (leads.isNotEmpty) {
+            return Right(leads);
+          }
+        }
+      } catch (_) {}
 
       final response = await apiClient.get(
         '$leadsBaseUrl/leads',
-        queryParameters: queryParameters,
+        queryParameters: {
+          'page': page,
+          'size': size,
+          'sort': 'createdAt,desc',
+        },
       );
 
       final body = response.data;
@@ -80,21 +144,46 @@ class LeadsRepositoryImpl implements LeadsRepository {
   @override
   Future<Either<Failure, List<Lead>>> searchLeads(String query, {int page = 0, int size = 10}) async {
     try {
-      final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
-      final response = await apiClient.get(
-        '$leadsBaseUrl/leads/search',
+      final leadsBaseUrl = _leadsBaseUrl;
+      final response = await apiClient.post(
+        '$leadsBaseUrl/leads/search/global',
         queryParameters: {
-          'query': query,
           'page': page,
           'size': size,
-          'sort': 'createdAt,desc',
+        },
+        data: {
+          'query': query.trim().isEmpty ? null : query.trim(),
+          'isLead': true,
+          'isCustomer': false,
+          'isUser': false,
+          'isFollowup': false,
         },
       );
 
       final body = response.data;
       if (body != null && body['success'] == true && body['data'] != null && body['data']['content'] != null) {
         final List<dynamic> content = body['data']['content'];
-        final leads = content.map((json) => LeadModel.fromJson(json)).toList();
+        final q = query.trim().toLowerCase();
+        final leads = content
+            .where((json) {
+              if (json is Map && json['role'] != null) {
+                final roleStr = json['role'].toString().toUpperCase();
+                if (roleStr.isNotEmpty && !roleStr.contains('LEAD')) {
+                  return false;
+                }
+              }
+              return true;
+            })
+            .map((json) => LeadModel.fromJson(json))
+            .where((lead) {
+              if (q.isEmpty) return true;
+              final fullName = '${lead.firstName} ${lead.lastName}'.toLowerCase();
+              final phone = lead.phone.toLowerCase();
+              final email = lead.email.toLowerCase();
+              final company = lead.companyName.toLowerCase();
+              return fullName.contains(q) || phone.contains(q) || email.contains(q) || company.contains(q);
+            })
+            .toList();
         return Right(leads);
       } else {
         throw ApiException(message: body['message'] ?? 'Failed to search leads');
@@ -107,7 +196,7 @@ class LeadsRepositoryImpl implements LeadsRepository {
   @override
   Future<Either<Failure, List<String>>> getLeadPriorities() async {
     try {
-      final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
+      final leadsBaseUrl = _leadsBaseUrl;
       final response = await apiClient.get('$leadsBaseUrl/lead-settings/priorities');
       final body = response.data;
       if (body['success'] == true && body['data'] != null) {
@@ -125,8 +214,7 @@ class LeadsRepositoryImpl implements LeadsRepository {
   @override
   Future<Either<Failure, List<StaffUser>>> getStaffUsers({String? search}) async {
     try {
-      final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
-      final identityBaseUrl = leadsBaseUrl.replaceAll('lead-service', 'identity-service');
+      final identityBaseUrl = _identityBaseUrl;
       
       final queryParameters = <String, dynamic>{};
       if (search != null && search.isNotEmpty) {
@@ -161,7 +249,7 @@ class LeadsRepositoryImpl implements LeadsRepository {
   @override
   Future<Either<Failure, void>> createLead(Map<String, dynamic> leadData, List<String> filePaths, {String? leadFileName}) async {
     try {
-      final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
+      final leadsBaseUrl = _leadsBaseUrl;
       final formData = FormData();
 
       final leadJson = jsonEncode(leadData);
@@ -181,6 +269,13 @@ class LeadsRepositoryImpl implements LeadsRepository {
           final filename = path.split('/').last.split('\\').last;
           formData.files.add(MapEntry(
             'attachments',
+            await MultipartFile.fromFile(
+              path,
+              filename: filename,
+            ),
+          ));
+          formData.files.add(MapEntry(
+            'files',
             await MultipartFile.fromFile(
               path,
               filename: filename,
@@ -208,7 +303,7 @@ class LeadsRepositoryImpl implements LeadsRepository {
   @override
   Future<Either<Failure, void>> updateLead(String leadId, Map<String, dynamic> leadData, List<String> filePaths, {String? leadFileName}) async {
     try {
-      final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
+      final leadsBaseUrl = _leadsBaseUrl;
       final formData = FormData();
 
       final leadJson = jsonEncode(leadData);
@@ -223,11 +318,6 @@ class LeadsRepositoryImpl implements LeadsRepository {
         ),
       ));
 
-      // Append uploadedBy as per the user's requirement. If we don't have the user ID readily available in the repo, 
-      // the API might accept it if it's already in the leadData or we pass a hardcoded/extracted one. Wait, in the example 
-      // the user provided: uploadedBy: 5ebdf6f1-ebf5-4f49-97fc-67ce1db348aa.
-      // Usually, ownerUserId from leadData can be used, or the backend derives it. But to be safe with the payload 
-      // structure provided by the user, we will add it if ownerUserId is present in leadData.
       if (leadData.containsKey('ownerUserId') && leadData['ownerUserId'] != null) {
         formData.fields.add(MapEntry('uploadedBy', leadData['ownerUserId'].toString()));
       }
@@ -237,6 +327,13 @@ class LeadsRepositoryImpl implements LeadsRepository {
           final filename = path.split('/').last.split('\\').last;
           formData.files.add(MapEntry(
             'attachments',
+            await MultipartFile.fromFile(
+              path,
+              filename: filename,
+            ),
+          ));
+          formData.files.add(MapEntry(
+            'files',
             await MultipartFile.fromFile(
               path,
               filename: filename,
@@ -252,6 +349,13 @@ class LeadsRepositoryImpl implements LeadsRepository {
 
       final body = response.data;
       if (body != null && body['success'] == true) {
+        for (var path in filePaths) {
+          if (path.isNotEmpty) {
+            try {
+              await uploadLeadAttachment(leadId, path);
+            } catch (_) {}
+          }
+        }
         return const Right(null);
       } else {
         throw ApiException(message: body['message'] ?? 'Failed to update lead');
@@ -264,7 +368,7 @@ class LeadsRepositoryImpl implements LeadsRepository {
   @override
   Future<Either<Failure, LeadDetail>> getLeadDetails(String id) async {
     try {
-      final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
+      final leadsBaseUrl = _leadsBaseUrl;
       final response = await apiClient.get('$leadsBaseUrl/leads/$id');
 
       final body = response.data;
@@ -282,7 +386,7 @@ class LeadsRepositoryImpl implements LeadsRepository {
   @override
   Future<Either<Failure, AuditLogResponse>> getLeadAuditLogs(String id, {int page = 0, int size = 20}) async {
     try {
-      final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
+      final leadsBaseUrl = _leadsBaseUrl;
       final response = await apiClient.get(
         '$leadsBaseUrl/leads/$id/audit-logs',
         queryParameters: {'page': page, 'size': size},
@@ -303,7 +407,7 @@ class LeadsRepositoryImpl implements LeadsRepository {
   @override
   Future<Either<Failure, List<Attachment>>> getLeadAttachments(String id) async {
     try {
-      final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
+      final leadsBaseUrl = _leadsBaseUrl;
       final response = await apiClient.get('$leadsBaseUrl/leads/$id/attachments');
 
       final body = response.data;
@@ -322,7 +426,7 @@ class LeadsRepositoryImpl implements LeadsRepository {
   @override
   Future<Either<Failure, void>> uploadLeadAttachment(String leadId, String filePath) async {
     try {
-      final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
+      final leadsBaseUrl = _leadsBaseUrl;
       final formData = FormData();
       final filename = filePath.split('/').last.split('\\').last;
 
@@ -359,7 +463,7 @@ class LeadsRepositoryImpl implements LeadsRepository {
   @override
   Future<Either<Failure, List<LeadAudio>>> getLeadAudios(String leadId) async {
     try {
-      final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
+      final leadsBaseUrl = _leadsBaseUrl;
       final response = await apiClient.get('$leadsBaseUrl/leads/$leadId/audios');
 
       final body = response.data;
@@ -389,7 +493,7 @@ class LeadsRepositoryImpl implements LeadsRepository {
   @override
   Future<Either<Failure, LeadAudio>> uploadLeadAudio(String leadId, String filePath) async {
     try {
-      final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
+      final leadsBaseUrl = _leadsBaseUrl;
       final formData = FormData();
       final filename = filePath.split('/').last.split('\\').last;
 
@@ -414,7 +518,6 @@ class LeadsRepositoryImpl implements LeadsRepository {
         filename: filename,
         contentType: MediaType('audio', ext),
       );
-
       final multipartFile2 = await MultipartFile.fromFile(
         filePath,
         filename: filename,
@@ -435,9 +538,21 @@ class LeadsRepositoryImpl implements LeadsRepository {
 
       final body = response.data;
       if (body != null) {
-        final Map<String, dynamic> dataJson = (body is Map<String, dynamic> && body.containsKey('data') && body['data'] is Map<String, dynamic>)
-            ? body['data']
-            : (body is Map<String, dynamic> ? body : {});
+        Map<String, dynamic> dataJson = {};
+        if (body is Map<String, dynamic>) {
+          if (body.containsKey('data')) {
+            final dataVal = body['data'];
+            if (dataVal is Map<String, dynamic>) {
+              dataJson = dataVal;
+            } else if (dataVal is List && dataVal.isNotEmpty && dataVal.first is Map<String, dynamic>) {
+              dataJson = dataVal.first as Map<String, dynamic>;
+            }
+          } else {
+            dataJson = body;
+          }
+        } else if (body is List && body.isNotEmpty && body.first is Map<String, dynamic>) {
+          dataJson = body.first as Map<String, dynamic>;
+        }
         final audioModel = LeadAudioModel.fromJson(dataJson);
         return Right(audioModel);
       } else {
@@ -459,7 +574,7 @@ class LeadsRepositoryImpl implements LeadsRepository {
   @override
   Future<Either<Failure, void>> updateLeadActiveStatus(String leadId, bool isActive) async {
     try {
-      final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
+      final leadsBaseUrl = _leadsBaseUrl;
       final response = await apiClient.put(
         '$leadsBaseUrl/leads/$leadId/active-status?isActive=$isActive',
       );
@@ -477,8 +592,8 @@ class LeadsRepositoryImpl implements LeadsRepository {
 
   @override
   Future<Either<Failure, String>> exportLeadReport(Map<String, dynamic> payload) async {
-    final baseUrl = dotenv.env['BASE_URL'] ?? '';
-    final url = '$baseUrl/leads/export/csv';
+    final leadsBaseUrl = _leadsBaseUrl;
+    final url = '$leadsBaseUrl/leads/export/csv';
     debugPrint('[LeadsRepo] Calling POST $url with payload $payload');
     try {
       final tempDir = await getTemporaryDirectory();
@@ -498,6 +613,107 @@ class LeadsRepositoryImpl implements LeadsRepository {
     } catch (e) {
       debugPrint('[LeadsRepo] export error: $e');
       return const Left(ServerFailure('Failed to download export file.'));
+    }
+  }
+
+  @override
+  Future<Either<Failure, List<PipelineColumnData>>> getLeadPipeline({int page = 0, int size = 50}) async {
+    try {
+      final leadsBaseUrl = _leadsBaseUrl;
+      final response = await apiClient.get(
+        '$leadsBaseUrl/leads/pipeline',
+        queryParameters: {'page': page, 'size': size},
+      );
+
+      final body = response.data;
+      if (body != null && body['success'] == true && body['data'] is List) {
+        final List<dynamic> list = body['data'];
+        final columns = list
+            .map((e) => PipelineColumnData.fromJson(e is Map<String, dynamic> ? e : Map<String, dynamic>.from(e as Map)))
+            .toList();
+        columns.sort((a, b) => a.status.displayOrder.compareTo(b.status.displayOrder));
+        return Right(columns);
+      } else {
+        throw ApiException(message: body?['message'] ?? 'Failed to fetch pipeline data');
+      }
+    } on Exception catch (e) {
+      return Left(ErrorHandler.mapExceptionToFailure(e));
+    }
+  }
+
+  @override
+  Future<Either<Failure, void>> updateLeadStatusInPipeline(String leadId, String statusId) async {
+    final leadsBaseUrl = _leadsBaseUrl;
+
+    try {
+      final res = await apiClient.put(
+        '$leadsBaseUrl/leads/$leadId/status',
+        data: {'statusId': statusId},
+      );
+      final body = res.data;
+      if (body != null) {
+        if (body['success'] == true) {
+          return const Right(null);
+        } else if (body['message'] != null && body['message'].toString().trim().isNotEmpty) {
+          return Left(ServerFailure(body['message'].toString().trim()));
+        }
+      }
+      return const Right(null);
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) {
+        try {
+          final formData = FormData();
+          final leadJson = jsonEncode({'statusId': statusId});
+          formData.files.add(MapEntry(
+            'lead',
+            MultipartFile.fromString(
+              leadJson,
+              filename: 'test.json',
+              contentType: MediaType('application', 'json'),
+            ),
+          ));
+
+          final response = await apiClient.put(
+            '$leadsBaseUrl/leads/$leadId',
+            data: formData,
+          );
+
+          final body = response.data;
+          if (body != null && body['success'] == true) {
+            return const Right(null);
+          } else {
+            return Left(ServerFailure(body?['message'] ?? 'Failed to update lead status'));
+          }
+        } on Object catch (fallbackError) {
+          return Left(ErrorHandler.mapExceptionToFailure(fallbackError));
+        }
+      }
+      return Left(ErrorHandler.mapExceptionToFailure(e));
+    } on Object catch (e) {
+      return Left(ErrorHandler.mapExceptionToFailure(e));
+    }
+  }
+
+  @override
+  Future<Either<Failure, DialpadLeadSearchResult>> searchLeadByNumber(String phoneNumber) async {
+    try {
+      final leadsBaseUrl = _leadsBaseUrl;
+      final response = await apiClient.get(
+        '$leadsBaseUrl/leads/search/number',
+        queryParameters: {'phone': phoneNumber},
+      );
+
+      final body = response.data;
+      if (body != null && body is Map<String, dynamic>) {
+        final result = DialpadLeadSearchResult.fromJson(body);
+        return Right(result);
+      } else {
+        return Right(DialpadLeadSearchResult(alreadyMapped: false));
+      }
+    } on Exception catch (e) {
+      return Left(ErrorHandler.mapExceptionToFailure(e));
+    } catch (e) {
+      return Left(ServerFailure('Error searching lead by number: $e'));
     }
   }
 }

@@ -33,6 +33,7 @@ class HomeScreenState extends State<HomeScreen> {
 
   Future<void> _checkAndRequestStartupPermissions() async {
     final service = CallRecordingService();
+    if (!mounted) return;
     final hasPerm = await service.hasStoragePermission();
     if (!hasPerm && mounted) {
       showDialog(

@@ -34,6 +34,7 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
   String? _errorMessage;
   List<LeadStatus> _statuses = [];
   bool _hasLoadedData = false;
+  final ScrollController _scrollController = ScrollController();
 
   // Form states for creating status
   final _formKey = GlobalKey<FormState>();
@@ -42,12 +43,11 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
   bool _isDefault = false;
   String _selectedColor = '#3B82F6'; // Default color Blue
 
-
-
   @override
   void dispose() {
     _nameController.dispose();
     _orderController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -178,6 +178,7 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
               ? const Center(child: SpinningLogo(size: 60))
               : SafeArea(
                   child: SingleChildScrollView(
+                    controller: _scrollController,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -235,6 +236,17 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
                                 context.read<SettingsBloc>().add(
                                       ReorderLeadStatus(item.id, newIndex + 1),
                                     );
+                              });
+
+                              // Automatically scroll the screen back up to top after drag/reorder
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                if (_scrollController.hasClients) {
+                                  _scrollController.animateTo(
+                                    0,
+                                    duration: const Duration(milliseconds: 500),
+                                    curve: Curves.easeOutCubic,
+                                  );
+                                }
                               });
                             },
                             itemBuilder: (context, index) {

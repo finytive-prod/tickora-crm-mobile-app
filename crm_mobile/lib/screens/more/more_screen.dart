@@ -13,6 +13,7 @@ import 'package:crm_mobile/screens/reports/reports_screen.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:crm_mobile/blocs/leads_bloc.dart';
 import 'package:crm_mobile/blocs/leads_event.dart';
+import 'package:crm_mobile/screens/pipeline/lead_pipeline_screen.dart';
 
 class MoreScreen extends StatefulWidget {
   const MoreScreen({super.key});
@@ -29,6 +30,17 @@ class _MoreScreenState extends State<MoreScreen> {
   void initState() {
     super.initState();
     _loadUserData();
+    _checkAndRefreshPrivileges();
+  }
+
+  void _checkAndRefreshPrivileges() async {
+    final priv = sl<PrivilegeService>();
+    if (priv.privileges.isEmpty) {
+      await priv.fetchPrivileges();
+      if (mounted) {
+        setState(() {});
+      }
+    }
   }
 
   void _loadUserData() async {
@@ -134,13 +146,11 @@ class _MoreScreenState extends State<MoreScreen> {
                   children: [
                     Row(
                       children: [
-                        Container(
-                          padding: const EdgeInsets.all(5),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: const Icon(Icons.trending_up, color: brandColor, size: 20),
+                        Image.asset(
+                          'assets/images/logo.webp',
+                          width: 28,
+                          height: 28,
+                          errorBuilder: (_, __, ___) => const Icon(Icons.dashboard_customize_outlined, color: Colors.white, size: 24),
                         ),
                         const SizedBox(width: 8),
                         const Text(
@@ -230,13 +240,25 @@ class _MoreScreenState extends State<MoreScreen> {
                     brandColor: brandColor,
                     onTap: () => _changeTab(context, 'Dashboard'),
                   ),
-                if (priv.hasPrivilege('LEAD_READ'))
+                if (priv.hasPrivilege('LEAD_READ')) ...[
                   _buildMenuItem(
                     icon: Icons.person_add_alt_1_outlined,
                     title: 'Leads',
                     brandColor: brandColor,
                     onTap: () => _changeTab(context, 'Leads'),
                   ),
+                  _buildMenuItem(
+                    icon: Icons.auto_awesome_mosaic_outlined,
+                    title: 'Pipelines',
+                    brandColor: brandColor,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const LeadPipelineScreen()),
+                      );
+                    },
+                  ),
+                ],
                 if (priv.hasPrivilege('CUSTOMER_READ'))
                   _buildMenuItem(
                     icon: Icons.people_outline,
@@ -256,7 +278,7 @@ class _MoreScreenState extends State<MoreScreen> {
                     brandColor: brandColor,
                     onTap: () => _changeTab(context, 'Follow ups'),
                   ),
-                if (priv.hasPrivilege('USER_READ'))
+                if (priv.hasPrivilege('STAFF_READ') || priv.hasPrivilege('USER_READ'))
                   _buildMenuItem(
                     icon: Icons.business_center_outlined,
                     title: 'Staff',
@@ -379,12 +401,5 @@ class _MoreScreenState extends State<MoreScreen> {
     );
   }
 
-  void _showComingSoon(String pageName) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$pageName coming soon.'),
-        duration: const Duration(seconds: 2),
-      ),
-    );
-  }
+  
 }

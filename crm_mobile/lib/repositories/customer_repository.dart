@@ -5,6 +5,7 @@ import 'package:crm_mobile/core/network/api_client.dart';
 import 'package:crm_mobile/core/network/api_exception.dart';
 import 'package:crm_mobile/core/network/error_handler.dart';
 import 'package:crm_mobile/models/customer.dart';
+import 'package:crm_mobile/core/network/api_constants.dart';
 
 abstract class CustomerRepository {
   Future<Either<Failure, List<Customer>>> getCustomers({int page = 0, int size = 20, String? searchQuery});
@@ -19,35 +20,72 @@ class CustomerRepositoryImpl implements CustomerRepository {
 
   CustomerRepositoryImpl({required this.apiClient});
 
-  String get _baseUrl {
-    final baseUrl = dotenv.env['BASE_URL'] ?? '';
-    return baseUrl.replaceAll('lead-service', 'customer-service');
-  }
+  String get _baseUrl => ApiUrl.customerService;
 
   @override
   Future<Either<Failure, List<Customer>>> getCustomers({int page = 0, int size = 20, String? searchQuery}) async {
     try {
+      final leadsBaseUrl = ApiUrl.leadService;
+      final customerBaseUrl = _baseUrl;
+      final q = (searchQuery != null && searchQuery.trim().isNotEmpty) ? searchQuery.trim() : null;
+
+      try {
+        final response = await apiClient.post(
+          '$leadsBaseUrl/leads/search/global',
+          queryParameters: {
+            'page': page,
+            'size': size,
+          },
+          data: {
+            'query': q,
+            'isLead': false,
+            'isCustomer': true,
+            'isUser': false,
+            'isFollowup': false,
+          },
+        );
+        
+        final body = response.data;
+        if (body != null && body['success'] == true && body['data'] != null) {
+          final List<dynamic> content = body['data']['content'] ?? (body['data'] is List ? body['data'] : []);
+          var customers = content.map((json) => Customer.fromJson(json)).toList();
+          if (q != null && q.isNotEmpty) {
+            final queryLower = q.toLowerCase();
+            customers = customers.where((c) {
+              final name = c.customerName.toLowerCase();
+              final company = c.companyName.toLowerCase();
+              final phone = c.phone.toLowerCase();
+              final email = c.email.toLowerCase();
+              return name.contains(queryLower) || company.contains(queryLower) || phone.contains(queryLower) || email.contains(queryLower);
+            }).toList();
+          }
+
+          if (customers.isNotEmpty) {
+            return Right(customers);
+          }
+        }
+      } catch (_) {}
+
       final queryParams = <String, dynamic>{
         'page': page,
         'size': size,
       };
-      
-      if (searchQuery != null && searchQuery.trim().isNotEmpty) {
-        queryParams['search'] = searchQuery.trim();
+      if (q != null && q.isNotEmpty) {
+        queryParams['search'] = q;
       }
 
       final response = await apiClient.get(
-        '$_baseUrl/customers',
+        '$customerBaseUrl/customers',
         queryParameters: queryParams,
       );
-      
+
       final body = response.data;
       if (body != null && body['success'] == true && body['data'] != null) {
-        final List<dynamic> content = body['data']['content'] ?? body['data']; // Handling both paginated and list responses
+        final List<dynamic> content = body['data']['content'] ?? (body['data'] is List ? body['data'] : []);
         final customers = content.map((json) => Customer.fromJson(json)).toList();
         return Right(customers);
       } else {
-        throw ApiException(message: body['message'] ?? 'Failed to load customers');
+        throw ApiException(message: body?['message'] ?? 'Failed to load customers');
       }
     } on Exception catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));

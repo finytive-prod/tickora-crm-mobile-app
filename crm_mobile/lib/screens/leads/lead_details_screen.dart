@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:intl/intl.dart';
 import 'package:crm_mobile/core/theme/app_colors.dart';
 import 'package:crm_mobile/widgets/spinning_logo.dart';
@@ -19,6 +20,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:crm_mobile/core/services/call_recording_service.dart';
 import 'package:crm_mobile/core/services/auto_call_recording_uploader.dart';
 import 'package:crm_mobile/core/network/api_client.dart';
+import 'package:crm_mobile/core/network/api_constants.dart';
 import 'package:crm_mobile/repositories/settings_repository.dart';
 import 'package:crm_mobile/screens/leads/add_lead_screen.dart';
 import 'package:crm_mobile/screens/followups/add_followup_screen.dart';
@@ -56,6 +58,48 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
   bool _wasEdited = false;
   int? _lastCallTimestamp;
   bool _hasStoragePermission = true;
+  final Map<String, String> _resolvedCallTypes = {};
+
+  String _getResolvedCallType(LeadAudio audio, String phoneNumber) {
+    if (_resolvedCallTypes.containsKey(audio.id)) {
+      return _resolvedCallTypes[audio.id]!;
+    }
+    if (audio.hasExplicitDirection) {
+      return audio.callType;
+    }
+    if (_localRecordings.isNotEmpty) {
+      final cleanServerName = AutoCallRecordingUploader.cleanFileName(audio.displayName.toLowerCase());
+      for (final local in _localRecordings) {
+        final localPath = local['path']?.toString() ?? '';
+        final localName = AutoCallRecordingUploader.cleanFileName(localPath.split('/').last.split('\\').last.toLowerCase());
+        final localType = local['callType']?.toString() ?? '';
+        if (localType.isNotEmpty && (localName == cleanServerName || localPath.contains(cleanServerName))) {
+          _resolvedCallTypes[audio.id] = localType;
+          return localType;
+        }
+      }
+    }
+    _resolveAudioDirectionFromCallLog(audio, phoneNumber);
+    return audio.callType;
+  }
+
+  void _resolveAudioDirectionFromCallLog(LeadAudio audio, String phoneNumber) async {
+    if (phoneNumber.isEmpty || _resolvedCallTypes.containsKey(audio.id)) return;
+    final timestamp = audio.createdAt?.millisecondsSinceEpoch ?? 0;
+    try {
+      final detected = await CallRecordingService().detectCallType(
+        filePath: audio.fileName,
+        fileName: audio.displayName,
+        phoneNumber: phoneNumber,
+        timestamp: timestamp,
+      );
+      if (mounted && detected.isNotEmpty && _resolvedCallTypes[audio.id] != detected) {
+        setState(() {
+          _resolvedCallTypes[audio.id] = detected;
+        });
+      }
+    } catch (_) {}
+  }
 
   @override
   void initState() {
@@ -79,17 +123,23 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
       if (blocState is LeadDetailsLoaded) {
         final lead = blocState.leadDetail;
 
-        AutoCallRecordingUploader.autoScanAndUploadLeadRecordings(
-          context: context,
-          leadId: lead.id,
-          phoneNumber: lead.phone,
-          onUploadSuccess: () {
-            if (mounted) {
-              context.read<LeadsBloc>().add(FetchLeadAudios(lead.id));
-              _fetchLocalRecordings(lead.phone);
-            }
-          },
-        );
+        // Schedule multi-stage scans (0s, 3s, 7s, 15s) when returning from call to capture finalized recording
+        for (final delaySec in [0, 3, 7, 15]) {
+          Future.delayed(Duration(seconds: delaySec), () {
+            if (!mounted) return;
+            AutoCallRecordingUploader.autoScanAndUploadLeadRecordings(
+              context: context,
+              leadId: lead.id,
+              phoneNumber: lead.phone,
+              onUploadSuccess: () {
+                if (mounted) {
+                  context.read<LeadsBloc>().add(FetchLeadAudios(lead.id));
+                  _fetchLocalRecordings(lead.phone);
+                }
+              },
+            );
+          });
+        }
       }
     }
   }
@@ -696,13 +746,60 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
     );
   }
 
-  Widget _buildPlaceholderTab(String tabName) {
-    return Center(
-      child: Text(
-        '$tabName coming soon',
-        style: const TextStyle(color: AppColors.textHint, fontSize: 14),
-      ),
-    );
+
+  String _cleanAudioTitle(String rawName) {
+    var name = rawName;
+    while (true) {
+      final old = name;
+      name = name
+          .replaceAll(RegExp(r'^REC_', caseSensitive: false), '')
+          .replaceAll(RegExp(r'^INCOMING_', caseSensitive: false), '')
+          .replaceAll(RegExp(r'^OUTGOING_', caseSensitive: false), '')
+          .replaceAll(RegExp(r'^INBOUND_', caseSensitive: false), '')
+          .replaceAll(RegExp(r'^OUTBOUND_', caseSensitive: false), '');
+      if (name == old) break;
+    }
+    return name.isEmpty ? rawName : name;
+  }
+
+  int _getEffectiveTimestamp(LeadAudio audio) {
+    if (audio.createdAt != null) {
+      return audio.createdAt!.millisecondsSinceEpoch;
+    }
+    final name = audio.displayName.isNotEmpty ? audio.displayName : audio.fileName;
+
+    // Pattern 1: YYMMDD_HHMMSS or YYYYMMDD_HHMMSS
+    final match1 = RegExp(r'(\d{4}|\d{2})(\d{2})(\d{2})_?(\d{2})(\d{2})(\d{2})').firstMatch(name);
+    if (match1 != null) {
+      try {
+        final yStr = match1.group(1)!;
+        final year = yStr.length == 2 ? 2000 + int.parse(yStr) : int.parse(yStr);
+        final month = int.parse(match1.group(2)!);
+        final day = int.parse(match1.group(3)!);
+        final hour = int.parse(match1.group(4)!);
+        final min = int.parse(match1.group(5)!);
+        final sec = int.parse(match1.group(6)!);
+        return DateTime(year, month, day, hour, min, sec).millisecondsSinceEpoch;
+      } catch (_) {}
+    }
+
+    // Pattern 2: Epoch ms timestamp
+    final match2 = RegExp(r'\b(1\d{12})\b').firstMatch(name);
+    if (match2 != null) {
+      final ms = int.tryParse(match2.group(1)!);
+      if (ms != null) return ms;
+    }
+
+    return 0;
+  }
+
+  int _compareByLatest(LeadAudio a, LeadAudio b) {
+    final timeA = _getEffectiveTimestamp(a);
+    final timeB = _getEffectiveTimestamp(b);
+    if (timeA != timeB) {
+      return timeB.compareTo(timeA); // Descending (latest / most recent call first)
+    }
+    return b.id.compareTo(a.id);
   }
 
   String _recordingFilter = 'all'; // 'all', 'inbound', or 'outbound'
@@ -711,20 +808,24 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
     final rawServerAudios = state.audios ?? [];
 
     final List<LeadAudio> sortedRaw = List.from(rawServerAudios);
-    sortedRaw.sort((a, b) => b.size.compareTo(a.size));
+    sortedRaw.sort(_compareByLatest);
 
     final List<LeadAudio> serverAudios = [];
-    final Set<String> seenCleanNames = {};
+    final Set<String> seenKeys = {};
     for (final audio in sortedRaw) {
       final cleanName = AutoCallRecordingUploader.cleanFileName(audio.displayName.toLowerCase());
-      if (!seenCleanNames.contains(cleanName)) {
-        seenCleanNames.add(cleanName);
+      final sizeKey = '${audio.size}_$cleanName';
+      if (!seenKeys.contains(cleanName) && !seenKeys.contains(sizeKey)) {
+        seenKeys.add(cleanName);
+        seenKeys.add(sizeKey);
         serverAudios.add(audio);
       }
     }
 
-    final inboundAudios = serverAudios.where((a) => a.callType == 'inbound').toList();
-    final outboundAudios = serverAudios.where((a) => a.callType == 'outbound').toList();
+    serverAudios.sort(_compareByLatest);
+
+    final inboundAudios = serverAudios.where((a) => _getResolvedCallType(a, state.leadDetail.phone) == 'inbound').toList()..sort(_compareByLatest);
+    final outboundAudios = serverAudios.where((a) => _getResolvedCallType(a, state.leadDetail.phone) == 'outbound').toList()..sort(_compareByLatest);
 
     final currentAudios = _recordingFilter == 'all'
         ? serverAudios
@@ -904,7 +1005,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
               separatorBuilder: (context, index) => const SizedBox(height: 8),
               itemBuilder: (context, index) {
                 final audio = currentAudios[index];
-                final isIncoming = audio.callType == 'inbound';
+                final isIncoming = _getResolvedCallType(audio, state.leadDetail.phone) == 'inbound';
                 final dateStr = audio.createdAt != null
                     ? DateFormat('MMM dd, yyyy - hh:mm a').format(audio.createdAt!)
                     : 'Unknown Date';
@@ -942,7 +1043,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
                                 children: [
                                   Expanded(
                                     child: Text(
-                                      audio.displayName,
+                                      _cleanAudioTitle(audio.displayName),
                                       style: const TextStyle(
                                         fontSize: 14,
                                         fontWeight: FontWeight.bold,
@@ -1124,8 +1225,50 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
         ),
       );
     }
-    final attachments = state.attachments ?? [];
-    if (attachments.isEmpty) {
+    final serverAttachments = state.attachments ?? [];
+    final List<Attachment> allDocuments = List.from(serverAttachments);
+    final seenDocIds = serverAttachments.map((a) => a.id).toSet();
+    final seenDocNames = serverAttachments.map((a) => a.fileName.toLowerCase()).toSet();
+
+    for (final cf in state.leadDetail.customFields) {
+      final valStr = cf.value?.toString().trim() ?? '';
+      if (valStr.isEmpty) continue;
+      final typeUpper = cf.fieldType.toUpperCase();
+      final lowerVal = valStr.toLowerCase();
+      final isFileField = typeUpper == 'FILE' ||
+          typeUpper == 'ATTACHMENT' ||
+          typeUpper == 'DOCUMENT' ||
+          typeUpper == 'IMAGE' ||
+          lowerVal.endsWith('.pdf') ||
+          lowerVal.endsWith('.doc') ||
+          lowerVal.endsWith('.docx') ||
+          lowerVal.endsWith('.xls') ||
+          lowerVal.endsWith('.xlsx') ||
+          lowerVal.endsWith('.png') ||
+          lowerVal.endsWith('.jpg') ||
+          lowerVal.endsWith('.jpeg') ||
+          lowerVal.endsWith('.csv') ||
+          lowerVal.endsWith('.txt') ||
+          lowerVal.endsWith('.zip');
+
+      if (isFileField && !seenDocNames.contains(lowerVal)) {
+        seenDocNames.add(lowerVal);
+        final docId = 'cf_${cf.fieldId}';
+        if (!seenDocIds.contains(docId)) {
+          seenDocIds.add(docId);
+          allDocuments.add(Attachment(
+            id: docId,
+            leadId: state.leadDetail.id,
+            fileName: '${cf.label}: $valStr',
+            fileType: cf.fieldType,
+            filePath: valStr,
+            createdAt: state.leadDetail.createdAt,
+          ));
+        }
+      }
+    }
+
+    if (allDocuments.isEmpty) {
       return const Center(
         child: Text(
           'No documents uploaded yet.',
@@ -1137,9 +1280,9 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
     return ListView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      itemCount: attachments.length,
+      itemCount: allDocuments.length,
       itemBuilder: (context, index) {
-        final doc = attachments[index];
+        final doc = allDocuments[index];
         
         // Define file type icon
         IconData fileIcon = Icons.insert_drive_file_outlined;
@@ -1181,7 +1324,6 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
               padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
               child: Row(
                 children: [
-                  // Icon
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
@@ -1191,8 +1333,6 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
                     child: Icon(fileIcon, color: fileColor, size: 24),
                   ),
                   const SizedBox(width: 16),
-
-                  // Details
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1218,8 +1358,6 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
                       ],
                     ),
                   ),
-
-                  // Trailing Download Button
                   IconButton(
                     icon: const Icon(Icons.download_rounded, color: AppColors.primary, size: 22),
                     tooltip: 'Download',
@@ -1235,7 +1373,6 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
   }
 
   void _downloadAttachment(BuildContext context, Attachment doc) async {
-    // Show downloading loader modal
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -1275,12 +1412,25 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
       final sanitizedName = displayFileName.replaceAll(RegExp(r'[^\w.\- ]'), '_');
       final tempFile = File('${tempDir.path}/$sanitizedName');
 
-      final response = await sl<ApiClient>().download(
-        '/leads/attachments/${doc.id}/download',
-        tempFile.path,
-      );
+      final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
+      String downloadUrl = '$leadsBaseUrl/leads/attachments/${doc.id}/download';
+      if (doc.id.startsWith('cf_')) {
+        downloadUrl = '$leadsBaseUrl/leads/attachments/${doc.fileName}/download';
+      }
+      try {
+        await sl<ApiClient>().download(
+          downloadUrl,
+          tempFile.path,
+        );
+      } catch (_) {
+        final fallbackUrl = '$leadsBaseUrl/leads/${doc.leadId}/attachments/${doc.fileName}/download';
+        await sl<ApiClient>().download(
+          fallbackUrl,
+          tempFile.path,
+        );
+      }
 
-      if (response.statusCode == 200 && await tempFile.exists() && (await tempFile.length()) > 0) {
+      if (await tempFile.exists() && (await tempFile.length()) > 0) {
         String? finalPath;
         if (Platform.isAndroid) {
           try {
@@ -1423,12 +1573,36 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
       final sanitizedName = displayFileName.replaceAll(RegExp(r'[^\w.\- ]'), '_');
       final tempFile = File('${tempDir.path}/$sanitizedName');
 
-      final response = await sl<ApiClient>().download(
-        '/leads/audios/${audio.id}/download',
-        tempFile.path,
-      );
+      final leadsBaseUrl = ApiUrl.leadService;
+      final candidateUrls = <String>[];
+      if (audio.leadId.isNotEmpty && audio.id.isNotEmpty) {
+        candidateUrls.add('$leadsBaseUrl/leads/${audio.leadId}/audios/${audio.id}/download');
+      }
+      if (audio.id.isNotEmpty) {
+        candidateUrls.add('$leadsBaseUrl/leads/audios/${audio.id}/download');
+        candidateUrls.add('$leadsBaseUrl/audios/${audio.id}/download');
+      }
+      if (audio.fileName.startsWith('http://') || audio.fileName.startsWith('https://')) {
+        candidateUrls.add(audio.fileName);
+      }
 
-      if (response.statusCode == 200 && await tempFile.exists() && (await tempFile.length()) > 0) {
+      bool downloaded = false;
+      for (final downloadUrl in candidateUrls) {
+        try {
+          debugPrint('Attempting download: $downloadUrl');
+          final response = await sl<ApiClient>().download(downloadUrl, tempFile.path);
+          if (response.statusCode == 200 && await tempFile.exists() && (await tempFile.length()) > 0) {
+            downloaded = true;
+            break;
+          }
+        } catch (e) {
+          debugPrint('Download attempt failed for $downloadUrl: $e');
+        }
+      }
+
+      if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+
+      if (downloaded && await tempFile.exists() && (await tempFile.length()) > 0) {
         String? finalPath;
         if (Platform.isAndroid) {
           try {
@@ -1444,8 +1618,6 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
             debugPrint('Error invoking saveToDownloads: $e');
           }
         }
-
-        if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
 
         final savedFile = (finalPath != null && !finalPath.startsWith('content://')) ? File(finalPath) : tempFile;
 
@@ -1481,7 +1653,6 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
           );
         }
       } else {
-        if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -1506,6 +1677,30 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
   }
 
   void _playLeadAudio(BuildContext context, LeadAudio audio) async {
+    // 1. Check if audio.fileName is directly a local file path
+    if (audio.fileName.isNotEmpty && File(audio.fileName).existsSync()) {
+      debugPrint('Playing audio.fileName directly: ${audio.fileName}');
+      CallRecordingService().playRecording(audio.fileName, context: context, title: audio.displayName);
+      return;
+    }
+
+    // 2. Play local phone recording directly if available in _localRecordings
+    final cleanServerName = AutoCallRecordingUploader.cleanFileName(audio.displayName.toLowerCase());
+    final rawFileName = audio.fileName.toLowerCase();
+    for (final local in _localRecordings) {
+      final localPath = local['path']?.toString() ?? '';
+      if (localPath.isNotEmpty && File(localPath).existsSync()) {
+        final localName = AutoCallRecordingUploader.cleanFileName(localPath.split('/').last.split('\\').last.toLowerCase());
+        final lowerPath = localPath.toLowerCase();
+        if (localName == cleanServerName || lowerPath.contains(cleanServerName) || (rawFileName.isNotEmpty && lowerPath.contains(rawFileName))) {
+          debugPrint('Playing local phone recording directly: $localPath');
+          CallRecordingService().playRecording(localPath, context: context, title: audio.displayName);
+          return;
+        }
+      }
+    }
+
+    // 3. Download from server with full BASE_URL if not local
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -1535,31 +1730,51 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
       final sanitizedName = displayFileName.replaceAll(RegExp(r'[^\w.\- ]'), '_');
       final tempFile = File('${tempDir.path}/audio_${audio.id}_$sanitizedName');
 
-      if (!await tempFile.exists() || (await tempFile.length()) <= 0 || (audio.size > 0 && (await tempFile.length()) != audio.size)) {
-        if (await tempFile.exists()) {
-          try {
-            await tempFile.delete();
-          } catch (_) {}
+      bool downloaded = false;
+      if (await tempFile.exists() && (await tempFile.length()) > 0) {
+        downloaded = true;
+      } else {
+        final leadsBaseUrl = ApiUrl.leadService;
+        final candidateUrls = <String>[];
+        if (audio.leadId.isNotEmpty && audio.id.isNotEmpty) {
+          candidateUrls.add('$leadsBaseUrl/leads/${audio.leadId}/audios/${audio.id}/download');
         }
-        await sl<ApiClient>().download(
-          '/leads/audios/${audio.id}/download',
-          tempFile.path,
-        );
+        if (audio.id.isNotEmpty) {
+          candidateUrls.add('$leadsBaseUrl/leads/audios/${audio.id}/download');
+          candidateUrls.add('$leadsBaseUrl/audios/${audio.id}/download');
+        }
+        if (audio.fileName.startsWith('http://') || audio.fileName.startsWith('https://')) {
+          candidateUrls.add(audio.fileName);
+        }
+
+        for (final downloadUrl in candidateUrls) {
+          debugPrint('Downloading audio file from: $downloadUrl to ${tempFile.path}');
+          try {
+            final res = await sl<ApiClient>().download(
+              downloadUrl,
+              tempFile.path,
+            );
+            if (await tempFile.exists() && (await tempFile.length()) > 0) {
+              downloaded = true;
+              break;
+            }
+          } catch (e) {
+            debugPrint('Failed download candidate $downloadUrl: $e');
+          }
+        }
       }
 
       if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
 
-      if (await tempFile.exists() && (await tempFile.length()) > 0) {
-        CallRecordingService().playRecording(tempFile.path);
-      } else {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Could not play ${audio.displayName}'),
-              backgroundColor: AppColors.primary,
-            ),
-          );
-        }
+      if (downloaded && await tempFile.exists() && (await tempFile.length()) > 0 && context.mounted) {
+        CallRecordingService().playRecording(tempFile.path, context: context, title: audio.displayName);
+      } else if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load recording ${audio.displayName}'),
+            backgroundColor: AppColors.primary,
+          ),
+        );
       }
     } catch (e) {
       if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
@@ -1567,7 +1782,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Could not play ${audio.displayName}'),
+            content: Text('Failed to load recording ${audio.displayName}'),
             backgroundColor: AppColors.primary,
           ),
         );

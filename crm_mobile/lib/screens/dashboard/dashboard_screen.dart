@@ -10,6 +10,9 @@ import 'package:crm_mobile/repositories/dashboard_repository.dart';
 import 'package:crm_mobile/models/dashboard_models.dart';
 import 'package:crm_mobile/screens/dashboard/dashboard_charts.dart';
 import 'package:crm_mobile/screens/dashboard/customize_dashboard_modal.dart';
+import 'package:crm_mobile/core/services/notification_service.dart';
+import 'package:crm_mobile/screens/notifications/notifications_screen.dart';
+import 'package:crm_mobile/widgets/animated_bell_icon.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
@@ -88,6 +91,22 @@ class _DashboardViewState extends State<DashboardView> {
           ],
         ),
         actions: [
+          ValueListenableBuilder<List<AppNotification>>(
+            valueListenable: NotificationService.instance,
+            builder: (context, notifications, _) {
+              final unreadCount = notifications.where((n) => !n.isRead).length;
+              return AnimatedBellIcon(
+                unreadCount: unreadCount,
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => const NotificationsScreen(),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
           BlocBuilder<DashboardBloc, DashboardState>(
             builder: (context, state) {
               List<String> visibleWidgets = DashboardWidgetKeys.allKeys;
@@ -144,7 +163,6 @@ class _DashboardViewState extends State<DashboardView> {
           List<DashboardRecentLead> recentLeads = [];
           List<DashboardUpcomingFollowup> upcomingFollowups = [];
           List<DashboardRecentActivity> recentActivities = [];
-          RevenueTargetData revenueTarget = RevenueTargetData();
 
           if (state is DashboardLoaded) {
             visibleWidgets = state.visibleWidgets;
@@ -154,7 +172,6 @@ class _DashboardViewState extends State<DashboardView> {
             recentLeads = state.recentLeads;
             upcomingFollowups = state.upcomingFollowups;
             recentActivities = state.recentActivities;
-            revenueTarget = state.revenueTarget;
             _trendPeriod = state.activeTrendPeriod;
           } else if (state is DashboardUpdating) {
             visibleWidgets = state.currentWidgets;
@@ -241,28 +258,28 @@ class _DashboardViewState extends State<DashboardView> {
                   ],
 
                   // ─── 3. SALES PIPELINE ────────────────────────────────────────
-                  if (visibleWidgets.contains(DashboardWidgetKeys.salesPipeline)) ...[
-                    _buildCard(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Row(
-                            children: [
-                              Icon(Icons.filter_alt_outlined, color: AppColors.primary, size: 20),
-                              SizedBox(width: 8),
-                              Text(
-                                'Sales Pipeline',
-                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-                          PipelineBarChart(items: chartsData.salesPipeline),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
+                  // if (visibleWidgets.contains(DashboardWidgetKeys.salesPipeline)) ...[
+                  //   _buildCard(
+                  //     child: Column(
+                  //       crossAxisAlignment: CrossAxisAlignment.start,
+                  //       children: [
+                  //         const Row(
+                  //           children: [
+                  //             Icon(Icons.filter_alt_outlined, color: AppColors.primary, size: 20),
+                  //             SizedBox(width: 8),
+                  //             Text(
+                  //               'Sales Pipeline',
+                  //               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                  //             ),
+                  //           ],
+                  //         ),
+                  //         const SizedBox(height: 16),
+                  //         // PipelineBarChart(items: chartsData.salesPipeline),
+                  //       ],
+                  //     ),
+                  //   ),
+                  //   const SizedBox(height: 16),
+                  // ],
 
                   // ─── 4. LEAD STATUS DISTRIBUTION ──────────────────────────────
                   if (visibleWidgets.contains(DashboardWidgetKeys.leadStatusDistribution)) ...[
@@ -325,28 +342,28 @@ class _DashboardViewState extends State<DashboardView> {
                   ],
 
                   // ─── 6. MONTHLY REVENUE TARGET ─────────────────────────────────
-                  if (visibleWidgets.contains(DashboardWidgetKeys.monthlyRevenueTarget)) ...[
-                    _buildCard(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Row(
-                            children: [
-                              Icon(Icons.account_balance_wallet_outlined, color: Color(0xFFF59E0B), size: 20),
-                              SizedBox(width: 8),
-                              Text(
-                                'Monthly Revenue Target',
-                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          MonthlyRevenueTargetCard(targetData: revenueTarget),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
+                  // if (visibleWidgets.contains(DashboardWidgetKeys.monthlyRevenueTarget)) ...[
+                  //   _buildCard(
+                  //     child: Column(
+                  //       crossAxisAlignment: CrossAxisAlignment.start,
+                  //       children: [
+                  //         const Row(
+                  //           children: [
+                  //             Icon(Icons.account_balance_wallet_outlined, color: Color(0xFFF59E0B), size: 20),
+                  //             SizedBox(width: 8),
+                  //             Text(
+                  //               'Monthly Revenue Target',
+                  //               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                  //             ),
+                  //           ],
+                  //         ),
+                  //         const SizedBox(height: 12),
+                  //         // MonthlyRevenueTargetCard(targetData: revenueTarget),
+                  //       ],
+                  //     ),
+                  //   ),
+                  //   const SizedBox(height: 16),
+                  // ],
 
                   // ─── 7. UPCOMING FOLLOW-UPS ───────────────────────────────────
                   if (visibleWidgets.contains(DashboardWidgetKeys.upcomingFollowups) || visibleWidgets.contains('UPCOMING_FOLLOWUPS')) ...[
@@ -432,44 +449,30 @@ class _DashboardViewState extends State<DashboardView> {
 
   List<DonutSegment> _buildStatusSegments(List<StatusDistributionItem> items) {
     if (items.isEmpty) return [];
-    const colors = [
-      Color(0xFFFF6600),
-      Color(0xFFFB923C),
-      Color(0xFF3B82F6),
-      Color(0xFF06B6D4),
-      Color(0xFFF97316),
-      Color(0xFF8B5CF6),
-      Color(0xFFF59E0B),
-      Color(0xFFEF4444),
-    ];
+    final total = items.length;
     return items.asMap().entries.map((e) {
       final idx = e.key;
       final item = e.value;
+      final color = item.color ?? getDynamicChartColor(item.statusName, idx, total);
       return DonutSegment(
         label: item.statusName,
         value: item.count.toDouble(),
-        color: colors[idx % colors.length],
+        color: color,
       );
     }).toList();
   }
 
   List<DonutSegment> _buildSourceSegments(List<SourceDistributionItem> items) {
     if (items.isEmpty) return [];
-    const colors = [
-      Color(0xFF4285F4),
-      Color(0xFF34A853),
-      Color(0xFF1877F2),
-      Color(0xFFFBBC05),
-      Color(0xFFEA4335),
-      Color(0xFF8B5CF6),
-    ];
+    final total = items.length;
     return items.asMap().entries.map((e) {
       final idx = e.key;
       final item = e.value;
+      final color = item.color ?? getDynamicChartColor('src_${item.sourceName}', idx, total);
       return DonutSegment(
         label: item.sourceName,
         value: item.count.toDouble(),
-        color: colors[idx % colors.length],
+        color: color,
       );
     }).toList();
   }
@@ -779,16 +782,22 @@ class _DashboardViewState extends State<DashboardView> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
-                            userOrLead,
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary),
+                          Expanded(
+                            child: Text(
+                              userOrLead,
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                          Text(
-                            item.timestamp,
-                            style: const TextStyle(fontSize: 11, color: AppColors.textHint),
-                          ),
+                          if (item.timestamp.isNotEmpty) ...[
+                            const SizedBox(width: 8),
+                            Text(
+                              item.timestamp,
+                              style: const TextStyle(fontSize: 11, color: AppColors.textHint),
+                            ),
+                          ],
                         ],
                       ),
                       const SizedBox(height: 4),
