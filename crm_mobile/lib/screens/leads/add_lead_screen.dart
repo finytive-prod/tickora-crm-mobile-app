@@ -26,6 +26,9 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
   final _step1FormKey = GlobalKey<FormState>();
   final _step2FormKey = GlobalKey<FormState>();
   final _step3FormKey = GlobalKey<FormState>();
+  AutovalidateMode _step1AutovalidateMode = AutovalidateMode.disabled;
+  AutovalidateMode _step2AutovalidateMode = AutovalidateMode.disabled;
+  AutovalidateMode _step3AutovalidateMode = AutovalidateMode.disabled;
   final Map<String, TextEditingController> _customFieldControllers = {};
   
   // Wizard State
@@ -184,12 +187,21 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
 
   void _nextPage() {
     if (_currentPage == 0 && !validateAndScrollToError(_step1FormKey)) {
+      setState(() {
+        _step1AutovalidateMode = AutovalidateMode.onUserInteraction;
+      });
       return;
     }
     if (_currentPage == 1 && _step2FormKey.currentState != null && !_step2FormKey.currentState!.validate()) {
+      setState(() {
+        _step2AutovalidateMode = AutovalidateMode.onUserInteraction;
+      });
       return;
     }
     if (_currentPage == 2 && _step3FormKey.currentState != null && !_step3FormKey.currentState!.validate()) {
+      setState(() {
+        _step3AutovalidateMode = AutovalidateMode.onUserInteraction;
+      });
       return;
     }
 
@@ -227,6 +239,14 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
     bool isStep1Valid = validateAndScrollToError(_step1FormKey);
     bool isStep2Valid = _step2FormKey.currentState == null || _step2FormKey.currentState!.validate();
     bool isStep3Valid = _step3FormKey.currentState == null || _step3FormKey.currentState!.validate();
+
+    if (!isStep1Valid || !isStep2Valid || !isStep3Valid) {
+      setState(() {
+        if (!isStep1Valid) _step1AutovalidateMode = AutovalidateMode.onUserInteraction;
+        if (!isStep2Valid) _step2AutovalidateMode = AutovalidateMode.onUserInteraction;
+        if (!isStep3Valid) _step3AutovalidateMode = AutovalidateMode.onUserInteraction;
+      });
+    }
 
     if (!isStep1Valid) {
       _pageController.animateToPage(0, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
@@ -864,6 +884,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
       padding: const EdgeInsets.all(16.0),
       child: Form(
         key: _step1FormKey,
+        autovalidateMode: _step1AutovalidateMode,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -924,6 +945,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
       padding: const EdgeInsets.all(16.0),
       child: Form(
         key: _step2FormKey,
+        autovalidateMode: _step2AutovalidateMode,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -941,9 +963,8 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
               children: [
                 _buildCheckbox('Email', _emailAlert, (v) => setState(() => _emailAlert = v!)),
                 const SizedBox(width: 16),
-                _buildCheckbox('Push', _pushNotification, (v) => setState(() => _pushNotification = v!)),
-                const SizedBox(width: 16),
-                _buildCheckbox('SMS', _smsAlert, (v) => setState(() => _smsAlert = v!)),
+                _buildCheckbox('Push notification', _pushNotification, (v) => setState(() => _pushNotification = v!)),
+               
               ],
             ),
             const SizedBox(height: 16),
@@ -1046,6 +1067,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
       padding: const EdgeInsets.all(16.0),
       child: Form(
         key: _step3FormKey,
+        autovalidateMode: _step3AutovalidateMode,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1451,20 +1473,29 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
   }
 
   Widget _buildCheckbox(String label, bool value, ValueChanged<bool?> onChanged) {
-    return Row(
-      children: [
-        SizedBox(
-          width: 20,
-          height: 20,
-          child: Checkbox(
-            value: value,
-            activeColor: AppColors.primary,
-            onChanged: onChanged,
-          ),
+    return InkWell(
+      onTap: () => onChanged(!value),
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: Checkbox(
+                value: value,
+                activeColor: AppColors.primary,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                onChanged: onChanged,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(label, style: const TextStyle(fontSize: 13, color: AppColors.textPrimary)),
+          ],
         ),
-        const SizedBox(width: 8),
-        Text(label, style: const TextStyle(fontSize: 13)),
-      ],
+      ),
     );
   }
 

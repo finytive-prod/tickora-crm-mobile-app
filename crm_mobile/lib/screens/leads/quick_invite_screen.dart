@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:crm_mobile/core/theme/app_colors.dart';
 import 'package:crm_mobile/blocs/leads_bloc.dart';
 import 'package:crm_mobile/blocs/leads_event.dart';
 import 'package:crm_mobile/blocs/leads_state.dart';
+import 'package:crm_mobile/core/theme/app_colors.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/widgets/custom_text_field.dart';
 import 'package:crm_mobile/widgets/custom_dropdown_field.dart';
 import 'package:crm_mobile/core/utils/validators.dart';
@@ -19,66 +20,81 @@ class QuickInviteScreen extends StatefulWidget {
 
 class _QuickInviteScreenState extends State<QuickInviteScreen> {
   final _formKey = GlobalKey<FormState>();
-  
-  final _firstNameController = TextEditingController();
-  final _lastNameController = TextEditingController();
-  final _emailController = TextEditingController();
-  final _phoneController = TextEditingController();
-  final _mobileController = TextEditingController();
-  final _altPhoneController = TextEditingController();
-  final _messageController = TextEditingController();
 
+  final _nameController = TextEditingController();
+  final _phoneController = TextEditingController();
+  
+
+  String? _selectedAssignedUser;
   String? _selectedSource;
   String? _selectedStatus;
+  final String _selectedPriority = 'MEDIUM';
+  bool _submitted = false;
 
-  final Map<String, dynamic> _customFieldValues = {};
+  String? _currentUserId;
 
   @override
   void initState() {
     super.initState();
-    context.read<LeadsBloc>().add(FetchCustomFieldsForm());
+    _loadCurrentUser();
+    context.read<LeadsBloc>().add(const FetchStaffUsers());
+    context.read<LeadsBloc>().add(FetchLeadStatuses());
+    context.read<LeadsBloc>().add(FetchLeadSources());
+  }
+
+  void _loadCurrentUser() async {
+    final prefs = sl<SharedPreferences>();
+    _currentUserId = prefs.getString('userId');
   }
 
   @override
   void dispose() {
-    _firstNameController.dispose();
-    _lastNameController.dispose();
-    _emailController.dispose();
+    _nameController.dispose();
     _phoneController.dispose();
-    _mobileController.dispose();
-    _altPhoneController.dispose();
-    _messageController.dispose();
     super.dispose();
   }
 
   void _onCreate() {
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _submitted = true;
+    });
+
     if (validateAndScrollToError(_formKey)) {
-      final Map<String, dynamic> leadData = {
-        'firstName': _firstNameController.text,
-        'lastName': _lastNameController.text,
-        'email': _emailController.text,
-        'phone': _mobileController.text,
-        'alternatePhone': _altPhoneController.text,
-        'sourceId': _selectedSource,
-        'statusId': _selectedStatus,
-        'invitationMessage': _messageController.text,
+      final name = _nameController.text.trim();
+      final phone = _phoneController.text.trim();
+
+      final Map<String, dynamic> payload = {
+        'phone': phone,
+        'mobile': phone,
+        'mobileNumber': phone,
       };
 
-      final customFieldsList = <Map<String, dynamic>>[];
-      _customFieldValues.forEach((fieldId, value) {
-        if (value != null && value.toString().isNotEmpty) {
-          customFieldsList.add({
-            'fieldId': fieldId,
-            'value': value,
-          });
-        }
-      });
-
-      if (customFieldsList.isNotEmpty) {
-        leadData['customFields'] = customFieldsList;
+      if (name.isNotEmpty) {
+        payload['firstName'] = name;
+        payload['name'] = name;
       }
 
-      context.read<LeadsBloc>().add(CreateLead(leadData));
+      if (_selectedAssignedUser != null && _selectedAssignedUser!.isNotEmpty) {
+        payload['assignedTo'] = _selectedAssignedUser;
+        payload['ownerUserId'] = _selectedAssignedUser;
+      }
+
+      if (_selectedSource != null && _selectedSource!.isNotEmpty) {
+        payload['leadSourceId'] = _selectedSource;
+        payload['sourceId'] = _selectedSource;
+      }
+
+      if (_selectedStatus != null && _selectedStatus!.isNotEmpty) {
+        payload['leadStatusId'] = _selectedStatus;
+        payload['statusId'] = _selectedStatus;
+      }
+
+      if (_selectedPriority.isNotEmpty) {
+        payload['priority'] = _selectedPriority;
+      }
+
+      context.read<LeadsBloc>().add(CreateLead(payload));
     }
   }
 
@@ -88,9 +104,9 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
       listener: (context, state) {
         if (state is LeadActionSuccess) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Lead invited successfully.'), backgroundColor: Colors.green),
+            const SnackBar(content: Text('Lead invited successfully.'), backgroundColor: Colors.green),
           );
-          Navigator.pop(context);
+          Navigator.of(context).pop(true);
         } else if (state is LeadActionError) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(state.message), backgroundColor: Colors.red),
@@ -99,297 +115,212 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
       },
       child: Scaffold(
         backgroundColor: AppColors.secondary,
-        appBar: AppBar(
-          backgroundColor: AppColors.secondary,
-          elevation: 0,
-          leading: IconButton(
-            icon: const Icon(Icons.close, color: AppColors.textPrimary),
-            onPressed: () => Navigator.pop(context),
-          ),
-          title: const Text(
-            'Invite New Lead',
-            style: TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          centerTitle: false,
-        ),
         body: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16.0),
-            child: BlocBuilder<LeadsBloc, LeadsState>(
-              buildWhen: (prev, current) => current is LeadsLoaded,
-              builder: (context, state) {
-                List<DropdownMenuItem<String>> statusItems = [];
-                List<DropdownMenuItem<String>> sourceItems = [];
-                List<dynamic> customFields = [];
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 24.0),
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 480),
+                padding: const EdgeInsets.all(24.0),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.05),
+                      blurRadius: 16,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: BlocBuilder<LeadsBloc, LeadsState>(
+                  builder: (context, state) {
+                    List<DropdownMenuItem<String>> assignedItems = [];
 
-                if (state is LeadsLoaded) {
-                  statusItems = state.statuses
-                      .map((s) => DropdownMenuItem(value: s.id, child: Text(s.statusName, overflow: TextOverflow.ellipsis)))
-                      .toList();
-                  sourceItems = state.sources
-                      .map((s) => DropdownMenuItem(value: s.id, child: Text(s.name, overflow: TextOverflow.ellipsis)))
-                      .toList();
-                  customFields = List.of(state.customFields)
-                      .where((f) => f.isRequired == true)
-                      .toList()
-                    ..sort((a, b) => a.displayOrder.compareTo(b.displayOrder));
-                  
-                  if (_selectedStatus == null && state.statuses.isNotEmpty) {
-                    try {
-                      _selectedStatus = state.statuses.firstWhere((s) => s.isDefault).id;
-                    } catch (_) {
-                      _selectedStatus = state.statuses.first.id;
-                    }
-                  }
-                  if (_selectedSource == null && state.sources.isNotEmpty) {
-                    _selectedSource = state.sources.first.id;
-                  }
-                }
+                    if (state is LeadsLoaded) {
+                      final regularStaffOwners = state.owners.where((s) {
+                        final isCurrentUser = (_currentUserId != null && s.userId == _currentUserId);
+                        final lower = s.name.toLowerCase().replaceAll(' ', '').replaceAll('_', '');
+                        final isSuperAdmin = lower.contains('superadmin') || lower == 'admin';
+                        return !isCurrentUser && !isSuperAdmin;
+                      }).toList();
 
-                String getFixedLabel(String name, String defaultLabel, [List<String>? aliases]) {
-                  if (state is LeadsLoaded) {
-                    for (var ff in state.fixedFields) {
-                      final fn = ff.fieldName.trim().toLowerCase();
-                      final targetName = name.trim().toLowerCase();
-                      if (fn == targetName) {
-                        if (ff.fieldLabel.trim().isNotEmpty) return ff.fieldLabel.trim();
+                      final otherOwners = state.owners.where((s) => !regularStaffOwners.contains(s)).toList();
+                      final orderedOwners = [...regularStaffOwners, ...otherOwners];
+
+                      assignedItems = orderedOwners
+                          .map((s) => DropdownMenuItem(
+                                value: s.userId,
+                                child: Text(s.name, overflow: TextOverflow.ellipsis),
+                              ))
+                          .toList();
+
+                      if (_selectedAssignedUser != null &&
+                          !orderedOwners.any((s) => s.userId == _selectedAssignedUser)) {
+                        _selectedAssignedUser = null;
                       }
-                      if (aliases != null) {
-                        for (var alias in aliases) {
-                          if (fn == alias.trim().toLowerCase()) {
-                            if (ff.fieldLabel.trim().isNotEmpty) return ff.fieldLabel.trim();
-                          }
+
+                      if (_selectedAssignedUser == null && orderedOwners.isNotEmpty) {
+                        _selectedAssignedUser = regularStaffOwners.isNotEmpty
+                            ? regularStaffOwners.first.userId
+                            : orderedOwners.first.userId;
+                      }
+                      if (_selectedStatus == null && state.statuses.isNotEmpty) {
+                        try {
+                          _selectedStatus = state.statuses.firstWhere((s) => s.isDefault).id;
+                        } catch (_) {
+                          _selectedStatus = state.statuses.first.id;
                         }
                       }
-                    }
-                  }
-                  return defaultLabel;
-                }
-
-                bool getFixedIsRequired(String name, bool defaultRequired, [List<String>? aliases]) {
-                  if (state is LeadsLoaded) {
-                    for (var ff in state.fixedFields) {
-                      final fn = ff.fieldName.trim().toLowerCase();
-                      final targetName = name.trim().toLowerCase();
-                      if (fn == targetName) return ff.isRequired;
-                      if (aliases != null) {
-                        for (var alias in aliases) {
-                          if (fn == alias.trim().toLowerCase()) return ff.isRequired;
-                        }
+                      if (_selectedSource == null && state.sources.isNotEmpty) {
+                        _selectedSource = state.sources.first.id;
                       }
                     }
-                  }
-                  return defaultRequired;
-                }
 
-                final isFirstNameReq = getFixedIsRequired('firstName', true, ['first_name', 'firstname']);
-                final isPhoneReq = getFixedIsRequired('phone', true, ['mobile']);
-                final isEmailReq = getFixedIsRequired('email', true);
+                    return Form(
+                      key: _formKey,
+                      autovalidateMode: _submitted
+                          ? AutovalidateMode.onUserInteraction
+                          : AutovalidateMode.disabled,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Header: Title, Subtitle, Close Button
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: const [
+                                  Text(
+                                    'Quick Invite',
+                                    style: TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF1E293B),
+                                    ),
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    'Invite a new lead',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: Color(0xFF64748B),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.close, color: Color(0xFF64748B), size: 20),
+                                onPressed: () => Navigator.pop(context),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
 
-                return Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildSectionTitle(Icons.email_outlined, 'Invitation Details'),
-                      const SizedBox(height: 16),
-                      _buildRow(
-                        CustomTextField(
-                          label: getFixedLabel('firstName', 'First Name', ['first_name', 'firstname']), 
-                          isRequired: isFirstNameReq, 
-                          controller: _firstNameController,
-                          inputFormatters: AppInputFormatters.nameFormatters,
-                          validator: (val) {
-                            if (isFirstNameReq && (val == null || val.trim().isEmpty)) return 'Required';
-                            return null;
-                          },
-                        ),
-                        CustomTextField(
-                          label: getFixedLabel('lastName', 'Last Name', ['last_name', 'lastname']), 
-                          isRequired: getFixedIsRequired('lastName', false, ['last_name', 'lastname']),
-                          controller: _lastNameController,
-                          inputFormatters: AppInputFormatters.nameFormatters,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      _buildRow(
-                        CustomTextField(
-                          label: getFixedLabel('phone', 'Phone', ['mobile']), 
-                          isRequired: isPhoneReq, 
-                          keyboardType: TextInputType.phone, 
-                          controller: _mobileController,
-                          inputFormatters: AppInputFormatters.phoneFormatters,
-                          validator: (val) => AppValidators.validateMobile(val, isRequired: isPhoneReq),
-                        ),
-                        CustomTextField(
-                          label: getFixedLabel('email', 'Email'), 
-                          isRequired: isEmailReq,
-                          keyboardType: TextInputType.emailAddress, 
-                          controller: _emailController,
-                          validator: (val) => AppValidators.validateEmail(val, isRequired: isEmailReq),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      _buildRow(
-                        CustomTextField(
-                          label: getFixedLabel('alternatePhone', 'Alternate Phone', ['alternate_phone', 'alt_phone']), 
-                          isRequired: getFixedIsRequired('alternatePhone', false, ['alternate_phone', 'alt_phone']),
-                          keyboardType: TextInputType.phone, 
-                          controller: _altPhoneController, 
-                          inputFormatters: AppInputFormatters.phoneFormatters,
-                        ),
-                        CustomDropdownField<String>(
-                          label: getFixedLabel('sourceId', 'Lead Source', ['source', 'lead_source']), 
-                          isRequired: getFixedIsRequired('sourceId', true, ['source', 'lead_source']), 
-                          items: sourceItems,
-                          value: _selectedSource,
-                          onChanged: (val) => setState(() => _selectedSource = val),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      _buildRow(
-                        CustomDropdownField<String>(
-                          label: getFixedLabel('statusId', 'Lead Status', ['status', 'lead_status']), 
-                          isRequired: getFixedIsRequired('statusId', true, ['status', 'lead_status']), 
-                          items: statusItems,
-                          value: _selectedStatus,
-                          onChanged: (val) => setState(() => _selectedStatus = val),
-                        ),
-                        const SizedBox(),
-                      ),
-                      const SizedBox(height: 32),
-                      
-                      _buildSectionTitle(Icons.chat_bubble_outline, 'Custom Message'),
-                      const SizedBox(height: 16),
-                      CustomTextField(
-                        label: 'Invitation Message (Optional)',
-                        maxLines: 4,
-                        controller: _messageController,
-                      ),
-                      
-                      if (customFields.isNotEmpty) ...[
-                        const SizedBox(height: 32),
-                        _buildSectionTitle(Icons.list_alt, 'Custom Fields'),
-                        const SizedBox(height: 16),
-                        ...customFields.map((field) {
-                          final rawType = (field.type.toString().isNotEmpty ? field.type.toString() : field.fieldType.toString()).toUpperCase();
-                          final rawLabel = (field.label.toString().isNotEmpty ? field.label.toString() : field.fieldLabel.toString()).toLowerCase();
-                          final isRequired = field.isRequired;
-                          final displayLabel = field.label.toString().isNotEmpty ? field.label.toString() : field.fieldLabel.toString();
+                          // 1. Name Field
+                          CustomTextField(
+                            label: 'Name',
+                            hintText: 'Name',
+                            controller: _nameController,
+                            inputFormatters: AppInputFormatters.nameFormatters,
+                          ),
+                          const SizedBox(height: 16),
 
-                          final isEmail = rawType == 'EMAIL' || rawLabel.contains('email') || rawLabel.contains('mail');
-                          final isPhone = rawType == 'PHONE' || rawType == 'MOBILE' || rawLabel.contains('phone') || rawLabel.contains('mobile') || rawLabel.contains('contact') || rawLabel.contains('tel') || rawLabel.contains('cell') || rawLabel.contains('whatsapp');
-                          final isNumber = rawType == 'NUMBER';
-                          final controller = TextEditingController(
-                            text: _customFieldValues[field.fieldId]?.toString() ?? '',
-                          );
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 16.0),
-                            child: CustomTextField(
-                              label: displayLabel,
-                              isRequired: isRequired,
-                              keyboardType: isEmail
-                                  ? TextInputType.emailAddress
-                                  : (isPhone
-                                      ? TextInputType.phone
-                                      : (isNumber ? TextInputType.number : TextInputType.text)),
-                              inputFormatters: isPhone
-                                  ? AppInputFormatters.phoneFormatters
-                                  : (isNumber ? [FilteringTextInputFormatter.digitsOnly] : null),
-                              controller: controller,
-                              onChanged: (val) {
-                                _customFieldValues[field.fieldId] = val;
-                              },
-                              validator: isEmail
-                                  ? (val) => AppValidators.validateEmail(val, isRequired: isRequired)
-                                  : (isPhone
-                                      ? (val) => AppValidators.validateMobile(val, isRequired: isRequired)
-                                      : (isRequired ? (val) => val == null || val.isEmpty ? '$displayLabel is required' : null : null)),
-                            ),
-                          );
-                        }),
-                      ],
-                      
-                      const SizedBox(height: 24),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 50,
-                        child: BlocBuilder<LeadsBloc, LeadsState>(
-                          builder: (context, state) {
-                            final isLoading = state is LeadActionLoading;
-                            return ElevatedButton(
-                              onPressed: isLoading ? null : _onCreate,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppColors.primary,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
+                          // 2. Phone Number Field (Required)
+                          CustomTextField(
+                            label: 'Phone Number',
+                            hintText: 'Phone Number',
+                            isRequired: true,
+                            keyboardType: TextInputType.phone,
+                            controller: _phoneController,
+                            inputFormatters: AppInputFormatters.phoneFormatters,
+                            validator: (val) => AppValidators.validateMobile(val, isRequired: true),
+                          ),
+                          const SizedBox(height: 16),
+
+                          
+
+                          // 4. Assigned To Dropdown
+                          CustomDropdownField<String>(
+                            label: 'Assigned To',
+                            hintText: 'Select Staff Member',
+                            items: assignedItems,
+                            value: _selectedAssignedUser,
+                            onChanged: (val) => setState(() => _selectedAssignedUser = val),
+                          ),
+                          const SizedBox(height: 28),
+
+                          // Action Buttons: Cancel & Invite
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              OutlinedButton(
+                                onPressed: () => Navigator.pop(context),
+                                style: OutlinedButton.styleFrom(
+                                  side: const BorderSide(color: Color(0xFFD32F2F), width: 1.5),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                                ),
+                                child: const Text(
+                                  'Cancel',
+                                  style: TextStyle(
+                                    color: Color(0xFFD32F2F),
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
                                 ),
                               ),
-                              child: isLoading
-                                  ? const SizedBox(
-                                      width: 24,
-                                      height: 24,
-                                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                                    )
-                                  : Row(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: const [
-                                        Text('Create Lead', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                                        SizedBox(width: 8),
-                                        Icon(Icons.add_circle_outline, color: Colors.white, size: 20),
-                                      ],
+                              const SizedBox(width: 12),
+                              BlocBuilder<LeadsBloc, LeadsState>(
+                                builder: (context, state) {
+                                  final isLoading = state is LeadActionLoading;
+                                  return ElevatedButton(
+                                    onPressed: isLoading ? null : _onCreate,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFFD32F2F),
+                                      elevation: 0,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                                     ),
-                            );
-                          },
-                        ),
+                                    child: isLoading
+                                        ? const SizedBox(
+                                            width: 18,
+                                            height: 18,
+                                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                          )
+                                        : const Text(
+                                            'Invite',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 14,
+                                            ),
+                                          ),
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 40),
-                    ],
-                  ),
-                );
-              },
+                    );
+                  },
+                ),
+              ),
             ),
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildSectionTitle(IconData icon, String title) {
-    return Row(
-      children: [
-        Container(
-          width: 4,
-          height: 16,
-          color: Colors.purple,
-          margin: const EdgeInsets.only(right: 8),
-        ),
-        Icon(icon, size: 20, color: AppColors.textPrimary),
-        const SizedBox(width: 8),
-        Text(
-          title,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: AppColors.textPrimary,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildRow(Widget child1, Widget child2) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(child: child1),
-        const SizedBox(width: 16),
-        Expanded(child: child2),
-      ],
     );
   }
 }

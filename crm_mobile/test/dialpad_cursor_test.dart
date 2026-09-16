@@ -27,7 +27,6 @@ void main() {
     final text2 = controller.text;
     final selection2 = controller.selection;
     int start2 = selection2.start >= 0 ? selection2.start : text2.length;
-    int end2 = selection2.end >= 0 ? selection2.end : text2.length;
 
     final newText2 = text2.replaceRange(start2 - 1, start2, '');
     controller.value = TextEditingValue(

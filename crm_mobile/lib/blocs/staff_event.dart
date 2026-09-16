@@ -59,3 +59,12 @@ class CreateStaffMemberEvent extends StaffEvent {
   @override
   List<Object?> get props => [data];
 }
+
+class FetchStaffDetailEvent extends StaffEvent {
+  final String id;
+
+  const FetchStaffDetailEvent(this.id);
+
+  @override
+  List<Object?> get props => [id];
+}

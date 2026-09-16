@@ -61,6 +61,9 @@ class _EditFollowUpViewState extends State<EditFollowUpView> {
   final _leadUpdateFormKey = GlobalKey<FormState>();
   final _completeFormKey = GlobalKey<FormState>();
   final _activityFormKey = GlobalKey<FormState>();
+  AutovalidateMode _leadUpdateAutovalidateMode = AutovalidateMode.disabled;
+  AutovalidateMode _completeAutovalidateMode = AutovalidateMode.disabled;
+  AutovalidateMode _activityAutovalidateMode = AutovalidateMode.disabled;
 
   // Tab 1 (Lead Update) Controllers
   final _leadTaskController = TextEditingController();
@@ -177,56 +180,68 @@ class _EditFollowUpViewState extends State<EditFollowUpView> {
   }
 
   void _submitLeadUpdate() {
-    if (_leadUpdateFormKey.currentState?.validate() ?? false) {
-      final List<String> reminders = [];
-      if (_emailAlert) reminders.add("Email");
-      if (_pushNotification) reminders.add("Push");
+    if (!(_leadUpdateFormKey.currentState?.validate() ?? false)) {
+      setState(() {
+        _leadUpdateAutovalidateMode = AutovalidateMode.onUserInteraction;
+      });
+      return;
+    }
+    final List<String> reminders = [];
+    if (_emailAlert) reminders.add("Email");
+    if (_pushNotification) reminders.add("Push");
 
-      final updateData = {
-        "leadTask": _leadTaskController.text.trim(),
-        "statusId": _selectedStatusId,
-        "priority": _selectedPriority,
-        "assignedUserId": _selectedAgentId,
-        "followupDate": _dateController.text,
-        "followupTime": _timeController.text,
-        "reminder": reminders.isEmpty ? "Email" : reminders.join(', '),
-        "remarks": "Rescheduled and updated follow-up details.",
-      };
+    final updateData = {
+      "leadTask": _leadTaskController.text.trim(),
+      "statusId": _selectedStatusId,
+      "priority": _selectedPriority,
+      "assignedUserId": _selectedAgentId,
+      "followupDate": _dateController.text,
+      "followupTime": _timeController.text,
+      "reminder": reminders.isEmpty ? "Email" : reminders.join(', '),
+      "remarks": "Rescheduled and updated follow-up details.",
+    };
 
-      if (widget.followUp.id != null) {
-        context.read<FollowUpsBloc>().add(
-              UpdateFollowUp(followupId: widget.followUp.id!, updateData: updateData),
-            );
-      }
+    if (widget.followUp.id != null) {
+      context.read<FollowUpsBloc>().add(
+            UpdateFollowUp(followupId: widget.followUp.id!, updateData: updateData),
+          );
     }
   }
 
   void _submitCompleteFollowUp() {
-    if (_completeFormKey.currentState?.validate() ?? false) {
-      final updateData = {
-        "completed": true,
-        "remarks": _completeRemarksController.text.trim(),
-      };
+    if (!(_completeFormKey.currentState?.validate() ?? false)) {
+      setState(() {
+        _completeAutovalidateMode = AutovalidateMode.onUserInteraction;
+      });
+      return;
+    }
+    final updateData = {
+      "completed": true,
+      "remarks": _completeRemarksController.text.trim(),
+    };
 
-      if (widget.followUp.id != null) {
-        context.read<FollowUpsBloc>().add(
-              UpdateFollowUp(followupId: widget.followUp.id!, updateData: updateData),
-            );
-      }
+    if (widget.followUp.id != null) {
+      context.read<FollowUpsBloc>().add(
+            UpdateFollowUp(followupId: widget.followUp.id!, updateData: updateData),
+          );
     }
   }
 
   void _submitActivityLog() {
-    if (_activityFormKey.currentState?.validate() ?? false) {
-      final updateData = {
-        "remarks": _activityRemarksController.text.trim(),
-      };
+    if (!(_activityFormKey.currentState?.validate() ?? false)) {
+      setState(() {
+        _activityAutovalidateMode = AutovalidateMode.onUserInteraction;
+      });
+      return;
+    }
+    final updateData = {
+      "remarks": _activityRemarksController.text.trim(),
+    };
 
-      if (widget.followUp.id != null) {
-        context.read<FollowUpsBloc>().add(
-              UpdateFollowUp(followupId: widget.followUp.id!, updateData: updateData),
-            );
-      }
+    if (widget.followUp.id != null) {
+      context.read<FollowUpsBloc>().add(
+            UpdateFollowUp(followupId: widget.followUp.id!, updateData: updateData),
+          );
     }
   }
 
@@ -351,6 +366,7 @@ class _EditFollowUpViewState extends State<EditFollowUpView> {
           padding: const EdgeInsets.all(16.0),
           child: Form(
             key: _leadUpdateFormKey,
+            autovalidateMode: _leadUpdateAutovalidateMode,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -490,6 +506,7 @@ class _EditFollowUpViewState extends State<EditFollowUpView> {
       padding: const EdgeInsets.all(16.0),
       child: Form(
         key: _completeFormKey,
+        autovalidateMode: _completeAutovalidateMode,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -541,6 +558,7 @@ class _EditFollowUpViewState extends State<EditFollowUpView> {
       padding: const EdgeInsets.all(16.0),
       child: Form(
         key: _activityFormKey,
+        autovalidateMode: _activityAutovalidateMode,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

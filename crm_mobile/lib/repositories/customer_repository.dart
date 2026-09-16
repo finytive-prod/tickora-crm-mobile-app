@@ -47,7 +47,15 @@ class CustomerRepositoryImpl implements CustomerRepository {
         
         final body = response.data;
         if (body != null && body['success'] == true && body['data'] != null) {
-          final List<dynamic> content = body['data']['content'] ?? (body['data'] is List ? body['data'] : []);
+          final List<dynamic> content;
+          if (body['data'] is List) {
+            content = body['data'];
+          } else if (body['data'] is Map && body['data']['content'] is List) {
+            content = body['data']['content'];
+          } else {
+            content = [];
+          }
+
           var customers = content.map((json) => Customer.fromJson(json)).toList();
           if (q != null && q.isNotEmpty) {
             final queryLower = q.toLowerCase();
@@ -58,6 +66,7 @@ class CustomerRepositoryImpl implements CustomerRepository {
               final email = c.email.toLowerCase();
               return name.contains(queryLower) || company.contains(queryLower) || phone.contains(queryLower) || email.contains(queryLower);
             }).toList();
+            return Right(customers);
           }
 
           if (customers.isNotEmpty) {

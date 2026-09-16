@@ -34,9 +34,9 @@ class UserModel extends User {
       accessToken: accessToken,
       expiresIn: expiresIn,
       tokenType: tokenType,
-      userId: json['userId'] ?? decoded['userId'] ?? decoded['sub'] ?? '',
-      userName: json['userName'] ?? decoded['name'] ?? '',
-      role: json['role'] ?? decoded['role'] ?? '',
+      userId: json['userId'] ?? json['id'] ?? decoded['userId'] ?? decoded['sub'] ?? '',
+      userName: json['userName'] ?? json['fullName'] ?? json['username'] ?? decoded['fullName'] ?? decoded['name'] ?? decoded['preferred_username'] ?? decoded['username'] ?? decoded['sub'] ?? '',
+      role: json['role'] ?? json['roleName'] ?? decoded['role'] ?? '',
       privileges: (json['privileges'] as List<dynamic>?)?.map((e) => e.toString()).toList() ??
                   (decoded['privileges'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],
     );

@@ -102,6 +102,13 @@ class _LeadFollowUpDetailsViewState extends State<LeadFollowUpDetailsView> {
         ),
         centerTitle: true,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh, color: AppColors.textPrimary),
+            tooltip: 'Refresh Follow-up Details',
+            onPressed: () {
+              context.read<FollowUpsBloc>().add(FetchLeadFollowUps(widget.leadId));
+            },
+          ),
           BlocBuilder<FollowUpsBloc, FollowUpsState>(
             builder: (context, state) {
               if (state is LeadFollowUpsLoaded) {

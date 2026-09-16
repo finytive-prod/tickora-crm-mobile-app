@@ -9,6 +9,9 @@ import 'package:crm_mobile/blocs/customer_bloc.dart';
 import 'package:crm_mobile/blocs/customer_event.dart';
 import 'package:crm_mobile/blocs/customer_state.dart';
 import 'package:crm_mobile/injection/injection.dart';
+import 'package:crm_mobile/widgets/empty_state_widget.dart';
+import 'package:crm_mobile/widgets/poor_internet_widget.dart';
+import 'package:crm_mobile/widgets/server_error_503_widget.dart';
 import 'package:crm_mobile/screens/customers/add_edit_customer_screen.dart';
 
 class CustomerScreen extends StatelessWidget {
@@ -102,6 +105,13 @@ class _CustomersViewState extends State<_CustomersView> {
           ),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh, color: AppColors.textPrimary, size: 22),
+            tooltip: 'Refresh Customers',
+            onPressed: () {
+              context.read<CustomerBloc>().add(FetchCustomers(searchQuery: _searchController.text.trim()));
+            },
+          ),
           BlocBuilder<CustomerBloc, CustomerState>(
             builder: (context, state) {
               if (state is CustomersLoaded) {
@@ -156,20 +166,11 @@ class _CustomersViewState extends State<_CustomersView> {
                 if (state is CustomersLoaded) {
                   final customers = state.customers;
                   if (customers.isEmpty) {
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.people_outline, color: AppColors.textHint, size: 64),
-                          const SizedBox(height: 16),
-                          Text(
-                            _searchController.text.isEmpty
-                                ? 'No customers found.'
-                                : 'No matches found for "${_searchController.text}"',
-                            style: const TextStyle(color: AppColors.textSecondary, fontSize: 16),
-                          ),
-                        ],
-                      ),
+                    return EmptyStateWidget(
+                      title: 'No Customers Found',
+                      message: _searchController.text.isEmpty
+                          ? 'You haven\'t added any customer contacts yet.'
+                          : 'No customers match your search "${_searchController.text}".',
                     );
                   }
 
@@ -193,6 +194,24 @@ class _CustomersViewState extends State<_CustomersView> {
                         },
                         onDelete: () => _handleDelete(context, customer),
                       );
+                    },
+                  );
+                }
+
+                if (state is CustomerError) {
+                  final err = state.message;
+                  if (err.contains('503') || err.toLowerCase().contains('service unavailable')) {
+                    return ServerError503Widget(
+                      onRetry: () {
+                        context.read<CustomerBloc>().add(FetchCustomers(searchQuery: _searchController.text));
+                      },
+                    );
+                  }
+                  return PoorInternetWidget(
+                    title: 'Connection Issue',
+                    message: err.isEmpty ? 'Failed to load customers. Please try again.' : err,
+                    onRetry: () {
+                      context.read<CustomerBloc>().add(FetchCustomers(searchQuery: _searchController.text));
                     },
                   );
                 }

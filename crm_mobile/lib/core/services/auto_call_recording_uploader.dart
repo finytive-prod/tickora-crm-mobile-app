@@ -1,10 +1,14 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_phone_direct_caller/flutter_phone_direct_caller.dart';
+import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crm_mobile/core/services/call_recording_service.dart';
+import 'package:crm_mobile/core/services/call_history_storage.dart';
+import 'package:crm_mobile/core/services/direct_call_helper.dart';
 import 'package:crm_mobile/repositories/leads_repository.dart';
 import 'package:crm_mobile/models/lead_audio.dart';
+import 'package:crm_mobile/models/call_history.dart';
 import 'package:crm_mobile/injection/injection.dart';
 
 class AutoCallRecordingUploader {
@@ -38,6 +42,28 @@ class AutoCallRecordingUploader {
     }
   }
 
+  static String cleanFileName(String name) {
+    var clean = name.trim();
+    while (true) {
+      final old = clean;
+      clean = clean.replaceAll(RegExp(r'^\.?pending[-_]?[a-zA-Z0-9]*[-_]?', caseSensitive: false), '');
+      clean = clean.replaceAll(RegExp(r'^\.?pending', caseSensitive: false), '');
+      while (clean.startsWith('.')) {
+        clean = clean.substring(1);
+      }
+      clean = clean
+          .replaceAll(RegExp(r'^REC_\d+_', caseSensitive: false), '')
+          .replaceAll(RegExp(r'^REC_', caseSensitive: false), '')
+          .replaceAll(RegExp(r'^INBOUND_', caseSensitive: false), '')
+          .replaceAll(RegExp(r'^OUTBOUND_', caseSensitive: false), '')
+          .replaceAll(RegExp(r'^INCOMING_', caseSensitive: false), '')
+          .replaceAll(RegExp(r'^OUTGOING_', caseSensitive: false), '')
+          .replaceAll(RegExp(r'^\d{7,15}_', caseSensitive: false), '');
+      if (clean == old) break;
+    }
+    return clean;
+  }
+
   static Future<void> _markAsUploaded(String path, int length) async {
     await _ensurePrefsLoaded();
     final fileName = path.split('/').last;
@@ -57,48 +83,37 @@ class AutoCallRecordingUploader {
     }
   }
 
-  static String cleanFileName(String name) {
-    var clean = name.trim();
-    while (true) {
-      final old = clean;
-      clean = clean
-          .replaceAll(RegExp(r'^REC_', caseSensitive: false), '')
-          .replaceAll(RegExp(r'^INBOUND_', caseSensitive: false), '')
-          .replaceAll(RegExp(r'^OUTBOUND_', caseSensitive: false), '')
-          .replaceAll(RegExp(r'^INCOMING_', caseSensitive: false), '')
-          .replaceAll(RegExp(r'^OUTGOING_', caseSensitive: false), '')
-          .replaceAll(RegExp(r'^\d{7,15}_', caseSensitive: false), '');
-      if (clean == old) break;
-    }
-    return clean;
-  }
-
   static Future<bool> isAlreadyUploaded(String path, int length, {List<LeadAudio>? existingServerAudios}) async {
     await _ensurePrefsLoaded();
 
     // Ignore empty/corrupted fragments under 100 bytes
     if (length < 100) return true;
 
-    if (_uploadedPaths.contains('${path}_$length')) return true;
-
     final fileName = path.split('/').last;
-    if (_uploadedPaths.contains(fileName) || _uploadedPaths.contains('${fileName}_$length')) return true;
-
     final clean = cleanFileName(fileName);
-    if (_uploadedPaths.contains(clean) || _uploadedPaths.contains('${clean}_$length')) return true;
 
-    // Check against existing server audios list for this lead
-    if (existingServerAudios != null && existingServerAudios.isNotEmpty) {
+    // If server audios list is provided, check if the server already has this exact recording
+    if (existingServerAudios != null) {
+      bool foundOnServer = false;
       for (final sAudio in existingServerAudios) {
         final serverClean = cleanFileName(sAudio.displayName.toLowerCase());
-        if (serverClean == clean.toLowerCase() || sAudio.size == length) {
-          await _markAsUploaded(path, length);
-          return true;
+        if (serverClean == clean.toLowerCase() || (sAudio.size == length && serverClean.contains(clean.toLowerCase()))) {
+          foundOnServer = true;
+          break;
         }
       }
+      if (foundOnServer) {
+        await _markAsUploaded(path, length);
+        return true;
+      }
+      // If not found on server, allow re-upload regardless of stale local cache
+      return false;
     }
 
-    // If an equal or larger version (or within 5 KB tolerance) was uploaded, skip re-uploading
+    if (_uploadedPaths.contains('${path}_$length')) return true;
+    if (_uploadedPaths.contains(fileName) || _uploadedPaths.contains('${fileName}_$length')) return true;
+    if (_uploadedPaths.contains(clean) || _uploadedPaths.contains('${clean}_$length')) return true;
+
     for (final key in _uploadedPaths) {
       if (key.startsWith('${clean}_') || key.startsWith('${fileName}_') || key == clean || key == fileName) {
         return true;
@@ -108,8 +123,8 @@ class AutoCallRecordingUploader {
     return false;
   }
 
-  /// Initiates a phone call to [phoneNumber] for [leadId] and automatically scans
-  /// for the call recording when the call finishes, uploading it directly to the backend.
+  /// Initiates a phone call to [phoneNumber] for [leadId] and automatically tracks
+  /// call start time, end time, duration, caller (from) & receiver (to) numbers.
   static Future<void> makeCallAndAutoUpload({
     required BuildContext context,
     required String leadId,
@@ -133,22 +148,80 @@ class AutoCallRecordingUploader {
       );
     }
 
-    final callTimestamp = DateTime.now().millisecondsSinceEpoch;
+    final callStartTimestamp = DateTime.now().millisecondsSinceEpoch;
+    final prefs = await SharedPreferences.getInstance();
+    final staffUserName = prefs.getString('userName')?.trim();
+    final staffUserPhone = prefs.getString('userPhone')?.trim();
+    final fromUser = (staffUserName != null && staffUserName.isNotEmpty)
+        ? staffUserName
+        : ((staffUserPhone != null && staffUserPhone.isNotEmpty) ? staffUserPhone : 'Staff');
+    final callId = DateTime.now().microsecondsSinceEpoch.toString();
+
+    final formattedStart = DateFormat('dd-MM-yyyy HH:mm:ss').format(DateTime.fromMillisecondsSinceEpoch(callStartTimestamp));
+
+    debugPrint('=================================================================');
+    debugPrint('CALL STARTED -> From: $fromUser | To: $phoneNumber | Start Time: $formattedStart');
+    debugPrint('=================================================================');
+
+    // Create initial CallHistory record
+    var callHistoryEntry = CallHistory(
+      id: callId,
+      phoneNumber: phoneNumber,
+      contactName: leadName,
+      callType: 'OUTGOING',
+      timestamp: callStartTimestamp,
+      startTime: callStartTimestamp,
+      endTime: callStartTimestamp,
+      durationSeconds: 0,
+      appUserName: staffUserName,
+      appUserPhone: staffUserPhone ?? fromUser,
+    );
+    await CallHistoryStorage.addOrUpdateCall(callHistoryEntry);
 
     try {
-      await FlutterPhoneDirectCaller.callNumber(phoneNumber);
+      await DirectCallHelper.makeCall(phoneNumber);
     } catch (e) {
       debugPrint('Error placing phone call: $e');
     }
 
-    // Schedule multi-stage post-call scans (3s to 300s) so recordings for calls of any duration (short or long) are captured
+    // Multi-stage post-call tracking to calculate exact call end time, duration, and scan audio
     for (final delaySec in [3, 8, 15, 30, 45, 60, 90, 120, 180, 240, 300]) {
-      Future.delayed(Duration(seconds: delaySec), () {
+      Future.delayed(Duration(seconds: delaySec), () async {
+        final callRecordingService = CallRecordingService();
+        final details = await callRecordingService.getLatestCallDetails(
+          phoneNumber: phoneNumber,
+          callTimestamp: callStartTimestamp,
+        );
+
+        final nowMs = DateTime.now().millisecondsSinceEpoch;
+        final startMs = details != null && (details['startTime'] as int? ?? 0) > 0
+            ? (details['startTime'] as int)
+            : callStartTimestamp;
+        final endMs = details != null && (details['endTime'] as int? ?? 0) > 0
+            ? (details['endTime'] as int)
+            : nowMs;
+        final durationSec = details != null && (details['durationSeconds'] as int? ?? 0) > 0
+            ? (details['durationSeconds'] as int)
+            : ((endMs - startMs) ~/ 1000);
+
+        final formattedEnd = DateFormat('dd-MM-yyyy HH:mm:ss').format(DateTime.fromMillisecondsSinceEpoch(endMs));
+
+        callHistoryEntry = callHistoryEntry.copyWith(
+          startTime: startMs,
+          endTime: endMs,
+          durationSeconds: durationSec,
+        );
+        await CallHistoryStorage.addOrUpdateCall(callHistoryEntry);
+
+        debugPrint('=================================================================');
+        debugPrint('CALL ENDED -> From: $fromUser | To: $phoneNumber | End Time: $formattedEnd | Duration: ${durationSec}s');
+        debugPrint('=================================================================');
+
         autoScanAndUploadLeadRecordings(
-          context: context,
+          context: context.mounted ? context : null,
           leadId: leadId,
           phoneNumber: phoneNumber,
-          callTimestamp: callTimestamp,
+          callTimestamp: callStartTimestamp,
           onUploadSuccess: onUploadSuccess,
         );
       });
@@ -234,6 +307,7 @@ class AutoCallRecordingUploader {
     required String leadId,
     required String phoneNumber,
     int callTimestamp = 0,
+    List<LeadAudio>? existingServerAudios,
     VoidCallback? onUploadSuccess,
   }) async {
     if (phoneNumber.isEmpty) return;
@@ -241,8 +315,6 @@ class AutoCallRecordingUploader {
     try {
       final service = CallRecordingService();
       final allRecordings = await service.getAllSystemRecordings(phoneNumber, callTimestamp: callTimestamp);
-
-      bool uploadedAny = false;
 
       for (final recording in allRecordings) {
         final path = recording['path'] as String?;
@@ -253,13 +325,8 @@ class AutoCallRecordingUploader {
         final length = await file.length();
         if (length <= 0) continue;
 
-        // Auto-upload recordings created within the last 24 hours (covers calls made earlier in the day)
-        // Skip files older than 24 hours so historic deleted recordings are never re-uploaded!
         final lastMod = await file.lastModified();
         final ageMs = DateTime.now().millisecondsSinceEpoch - lastMod.millisecondsSinceEpoch;
-        if (ageMs > 24 * 60 * 60 * 1000) {
-          continue; // Skip recordings older than 24 hours
-        }
 
         var finalLength = length;
         if (ageMs < 4000) {
@@ -278,7 +345,7 @@ class AutoCallRecordingUploader {
 
         if (_currentlyUploadingPaths.contains(path) || _currentlyUploadingPaths.contains(cleanName)) continue;
 
-        if (await isAlreadyUploaded(path, finalLength)) {
+        if (await isAlreadyUploaded(path, finalLength, existingServerAudios: existingServerAudios)) {
           continue;
         }
 
@@ -300,7 +367,6 @@ class AutoCallRecordingUploader {
             await _markAsUploaded(path, finalLength);
             _currentlyUploadingPaths.remove(path);
             _currentlyUploadingPaths.remove(cleanName);
-            uploadedAny = true;
           },
         );
       }

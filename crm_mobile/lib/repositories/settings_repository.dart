@@ -1,6 +1,5 @@
 import 'package:dartz/dartz.dart';
 import 'package:dio/dio.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:crm_mobile/core/error/failure.dart';
 import 'package:crm_mobile/core/network/api_client.dart';
 import 'package:crm_mobile/core/network/api_exception.dart';
@@ -46,6 +45,7 @@ abstract class SettingsRepository {
   Future<Either<Failure, StaffMember>> createStaffMember(Map<String, dynamic> data);
   Future<Either<Failure, void>> updateStaffMember(String id, Map<String, dynamic> data);
   Future<Either<Failure, void>> toggleStaffStatus(String id, bool isActive);
+  Future<Either<Failure, StaffMember>> getStaffMemberById(String id);
 }
 
 class SettingsRepositoryImpl implements SettingsRepository {
@@ -323,13 +323,13 @@ class SettingsRepositoryImpl implements SettingsRepository {
       final identityBaseUrl = _identityBaseUrl;
       dynamic response;
       try {
-        response = await apiClient.get('$identityBaseUrl/roles', queryParameters: {'page': 0, 'size': 50});
-      } catch (_) {
         response = await apiClient.get('$identityBaseUrl/roles/dropdown');
+      } catch (_) {
+        response = await apiClient.get('$identityBaseUrl/roles', queryParameters: {'page': 0, 'size': 50});
       }
       
       final body = response.data;
-      if (body != null && body['success'] == true && body['data'] != null) {
+      if (body != null && body['data'] != null) {
         List<dynamic> content = [];
         final rawData = body['data'];
         if (rawData is List) {
@@ -343,8 +343,8 @@ class SettingsRepositoryImpl implements SettingsRepository {
       } else {
         throw ApiException(message: body?['message'] ?? 'Failed to load roles');
       }
-    } on Exception catch (e) {
-      return Left(ErrorHandler.mapExceptionToFailure(e));
+    } catch (e) {
+      return Left(ErrorHandler.mapExceptionToFailure(e is Exception ? e : Exception(e.toString())));
     }
   }
 
@@ -428,61 +428,9 @@ class SettingsRepositoryImpl implements SettingsRepository {
   @override
   Future<Either<Failure, List<StaffMember>>> getStaffMembers(int page, int size, String status, {String? searchQuery}) async {
     try {
-      final leadsBaseUrl = _leadsBaseUrl;
       final identityBaseUrl = _identityBaseUrl;
+      final leadsBaseUrl = _leadsBaseUrl;
       final q = (searchQuery != null && searchQuery.trim().isNotEmpty) ? searchQuery.trim() : null;
-
-      try {
-        final response = await apiClient.post(
-          '$leadsBaseUrl/leads/search/global',
-          queryParameters: {
-            'page': page,
-            'size': size,
-          },
-          data: {
-            'query': q,
-            'isLead': false,
-            'isCustomer': false,
-            'isUser': true,
-            'isFollowup': false,
-          },
-        );
-
-        final body = response.data;
-        if (body != null && body['success'] == true && body['data'] != null) {
-          final List<dynamic> content;
-          if (body['data'] is List) {
-            content = body['data'];
-          } else if (body['data'] is Map && body['data']['content'] is List) {
-            content = body['data']['content'];
-          } else {
-            content = [];
-          }
-          var staff = content.map((json) => StaffMemberModel.fromJson(json)).toList();
-
-          if (q != null && q.isNotEmpty) {
-            final queryLower = q.toLowerCase();
-            staff = staff.where((s) {
-              final name = s.fullName.toLowerCase();
-              final phone = s.phone.toLowerCase();
-              final email = s.email.toLowerCase();
-              final username = s.username.toLowerCase();
-              final code = s.userCode.toLowerCase();
-              return name.contains(queryLower) || phone.contains(queryLower) || email.contains(queryLower) || username.contains(queryLower) || code.contains(queryLower);
-            }).toList();
-          }
-
-          if (status.toUpperCase() == 'ACTIVE') {
-            staff = staff.where((s) => s.isActive).toList();
-          } else if (status.toUpperCase() == 'INACTIVE') {
-            staff = staff.where((s) => !s.isActive).toList();
-          }
-
-          if (staff.isNotEmpty) {
-            return Right(staff);
-          }
-        }
-      } catch (_) {}
 
       final queryParams = <String, dynamic>{
         'page': page,
@@ -495,11 +443,71 @@ class SettingsRepositoryImpl implements SettingsRepository {
       }
       if (q != null && q.isNotEmpty) {
         queryParams['search'] = q;
+        queryParams['query'] = q;
       }
 
-      final response = await apiClient.get(
-        '$identityBaseUrl/users/staff',
-        queryParameters: queryParams,
+      // 1. Try /identity/users/staff (primary endpoint containing full user info with email)
+      try {
+        final response = await apiClient.get(
+          '$identityBaseUrl/users/staff',
+          queryParameters: queryParams,
+        );
+
+        final body = response.data;
+        if (body != null && body['success'] == true && body['data'] != null) {
+          final List<dynamic> content;
+          if (body['data'] is List) {
+            content = body['data'];
+          } else if (body['data'] is Map && body['data']['content'] is List) {
+            content = body['data']['content'];
+          } else {
+            content = [];
+          }
+          final staff = content.map((json) => StaffMemberModel.fromJson(json)).toList();
+          if (staff.isNotEmpty) {
+            return Right(staff);
+          }
+        }
+      } catch (_) {}
+
+      // 2. Try /identity/users (fallback identity endpoint)
+      try {
+        final response = await apiClient.get(
+          '$identityBaseUrl/users',
+          queryParameters: queryParams,
+        );
+
+        final body = response.data;
+        if (body != null && body['success'] == true && body['data'] != null) {
+          final List<dynamic> content;
+          if (body['data'] is List) {
+            content = body['data'];
+          } else if (body['data'] is Map && body['data']['content'] is List) {
+            content = body['data']['content'];
+          } else {
+            content = [];
+          }
+          final staff = content.map((json) => StaffMemberModel.fromJson(json)).toList();
+          if (staff.isNotEmpty) {
+            return Right(staff);
+          }
+        }
+      } catch (_) {}
+
+      // 3. Fallback to /leads/search/global if identity endpoints return empty or fail
+      final response = await apiClient.post(
+        '$leadsBaseUrl/leads/search/global',
+        queryParameters: {
+          'page': page,
+          'size': size,
+        },
+        data: {
+          'query': q,
+          'isLead': false,
+          'isCustomer': false,
+          'isUser': true,
+          'isFollowup': false,
+        },
       );
 
       final body = response.data;
@@ -512,7 +520,27 @@ class SettingsRepositoryImpl implements SettingsRepository {
         } else {
           content = [];
         }
-        final staff = content.map((json) => StaffMemberModel.fromJson(json)).toList();
+        var staff = content.map((json) => StaffMemberModel.fromJson(json)).toList();
+
+        if (q != null && q.isNotEmpty) {
+          final queryLower = q.toLowerCase();
+          staff = staff.where((s) {
+            final name = s.fullName.toLowerCase();
+            final phone = s.phone.toLowerCase();
+            final email = s.email.toLowerCase();
+            final username = s.username.toLowerCase();
+            final code = s.userCode.toLowerCase();
+            return name.contains(queryLower) || phone.contains(queryLower) || email.contains(queryLower) || username.contains(queryLower) || code.contains(queryLower);
+          }).toList();
+          return Right(staff);
+        }
+
+        if (status.toUpperCase() == 'ACTIVE') {
+          staff = staff.where((s) => s.isActive).toList();
+        } else if (status.toUpperCase() == 'INACTIVE') {
+          staff = staff.where((s) => !s.isActive).toList();
+        }
+
         return Right(staff);
       } else {
         throw ApiException(message: body?['message'] ?? 'Failed to load staff members');
@@ -618,6 +646,23 @@ class SettingsRepositoryImpl implements SettingsRepository {
         return Right(stats);
       } else {
         throw ApiException(message: body?['message'] ?? 'Failed to load staff statistics');
+      }
+    } on Exception catch (e) {
+      return Left(ErrorHandler.mapExceptionToFailure(e));
+    }
+  }
+
+  @override
+  Future<Either<Failure, StaffMember>> getStaffMemberById(String id) async {
+    try {
+      final identityBaseUrl = _identityBaseUrl;
+      final response = await apiClient.get('$identityBaseUrl/users/$id');
+      final body = response.data;
+      if (body != null && body['data'] != null) {
+        final staffMember = StaffMemberModel.fromJson(body['data']);
+        return Right(staffMember);
+      } else {
+        throw ApiException(message: body?['message'] ?? 'Failed to load staff member details');
       }
     } on Exception catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));

@@ -43,7 +43,7 @@ class StaffCard extends StatelessWidget {
           children: [
             // Avatar
             CircleAvatar(
-              backgroundColor: color.withOpacity(0.15),
+              backgroundColor: color.withValues(alpha: 0.15),
               radius: 24,
               child: Text(
                 staff.initials,
@@ -84,7 +84,9 @@ class StaffCard extends StatelessWidget {
                       const SizedBox(width: 4),
                       Expanded(
                         child: Text(
-                          staff.email,
+                          staff.email.isNotEmpty
+                              ? staff.email
+                              : (staff.username.contains('@') ? staff.username : 'N/A'),
                           style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -103,7 +105,7 @@ class StaffCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: AppColors.primary.withOpacity(0.1),
+                    color: AppColors.primary.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(

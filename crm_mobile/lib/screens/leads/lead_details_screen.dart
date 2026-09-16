@@ -21,6 +21,9 @@ import 'package:crm_mobile/core/services/call_recording_service.dart';
 import 'package:crm_mobile/core/services/auto_call_recording_uploader.dart';
 import 'package:crm_mobile/core/network/api_client.dart';
 import 'package:crm_mobile/core/network/api_constants.dart';
+import 'package:crm_mobile/models/call_history.dart';
+import 'package:crm_mobile/core/services/call_history_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crm_mobile/repositories/settings_repository.dart';
 import 'package:crm_mobile/screens/leads/add_lead_screen.dart';
 import 'package:crm_mobile/screens/followups/add_followup_screen.dart';
@@ -53,20 +56,35 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
   final TextEditingController _noteController = TextEditingController();
   
   List<Map<String, dynamic>> _localRecordings = [];
+  List<CallHistory> _trackedCallHistory = [];
   List<LeadStatus> _availableStatuses = [];
   bool _isLoadingRecordings = false;
+  bool _hasStoragePermission = true;
   bool _wasEdited = false;
   int? _lastCallTimestamp;
-  bool _hasStoragePermission = true;
   final Map<String, String> _resolvedCallTypes = {};
+  final Map<String, int> _resolvedAudioDurations = {};
 
   String _getResolvedCallType(LeadAudio audio, String phoneNumber) {
     if (_resolvedCallTypes.containsKey(audio.id)) {
       return _resolvedCallTypes[audio.id]!;
     }
-    if (audio.hasExplicitDirection) {
-      return audio.callType;
+
+    final nameLower = '${audio.displayName} ${audio.fileName}'.toLowerCase();
+    if (nameLower.contains('outgoing') || nameLower.contains('outbound') || nameLower.contains('call_out') || nameLower.contains('_outg_') || nameLower.startsWith('outgoing_') || nameLower.startsWith('outbound_')) {
+      _resolvedCallTypes[audio.id] = 'outbound';
+      return 'outbound';
     }
+    if (nameLower.contains('incoming') || nameLower.contains('inbound') || nameLower.contains('call_in') || nameLower.contains('_inc_') || nameLower.startsWith('incoming_') || nameLower.startsWith('inbound_')) {
+      _resolvedCallTypes[audio.id] = 'inbound';
+      return 'inbound';
+    }
+
+    if (audio.hasExplicitDirection) {
+      _resolvedCallTypes[audio.id] = audio.callType.toLowerCase();
+      return audio.callType.toLowerCase();
+    }
+
     if (_localRecordings.isNotEmpty) {
       final cleanServerName = AutoCallRecordingUploader.cleanFileName(audio.displayName.toLowerCase());
       for (final local in _localRecordings) {
@@ -74,24 +92,66 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
         final localName = AutoCallRecordingUploader.cleanFileName(localPath.split('/').last.split('\\').last.toLowerCase());
         final localType = local['callType']?.toString() ?? '';
         if (localType.isNotEmpty && (localName == cleanServerName || localPath.contains(cleanServerName))) {
-          _resolvedCallTypes[audio.id] = localType;
-          return localType;
+          _resolvedCallTypes[audio.id] = localType.toLowerCase();
+          return localType.toLowerCase();
         }
       }
     }
+
+    final audioMs = _getEffectiveTimestamp(audio);
+
+    // 1. Check tracked call history for matching call timestamp within 5 minutes
+    if (_trackedCallHistory.isNotEmpty && audioMs > 0) {
+      final cleanLeadPhone = phoneNumber.replaceAll(RegExp(r'[^0-9]'), '');
+      final leadLast10 = cleanLeadPhone.length >= 10 ? cleanLeadPhone.substring(cleanLeadPhone.length - 10) : cleanLeadPhone;
+
+      for (final c in _trackedCallHistory) {
+        final cleanCPhone = c.phoneNumber.replaceAll(RegExp(r'[^0-9]'), '');
+        final cLast10 = cleanCPhone.length >= 10 ? cleanCPhone.substring(cleanCPhone.length - 10) : cleanCPhone;
+
+        final isPhoneMatch = cleanLeadPhone.isEmpty || cLast10 == leadLast10 || cleanCPhone.contains(leadLast10) || leadLast10.contains(cLast10);
+        if (isPhoneMatch) {
+          final diff1 = (c.timestamp - audioMs).abs();
+          final diff2 = (c.startTime - audioMs).abs();
+
+          if (diff1 < 5 * 60 * 1000 || diff2 < 5 * 60 * 1000) {
+            final typeStr = c.callType.toLowerCase();
+            final resolved = (typeStr == 'outgoing' || typeStr == 'outbound') ? 'outbound' : 'inbound';
+            _resolvedCallTypes[audio.id] = resolved;
+            return resolved;
+          }
+        }
+      }
+    }
+
+    // 2. Check last call timestamp if user placed call in this session within 3 minutes
+    if (_lastCallTimestamp != null && audioMs > 0) {
+      final diff = (audioMs - _lastCallTimestamp!).abs();
+      if (diff < 3 * 60 * 1000) {
+        _resolvedCallTypes[audio.id] = 'outbound';
+        return 'outbound';
+      }
+    }
+
     _resolveAudioDirectionFromCallLog(audio, phoneNumber);
-    return audio.callType;
+
+    final fallback = (audio.callType.isNotEmpty && audio.callType.toLowerCase() != 'unknown')
+        ? audio.callType.toLowerCase()
+        : 'inbound';
+    _resolvedCallTypes[audio.id] = fallback;
+    return fallback;
   }
 
   void _resolveAudioDirectionFromCallLog(LeadAudio audio, String phoneNumber) async {
     if (phoneNumber.isEmpty || _resolvedCallTypes.containsKey(audio.id)) return;
-    final timestamp = audio.createdAt?.millisecondsSinceEpoch ?? 0;
+    final timestamp = _getEffectiveTimestamp(audio);
     try {
       final detected = await CallRecordingService().detectCallType(
         filePath: audio.fileName,
         fileName: audio.displayName,
         phoneNumber: phoneNumber,
         timestamp: timestamp,
+        callTimestamp: _lastCallTimestamp ?? 0,
       );
       if (mounted && detected.isNotEmpty && _resolvedCallTypes[audio.id] != detected) {
         setState(() {
@@ -157,32 +217,155 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
 
   void _fetchLocalRecordings(String phoneNumber) async {
     if (_isLoadingRecordings) return;
-    setState(() {
-      _isLoadingRecordings = true;
-    });
-    
-    final callRecordingService = CallRecordingService();
-    bool hasPermission = await callRecordingService.hasStoragePermission();
     if (mounted) {
       setState(() {
-        _hasStoragePermission = hasPermission;
+        _isLoadingRecordings = true;
       });
     }
-    if (hasPermission) {
-      final paths = await callRecordingService.getAllSystemRecordings(phoneNumber);
-      if (mounted) {
+
+    try {
+      final history = await CallHistoryStorage.loadCallHistory();
+      final callRecordingService = CallRecordingService();
+      bool hasPermission = await callRecordingService.hasStoragePermission();
+
+      if (!mounted) return;
+      setState(() {
+        _hasStoragePermission = hasPermission;
+        _trackedCallHistory = history;
+      });
+
+      if (hasPermission) {
+        final paths = await callRecordingService.getAllSystemRecordings(phoneNumber);
+        if (!mounted) return;
         setState(() {
           _localRecordings = paths;
-          _isLoadingRecordings = false;
         });
       }
-    } else {
+    } catch (e) {
+      debugPrint('Error fetching local recordings: $e');
+    } finally {
       if (mounted) {
         setState(() {
           _isLoadingRecordings = false;
         });
+      } else {
+        _isLoadingRecordings = false;
       }
     }
+  }
+
+  Map<String, String> _getCallCardDetails(LeadAudio audio, String leadPhone, bool isIncoming) {
+    String fromPhone = '';
+    String toPhone = '';
+
+    final prefs = sl.isRegistered<SharedPreferences>() ? sl<SharedPreferences>() : null;
+    final savedName = prefs?.getString('userName')?.trim();
+    final savedPhone = prefs?.getString('userPhone')?.trim();
+
+    final staffUser = (savedName != null && savedName.isNotEmpty)
+        ? savedName
+        : ((savedPhone != null && savedPhone.isNotEmpty) ? savedPhone : 'Staff');
+
+    final cleanLeadPhone = leadPhone.isNotEmpty ? leadPhone : 'Lead';
+
+    // Extract valid phone numbers embedded in audio title/filename, ignoring timestamp strings (e.g. starting with 202...)
+    final matches = RegExp(r'(\+?[6-9]\d{9}|\+?\d{10,12})').allMatches('${audio.displayName} ${audio.fileName}');
+    final validNumbers = <String>[];
+
+    for (final m in matches) {
+      final numStr = m.group(0)!;
+      if (!numStr.startsWith('202') && !numStr.startsWith('203')) {
+        if (!validNumbers.contains(numStr)) {
+          validNumbers.add(numStr);
+        }
+      }
+    }
+
+    if (isIncoming) {
+      fromPhone = validNumbers.isNotEmpty ? validNumbers[0] : cleanLeadPhone;
+      toPhone = staffUser;
+    } else {
+      fromPhone = staffUser;
+      toPhone = validNumbers.isNotEmpty ? validNumbers[0] : cleanLeadPhone;
+    }
+
+    String startStr = '--:--';
+    String endStr = '--:--';
+    String durationStr = '';
+
+    if (audio.createdAt != null) {
+      final startDt = audio.createdAt!;
+      startStr = DateFormat('hh:mm:ss a').format(startDt);
+
+      int durationSec = 0;
+
+      if (_resolvedAudioDurations.containsKey(audio.id)) {
+        durationSec = _resolvedAudioDurations[audio.id]!;
+      }
+
+      if (durationSec <= 0 && _localRecordings.isNotEmpty) {
+        final cleanServerName = AutoCallRecordingUploader.cleanFileName(audio.displayName.toLowerCase());
+        for (final local in _localRecordings) {
+          final localPath = local['path']?.toString() ?? '';
+          final localName = AutoCallRecordingUploader.cleanFileName(localPath.split('/').last.split('\\').last.toLowerCase());
+          final localDurMs = (local['durationMs'] as num?)?.toInt() ?? 0;
+
+          if (localDurMs > 0 && (localName == cleanServerName || localPath.contains(cleanServerName) || cleanServerName.contains(localName))) {
+            durationSec = (localDurMs / 1000).round();
+            _resolvedAudioDurations[audio.id] = durationSec;
+            break;
+          }
+        }
+      }
+
+      if (durationSec <= 0 && _trackedCallHistory.isNotEmpty) {
+        final audioMs = startDt.millisecondsSinceEpoch;
+        for (final c in _trackedCallHistory) {
+          final diff1 = (c.timestamp - audioMs).abs();
+          final diff2 = (c.startTime - audioMs).abs();
+          if (diff1 < 300000 || diff2 < 300000) {
+            if (c.durationSeconds > 0) {
+              durationSec = c.durationSeconds;
+              _resolvedAudioDurations[audio.id] = durationSec;
+            }
+            if (c.appUserPhone != null && c.appUserPhone!.isNotEmpty) {
+              if (isIncoming) {
+                toPhone = c.appUserPhone!;
+              } else {
+                fromPhone = c.appUserPhone!;
+              }
+            }
+            if (c.phoneNumber.isNotEmpty) {
+              if (isIncoming) {
+                fromPhone = c.phoneNumber;
+              } else {
+                toPhone = c.phoneNumber;
+              }
+            }
+            break;
+          }
+        }
+      }
+
+      if (durationSec > 0) {
+        final endDt = startDt.add(Duration(seconds: durationSec));
+        endStr = DateFormat('hh:mm:ss a').format(endDt);
+        final mins = durationSec ~/ 60;
+        final secs = durationSec % 60;
+        durationStr = mins > 0 ? '${mins}m ${secs}s' : '${secs}s';
+      } else {
+        endStr = '--:--';
+        durationStr = '';
+      }
+    }
+
+    return {
+      'fromPhone': fromPhone,
+      'toPhone': toPhone,
+      'startTime': startStr,
+      'endTime': endStr,
+      'duration': durationStr,
+    };
   }
 
   Color _hexToColor(String? hexString) {
@@ -218,6 +401,16 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
             onPressed: () => Navigator.pop(context, _wasEdited),
           ),
           actions: [
+            IconButton(
+              icon: const Icon(Icons.refresh, color: AppColors.textPrimary),
+              tooltip: 'Refresh Lead Details',
+              onPressed: () {
+                final state = context.read<LeadsBloc>().state;
+                if (state is LeadDetailsLoaded) {
+                  context.read<LeadsBloc>().add(FetchLeadDetails(state.leadDetail.id));
+                }
+              },
+            ),
             BlocBuilder<LeadsBloc, LeadsState>(
               builder: (context, state) {
                 final leadPhone = state is LeadDetailsLoaded ? state.leadDetail.phone : '';
@@ -593,12 +786,14 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
                 });
                 if (index == 1 && state.auditLogs == null) {
                   context.read<LeadsBloc>().add(FetchLeadAuditLogs(state.leadDetail.id));
-                } else if (index == 2 && state.audios == null) {
+                } else if (index == 2) {
+                  _fetchLocalRecordings(state.leadDetail.phone);
                   context.read<LeadsBloc>().add(FetchLeadAudios(state.leadDetail.id));
                   AutoCallRecordingUploader.autoScanAndUploadLeadRecordings(
                     context: context,
                     leadId: state.leadDetail.id,
                     phoneNumber: state.leadDetail.phone,
+                    existingServerAudios: state.audios,
                     onUploadSuccess: () {
                       if (mounted) {
                         context.read<LeadsBloc>().add(FetchLeadAudios(state.leadDetail.id));
@@ -814,10 +1009,11 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
     final Set<String> seenKeys = {};
     for (final audio in sortedRaw) {
       final cleanName = AutoCallRecordingUploader.cleanFileName(audio.displayName.toLowerCase());
-      final sizeKey = '${audio.size}_$cleanName';
-      if (!seenKeys.contains(cleanName) && !seenKeys.contains(sizeKey)) {
-        seenKeys.add(cleanName);
-        seenKeys.add(sizeKey);
+      final cleanFileNameOnly = AutoCallRecordingUploader.cleanFileName(audio.fileName.toLowerCase());
+      final key = cleanName.isNotEmpty ? cleanName : cleanFileNameOnly;
+
+      if (!seenKeys.contains(key)) {
+        seenKeys.add(key);
         serverAudios.add(audio);
       }
     }
@@ -874,6 +1070,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
                           context: context,
                           leadId: state.leadDetail.id,
                           phoneNumber: state.leadDetail.phone,
+                          existingServerAudios: state.audios,
                           onUploadSuccess: () {
                             if (mounted) {
                               context.read<LeadsBloc>().add(FetchLeadAudios(state.leadDetail.id));
@@ -1006,6 +1203,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
               itemBuilder: (context, index) {
                 final audio = currentAudios[index];
                 final isIncoming = _getResolvedCallType(audio, state.leadDetail.phone) == 'inbound';
+                final callInfo = _getCallCardDetails(audio, state.leadDetail.phone, isIncoming);
                 final dateStr = audio.createdAt != null
                     ? DateFormat('MMM dd, yyyy - hh:mm a').format(audio.createdAt!)
                     : 'Unknown Date';
@@ -1022,77 +1220,167 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
                   ),
                   color: Colors.white,
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 12.0),
-                    child: Row(
+                    padding: const EdgeInsets.all(12.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        CircleAvatar(
-                          radius: 18,
-                          backgroundColor: isIncoming ? const Color(0xFFD1FAE5) : const Color(0xFFFFE4E6),
-                          child: Icon(
-                            isIncoming ? Icons.call_received_rounded : Icons.call_made_rounded,
-                            size: 18,
-                            color: isIncoming ? const Color(0xFF059669) : const Color(0xFFE11D48),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      _cleanAudioTitle(audio.displayName),
-                                      style: const TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.bold,
-                                        color: AppColors.textPrimary,
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                                    decoration: BoxDecoration(
-                                      color: isIncoming ? const Color(0xFFECFDF5) : const Color(0xFFFFF1F2),
-                                      borderRadius: BorderRadius.circular(4),
-                                      border: Border.all(
-                                        color: isIncoming ? const Color(0xFFA7F3D0) : const Color(0xFFFECDD3),
-                                      ),
-                                    ),
-                                    child: Text(
-                                      isIncoming ? 'INCOMING' : 'OUTGOING',
-                                      style: TextStyle(
-                                        fontSize: 9,
-                                        fontWeight: FontWeight.bold,
-                                        color: isIncoming ? const Color(0xFF059669) : const Color(0xFFE11D48),
-                                      ),
-                                    ),
-                                  ),
-                                ],
+                        // ─── CARD HEADER ───────────────────────────────
+                        Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 15,
+                              backgroundColor: isIncoming ? const Color(0xFFD1FAE5) : const Color(0xFFFFE4E6),
+                              child: Icon(
+                                isIncoming ? Icons.call_received_rounded : Icons.call_made_rounded,
+                                size: 15,
+                                color: isIncoming ? const Color(0xFF059669) : const Color(0xFFE11D48),
                               ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '$dateStr  •  $sizeStr',
-                                style: const TextStyle(fontSize: 12, color: AppColors.textHint),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _cleanAudioTitle(audio.displayName),
+                                style: const TextStyle(
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.textPrimary,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
-                            ],
-                          ),
+                            ),
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: isIncoming ? const Color(0xFFECFDF5) : const Color(0xFFFFF1F2),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(
+                                  color: isIncoming ? const Color(0xFFA7F3D0) : const Color(0xFFFECDD3),
+                                ),
+                              ),
+                              child: Text(
+                                isIncoming ? 'INCOMING' : 'OUTGOING',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                  color: isIncoming ? const Color(0xFF059669) : const Color(0xFFE11D48),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            // Listen Button
+                            InkWell(
+                              onTap: () => _playLeadAudio(context, audio),
+                              borderRadius: BorderRadius.circular(20),
+                              child: const Padding(
+                                padding: EdgeInsets.all(4.0),
+                                child: Icon(Icons.play_circle_fill, color: AppColors.primary, size: 26),
+                              ),
+                            ),
+                            // Download Button
+                            InkWell(
+                              onTap: () => _downloadLeadAudio(context, audio),
+                              borderRadius: BorderRadius.circular(20),
+                              child: const Padding(
+                                padding: EdgeInsets.all(4.0),
+                                child: Icon(Icons.download_rounded, color: AppColors.primary, size: 20),
+                              ),
+                            ),
+                          ],
                         ),
-                        // Listen Button
-                        IconButton(
-                          icon: const Icon(Icons.play_circle_fill, color: AppColors.primary, size: 28),
-                          tooltip: 'Listen Audio',
-                          onPressed: () => _playLeadAudio(context, audio),
+                        const SizedBox(height: 8),
+                        const Divider(height: 1, color: Color(0xFFF3F4F6)),
+                        const SizedBox(height: 8),
+
+                        // ─── CARD DETAILS ──────────────────────────────
+                        // 1. From & To Phone Numbers (Bold labels & values)
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              isIncoming ? Icons.call_received_rounded : Icons.call_made_rounded,
+                              size: 14,
+                              color: isIncoming ? const Color(0xFF059669) : const Color(0xFFE11D48),
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text.rich(
+                                TextSpan(
+                                  children: [
+                                    const TextSpan(
+                                      text: 'From: ',
+                                      style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary, fontSize: 12),
+                                    ),
+                                    TextSpan(
+                                      text: '${callInfo['fromPhone']}   ',
+                                      style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF111827), fontSize: 12),
+                                    ),
+                                    const TextSpan(
+                                      text: '➔   To: ',
+                                      style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary, fontSize: 12),
+                                    ),
+                                    TextSpan(
+                                      text: '${callInfo['toPhone']}',
+                                      style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF111827), fontSize: 12),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                        // Download Button
-                        IconButton(
-                          icon: const Icon(Icons.download_rounded, color: AppColors.primary, size: 22),
-                          tooltip: 'Download Audio',
-                          onPressed: () => _downloadLeadAudio(context, audio),
+                        const SizedBox(height: 4),
+
+                        // 2. Start & End Times + Duration (Bold labels & values)
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(Icons.access_time_rounded, size: 14, color: AppColors.textHint),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text.rich(
+                                TextSpan(
+                                  children: [
+                                    const TextSpan(
+                                      text: 'Start: ',
+                                      style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary, fontSize: 11.5),
+                                    ),
+                                    TextSpan(
+                                      text: '${callInfo['startTime']}   ',
+                                      style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF374151), fontSize: 11.5),
+                                    ),
+                                    const TextSpan(
+                                      text: '•   End: ',
+                                      style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary, fontSize: 11.5),
+                                    ),
+                                    TextSpan(
+                                      text: '${callInfo['endTime']}   ',
+                                      style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF374151), fontSize: 11.5),
+                                    ),
+                                    if (callInfo['duration']!.isNotEmpty)
+                                      TextSpan(
+                                        text: '(${callInfo['duration']})',
+                                        style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary, fontSize: 11.5),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+
+                        // 3. Date & Size Info
+                        Row(
+                          children: [
+                            const Icon(Icons.calendar_today_rounded, size: 12, color: AppColors.textHint),
+                            const SizedBox(width: 6),
+                            Text(
+                              '$dateStr  •  $sizeStr',
+                              style: const TextStyle(fontSize: 11, color: AppColors.textHint, fontWeight: FontWeight.w500),
+                            ),
+                          ],
                         ),
                       ],
                     ),

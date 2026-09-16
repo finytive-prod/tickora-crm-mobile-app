@@ -36,6 +36,7 @@ class _LeadSourcesViewState extends State<LeadSourcesView> {
 
   // Form states for creating source
   final _formKey = GlobalKey<FormState>();
+  AutovalidateMode _autovalidateMode = AutovalidateMode.disabled;
   final _nameController = TextEditingController();
   final _descController = TextEditingController();
   String _selectedCategory = 'SOCIAL_MEDIA';
@@ -52,7 +53,12 @@ class _LeadSourcesViewState extends State<LeadSourcesView> {
   }
 
   void _createSource(BuildContext context) {
-    if (!validateAndScrollToError(_formKey)) return;
+    if (!validateAndScrollToError(_formKey)) {
+      setState(() {
+        _autovalidateMode = AutovalidateMode.onUserInteraction;
+      });
+      return;
+    }
 
     final sourceData = {
       'name': _nameController.text.trim(),
@@ -135,6 +141,13 @@ class _LeadSourcesViewState extends State<LeadSourcesView> {
               style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 18),
             ),
             centerTitle: true,
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.refresh_rounded, color: AppColors.textPrimary),
+                tooltip: 'Refresh Sources',
+                onPressed: () => context.read<SettingsBloc>().add(FetchLeadSources()),
+              ),
+            ],
           ),
           body: showLoader
               ? const Center(child: SpinningLogo(size: 60))
@@ -284,6 +297,7 @@ class _LeadSourcesViewState extends State<LeadSourcesView> {
                           ),
                           child: Form(
                             key: _formKey,
+                            autovalidateMode: _autovalidateMode,
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [

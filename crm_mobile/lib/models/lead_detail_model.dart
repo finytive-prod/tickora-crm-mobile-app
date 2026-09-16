@@ -57,6 +57,70 @@ class LeadDetailModel extends LeadDetail {
     final List<dynamic> list = json['customFields'] ?? [];
     final customFields = list.map((e) => LeadDetailCustomFieldModel.fromJson(e)).toList();
 
+    String? ownerUserId;
+    void trySetOwnerUserId(dynamic val) {
+      if (ownerUserId != null && ownerUserId!.isNotEmpty) return;
+      if (val == null) return;
+      if (val is String && val.trim().isNotEmpty) {
+        ownerUserId = val.trim();
+      } else if (val is Map && (val['id'] != null || val['userId'] != null)) {
+        final idVal = (val['id'] ?? val['userId'])?.toString();
+        if (idVal != null && idVal.trim().isNotEmpty) {
+          ownerUserId = idVal.trim();
+        }
+      }
+    }
+
+    trySetOwnerUserId(json['ownerUserId']);
+    trySetOwnerUserId(json['ownerId']);
+    trySetOwnerUserId(json['assignedToId']);
+    trySetOwnerUserId(json['assignedUserId']);
+    trySetOwnerUserId(json['staffId']);
+    trySetOwnerUserId(json['userId']);
+    trySetOwnerUserId(json['assignedTo']);
+    trySetOwnerUserId(json['ownerUser']);
+    trySetOwnerUserId(json['owner']);
+
+    String? ownerUserName;
+    void trySetOwnerUserName(dynamic val) {
+      if (ownerUserName != null && ownerUserName!.isNotEmpty) return;
+      if (val == null) return;
+      if (val is String) {
+        final str = val.trim();
+        if (str.isNotEmpty) {
+          final isUuid = RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$').hasMatch(str);
+          if (!isUuid) {
+            ownerUserName = str;
+          }
+        }
+      } else if (val is Map) {
+        final nameVal = (val['name'] ?? val['fullName'] ?? val['firstName'] ?? val['userName'] ?? val['username'])?.toString();
+        if (nameVal != null && nameVal.trim().isNotEmpty) {
+          ownerUserName = nameVal.trim();
+        }
+      }
+    }
+
+    trySetOwnerUserName(json['ownerUserName']);
+    trySetOwnerUserName(json['ownerName']);
+    trySetOwnerUserName(json['assignedToName']);
+    trySetOwnerUserName(json['assignedToInfo']);
+    trySetOwnerUserName(json['assigneeName']);
+    trySetOwnerUserName(json['assignee']);
+    trySetOwnerUserName(json['staffName']);
+    trySetOwnerUserName(json['staff']);
+    trySetOwnerUserName(json['assignedTo']);
+    trySetOwnerUserName(json['ownerUser']);
+    trySetOwnerUserName(json['owner']);
+
+    if (ownerUserName == null || ownerUserName!.isEmpty) {
+      if (json['assignedTo'] is String && json['assignedTo'].toString().trim().isNotEmpty) {
+        ownerUserName = json['assignedTo'].toString().trim();
+      } else if (json['owner'] is String && json['owner'].toString().trim().isNotEmpty) {
+        ownerUserName = json['owner'].toString().trim();
+      }
+    }
+
     return LeadDetailModel(
       id: json['id'] ?? '',
       leadNumber: json['leadNumber'] ?? '',
@@ -84,8 +148,8 @@ class LeadDetailModel extends LeadDetail {
       postalCode: json['postalCode'] ?? '',
       address: json['address'] ?? '',
       description: json['description'] ?? '',
-      ownerUserId: json['ownerUserId'],
-      ownerUserName: json['ownerUserName'],
+      ownerUserId: ownerUserId,
+      ownerUserName: ownerUserName,
       isConverted: json['isConverted'],
       createdAt: json['createdAt'] != null ? DateTime.tryParse(json['createdAt']) : null,
       updatedAt: json['updatedAt'] != null ? DateTime.tryParse(json['updatedAt']) : null,

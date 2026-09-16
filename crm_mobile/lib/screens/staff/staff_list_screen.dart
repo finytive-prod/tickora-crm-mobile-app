@@ -10,6 +10,9 @@ import 'package:crm_mobile/widgets/staff_card.dart';
 import 'package:crm_mobile/widgets/spinning_logo.dart';
 import 'package:crm_mobile/screens/staff/staff_detail_screen.dart';
 import 'package:crm_mobile/screens/staff/add_staff_bottom_sheet.dart';
+import 'package:crm_mobile/widgets/empty_state_widget.dart';
+import 'package:crm_mobile/widgets/poor_internet_widget.dart';
+import 'package:crm_mobile/widgets/server_error_503_widget.dart';
 import 'package:crm_mobile/repositories/settings_repository.dart';
 
 class StaffListScreen extends StatelessWidget {
@@ -105,6 +108,13 @@ class _StaffListViewState extends State<_StaffListView> {
           ),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh, color: AppColors.textPrimary, size: 22),
+            tooltip: 'Refresh Staff',
+            onPressed: () {
+              context.read<StaffBloc>().add(FetchStaffMembers(status: _selectedStatus, searchQuery: _searchController.text.trim()));
+            },
+          ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert, color: AppColors.textPrimary),
             onSelected: (String status) {
@@ -246,29 +256,19 @@ class _StaffListViewState extends State<_StaffListView> {
                   return const Center(child: SpinningLogo(size: 60));
                 }
                 if (state is StaffError) {
-                  return Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.error_outline, color: AppColors.primary, size: 48),
-                        const SizedBox(height: 12),
-                        Text(
-                          state.message,
-                          style: const TextStyle(color: AppColors.textSecondary),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 16),
-                        OutlinedButton.icon(
-                          onPressed: () => context.read<StaffBloc>().add(
-                            FetchStaffMembers(status: _selectedStatus),
-                          ),
-                          icon: const Icon(Icons.refresh, color: AppColors.primary),
-                          label: const Text('Retry', style: TextStyle(color: AppColors.primary)),
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: AppColors.primary),
-                          ),
-                        ),
-                      ],
+                  final err = state.message;
+                  if (err.contains('503') || err.toLowerCase().contains('service unavailable')) {
+                    return ServerError503Widget(
+                      onRetry: () => context.read<StaffBloc>().add(
+                        FetchStaffMembers(status: _selectedStatus),
+                      ),
+                    );
+                  }
+                  return PoorInternetWidget(
+                    title: 'Connection Issue',
+                    message: err.isEmpty ? 'Failed to load staff members. Please try again.' : err,
+                    onRetry: () => context.read<StaffBloc>().add(
+                      FetchStaffMembers(status: _selectedStatus),
                     ),
                   );
                 }
@@ -277,23 +277,11 @@ class _StaffListViewState extends State<_StaffListView> {
                   final staffMembers = state.staffMembers;
 
                   if (staffMembers.isEmpty) {
-                    return Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.people_outline, color: AppColors.textHint, size: 56),
-                          const SizedBox(height: 12),
-                          Text(
-                            query.isNotEmpty
-                                ? 'No staff members match your search'
-                                : 'No ${_selectedStatus.toLowerCase()} staff members',
-                            style: const TextStyle(
-                              color: AppColors.textSecondary,
-                              fontSize: 15,
-                            ),
-                          ),
-                        ],
-                      ),
+                    return EmptyStateWidget(
+                      title: 'No Staff Members Found',
+                      message: query.isNotEmpty
+                          ? 'No staff members match your search "$query".'
+                          : 'No ${_selectedStatus.toLowerCase()} staff members.',
                     );
                   }
 

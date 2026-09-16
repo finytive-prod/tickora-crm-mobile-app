@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:crm_mobile/core/theme/app_colors.dart';
 import 'package:crm_mobile/widgets/spinning_logo.dart';
+import 'package:crm_mobile/widgets/empty_state_widget.dart';
+import 'package:crm_mobile/widgets/poor_internet_widget.dart';
+import 'package:crm_mobile/widgets/server_error_503_widget.dart';
 import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/blocs/followups_bloc.dart';
 import 'package:crm_mobile/blocs/followups_event.dart';
@@ -140,11 +143,29 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Title Header
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-              child: Text(
-                'Follow-ups',
-                style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Follow-ups',
+                    style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.refresh, color: AppColors.textPrimary),
+                    tooltip: 'Refresh Follow-ups',
+                    onPressed: () {
+                      context.read<FollowUpsBloc>().add(
+                        FetchFollowUps(
+                          category: _getApiCategory(_selectedTab),
+                          page: 0,
+                          searchQuery: _searchController.text.trim(),
+                        ),
+                      );
+                    },
+                  ),
+                ],
               ),
             ),
 
@@ -232,6 +253,21 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
                   if (state is FollowUpsLoading) {
                     return const Center(child: SpinningLogo(size: 60));
                   } else if (state is FollowUpsError) {
+                    if (state.message.contains('503') || state.message.contains('Service Unavailable')) {
+                      return ServerError503Widget(
+                        onRetry: () => context.read<FollowUpsBloc>().add(
+                          FetchFollowUps(category: _getApiCategory(_selectedTab), page: 0, isRefresh: true),
+                        ),
+                      );
+                    } else if (state.message.toLowerCase().contains('internet') ||
+                        state.message.toLowerCase().contains('connection') ||
+                        state.message.toLowerCase().contains('timed out')) {
+                      return PoorInternetWidget(
+                        onRetry: () => context.read<FollowUpsBloc>().add(
+                          FetchFollowUps(category: _getApiCategory(_selectedTab), page: 0, isRefresh: true),
+                        ),
+                      );
+                    }
                     return Center(
                       child: Padding(
                         padding: const EdgeInsets.all(24.0),
@@ -259,12 +295,12 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
                         child: ListView(
                           physics: const AlwaysScrollableScrollPhysics(),
                           children: [
-                            SizedBox(height: MediaQuery.of(context).size.height * 0.25),
-                            Center(
-                              child: Text(
-                                'No $_selectedTab follow-ups.',
-                                style: const TextStyle(color: AppColors.textHint, fontSize: 15),
-                              ),
+                            SizedBox(height: MediaQuery.of(context).size.height * 0.1),
+                            EmptyStateWidget(
+                              title: 'No $_selectedTab Follow-ups',
+                              message: _searchController.text.isNotEmpty
+                                  ? 'No follow-ups match "${_searchController.text}"'
+                                  : 'There are no $_selectedTab follow-ups at the moment.',
                             ),
                           ],
                         ),

@@ -106,3 +106,21 @@ class StaffCreateError extends StaffState {
   @override
   List<Object?> get props => [message];
 }
+
+class StaffDetailLoaded extends StaffState {
+  final StaffMember staffMember;
+
+  const StaffDetailLoaded(this.staffMember);
+
+  @override
+  List<Object?> get props => [staffMember];
+}
+
+class StaffDetailError extends StaffState {
+  final String message;
+
+  const StaffDetailError(this.message);
+
+  @override
+  List<Object?> get props => [message];
+}

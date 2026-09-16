@@ -51,6 +51,7 @@ class _AddFollowUpView extends StatefulWidget {
 
 class _AddFollowUpViewState extends State<_AddFollowUpView> {
   final _formKey = GlobalKey<FormState>();
+  AutovalidateMode _autovalidateMode = AutovalidateMode.disabled;
 
   bool _enableReminder = true;
   DateTime? _selectedDate = DateTime.now().add(const Duration(days: 1));
@@ -111,8 +112,14 @@ class _AddFollowUpViewState extends State<_AddFollowUpView> {
   }
 
   void _submit() {
-    if (validateAndScrollToError(_formKey)) {
-      final dateStr = _selectedDate != null
+    if (!validateAndScrollToError(_formKey)) {
+      setState(() {
+        _autovalidateMode = AutovalidateMode.onUserInteraction;
+      });
+      return;
+    }
+
+    final dateStr = _selectedDate != null
           ? DateFormat('yyyy-MM-dd').format(_selectedDate!)
           : DateFormat('yyyy-MM-dd').format(DateTime.now());
 
@@ -132,7 +139,6 @@ class _AddFollowUpViewState extends State<_AddFollowUpView> {
       };
 
       context.read<FollowUpsBloc>().add(AddFollowUpEvent(leadId: widget.leadId, data: body));
-    }
   }
 
   @override
@@ -193,6 +199,7 @@ class _AddFollowUpViewState extends State<_AddFollowUpView> {
                 Expanded(
                   child: Form(
                     key: _formKey,
+                    autovalidateMode: _autovalidateMode,
                     child: SingleChildScrollView(
                       padding: const EdgeInsets.all(20.0),
                       child: Column(
@@ -341,6 +348,7 @@ class _AddFollowUpViewState extends State<_AddFollowUpView> {
                           ),
                           const SizedBox(height: 6),
                           DropdownButtonFormField<String>(
+                            autovalidateMode: AutovalidateMode.onUserInteraction,
                             value: _repeatCycle,
                             items: const [
                               DropdownMenuItem(value: 'NONE', child: Text('None')),
@@ -388,6 +396,7 @@ class _AddFollowUpViewState extends State<_AddFollowUpView> {
                           const SizedBox(height: 6),
                           TextFormField(
                             controller: _descriptionController,
+                            autovalidateMode: AutovalidateMode.onUserInteraction,
                             maxLines: 4,
                             decoration: InputDecoration(
                               hintText: 'Enter follow-up description',

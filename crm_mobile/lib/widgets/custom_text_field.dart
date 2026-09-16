@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:crm_mobile/core/theme/app_colors.dart';
 import 'package:crm_mobile/core/utils/validators.dart';
 
-class CustomTextField extends StatelessWidget {
+class CustomTextField extends StatefulWidget {
   final String label;
   final bool isRequired;
   final TextInputType? keyboardType;
@@ -14,6 +14,10 @@ class CustomTextField extends StatelessWidget {
   final List<TextInputFormatter>? inputFormatters;
   final Widget? suffixIcon;
   final String? hintText;
+  final FocusNode? focusNode;
+  final bool enabled;
+  final bool readOnly;
+  final AutovalidateMode? autovalidateMode;
 
   const CustomTextField({
     super.key,
@@ -27,14 +31,55 @@ class CustomTextField extends StatelessWidget {
     this.inputFormatters,
     this.suffixIcon,
     this.hintText,
+    this.focusNode,
+    this.enabled = true,
+    this.readOnly = false,
+    this.autovalidateMode,
   });
+
+  @override
+  State<CustomTextField> createState() => _CustomTextFieldState();
+}
+
+class _CustomTextFieldState extends State<CustomTextField> {
+  late FocusNode _focusNode;
+  bool _createdInternalFocusNode = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.focusNode != null) {
+      _focusNode = widget.focusNode!;
+    } else {
+      _focusNode = FocusNode();
+      _createdInternalFocusNode = true;
+    }
+    _focusNode.addListener(_onFocusChange);
+  }
+
+  void _onFocusChange() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
+  void dispose() {
+    _focusNode.removeListener(_onFocusChange);
+    if (_createdInternalFocusNode) {
+      _focusNode.dispose();
+    }
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final List<TextInputFormatter> effectiveFormatters = [
       AppInputFormatters.denyEmoji,
-      ...?inputFormatters,
+      ...?widget.inputFormatters,
     ];
+
+    final isInteractive = widget.enabled && !widget.readOnly;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -43,14 +88,14 @@ class CustomTextField extends StatelessWidget {
           padding: const EdgeInsets.only(bottom: 8.0, left: 4.0),
           child: RichText(
             text: TextSpan(
-              text: label,
+              text: widget.label,
               style: const TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
                 color: AppColors.textLabel,
               ),
               children: [
-                if (isRequired)
+                if (widget.isRequired)
                   const TextSpan(
                     text: ' *',
                     style: TextStyle(color: Colors.red),
@@ -60,17 +105,25 @@ class CustomTextField extends StatelessWidget {
           ),
         ),
         TextFormField(
-          controller: controller,
-          keyboardType: keyboardType,
-          maxLines: maxLines,
-          onChanged: onChanged,
+          controller: widget.controller,
+          focusNode: _focusNode,
+          keyboardType: widget.keyboardType,
+          maxLines: widget.maxLines,
+          enabled: widget.enabled,
+          readOnly: widget.readOnly,
+          style: TextStyle(
+            fontSize: 14,
+            color: isInteractive ? AppColors.textPrimary : AppColors.textSecondary,
+          ),
+          autovalidateMode: widget.autovalidateMode ?? AutovalidateMode.onUserInteraction,
+          onChanged: widget.onChanged,
           inputFormatters: effectiveFormatters,
           decoration: InputDecoration(
-            hintText: hintText ?? label,
+            hintText: widget.hintText ?? widget.label,
             hintStyle: const TextStyle(color: AppColors.textHint, fontSize: 14),
-            suffixIcon: suffixIcon,
+            suffixIcon: widget.suffixIcon,
             filled: true,
-            fillColor: Colors.white,
+            fillColor: isInteractive ? Colors.white : const Color(0xFFF3F4F6),
             contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             errorMaxLines: 3,
             errorStyle: const TextStyle(fontSize: 11, height: 1.2),
@@ -82,20 +135,28 @@ class CustomTextField extends StatelessWidget {
               borderRadius: BorderRadius.circular(8),
               borderSide: const BorderSide(color: AppColors.borderEnabled),
             ),
+            disabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: AppColors.borderEnabled),
+            ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
               borderSide: const BorderSide(color: AppColors.primary),
             ),
           ),
           validator: (value) {
-            if (isRequired && (value == null || value.trim().isEmpty)) {
-              return '$label is required';
+            final trimmed = value?.trim() ?? '';
+            // 1. Required check: if value is empty, show required error
+            if (widget.isRequired && trimmed.isEmpty) {
+              return '${widget.label} is required';
             }
             if (AppValidators.hasEmoji(value)) {
-              return '$label cannot contain emojis';
+              return '${widget.label} cannot contain emojis';
             }
-            if (validator != null) {
-              return validator!(value);
+
+            // 2. When validator is provided, run full field validation
+            if (widget.validator != null) {
+              return widget.validator!(value);
             }
             return null;
           },

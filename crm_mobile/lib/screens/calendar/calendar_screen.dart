@@ -284,14 +284,22 @@ class _CalendarScreenViewState extends State<CalendarScreenView> {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        title: Row(
-          children: [
-            Text(
-              'Calendar',
-              style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 20),
-            ),
-          ],
+        title: const Text(
+          'Calendar',
+          style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 20),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh, color: AppColors.textPrimary),
+            tooltip: 'Refresh Calendar',
+            onPressed: () {
+              final start = DateTime(_focusedDay.year, _focusedDay.month, 1);
+              final end = DateTime(_focusedDay.year, _focusedDay.month + 1, 0, 23, 59, 59);
+              context.read<CalendarBloc>().add(FetchCalendarEvents(start: start, end: end));
+              context.read<CalendarBloc>().add(FetchCalendarCategories());
+            },
+          ),
+        ],
       ),
       body: SafeArea(
         child: BlocListener<CalendarBloc, CalendarState>(

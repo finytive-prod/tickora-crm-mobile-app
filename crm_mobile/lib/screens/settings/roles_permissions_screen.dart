@@ -785,6 +785,7 @@ class RoleFormRightPanel extends StatefulWidget {
 
 class _RoleFormRightPanelState extends State<RoleFormRightPanel> {
   final _formKey = GlobalKey<FormState>();
+  AutovalidateMode _autovalidateMode = AutovalidateMode.disabled;
   final _nameController = TextEditingController();
   final _codeController = TextEditingController();
   final _priorityController = TextEditingController();
@@ -886,7 +887,12 @@ class _RoleFormRightPanelState extends State<RoleFormRightPanel> {
   }
 
   void _submitForm() {
-    if (!validateAndScrollToError(_formKey)) return;
+    if (!validateAndScrollToError(_formKey)) {
+      setState(() {
+        _autovalidateMode = AutovalidateMode.onUserInteraction;
+      });
+      return;
+    }
 
     final permissionsList = widget.modules.map((m) {
       final perms = _createPermissionsMap[m.module] ?? {'create': true, 'read': true, 'update': true, 'delete': true};
@@ -974,6 +980,7 @@ class _RoleFormRightPanelState extends State<RoleFormRightPanel> {
                   padding: const EdgeInsets.all(16.0),
                   child: Form(
                     key: _formKey,
+                    autovalidateMode: _autovalidateMode,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [

@@ -55,6 +55,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       ),
                     ),
                   IconButton(
+                    icon: const Icon(Icons.refresh_rounded, color: AppColors.textPrimary, size: 22),
+                    tooltip: 'Refresh Notifications',
+                    onPressed: () {
+                      setState(() {});
+                    },
+                  ),
+                  IconButton(
                     icon: const Icon(Icons.delete_outline_rounded, color: AppColors.textHint, size: 22),
                     tooltip: 'Clear notifications',
                     onPressed: () {

@@ -18,6 +18,8 @@ class StaffMember extends Equatable {
   final String? joiningDate;
   final String? designation;
   final List<String> roles;
+  final String? roleId;
+  final bool? isDefault;
 
   const StaffMember({
     required this.id,
@@ -37,9 +39,19 @@ class StaffMember extends Equatable {
     this.joiningDate,
     this.designation,
     required this.roles,
+    this.roleId,
+    this.isDefault,
   });
 
+  bool get isSuperAdmin {
+    return (isDefault == true) || roles.any((r) {
+      final clean = r.toUpperCase().replaceAll(' ', '').replaceAll('_', '');
+      return clean.contains('SUPERADMIN');
+    });
+  }
+
   bool get isActive {
+    if (isSuperAdmin) return true;
     final statusUpper = accountStatus.toUpperCase();
     return statusUpper == 'ACTIVE' || statusUpper == 'ENABLED' || statusUpper == 'TRUE';
   }
@@ -53,11 +65,31 @@ class StaffMember extends Equatable {
   }
 
   String get primaryRole {
-    return roles.isNotEmpty ? roles.first : 'N/A';
+    return roles.isNotEmpty ? roles.join(', ') : 'N/A';
   }
 
   @override
-  List<Object?> get props => [id, accountStatus, fullName, email, phone, updatedAt];
+  List<Object?> get props => [
+        id,
+        organizationId,
+        userCode,
+        username,
+        email,
+        phone,
+        accountStatus,
+        emailVerified,
+        phoneVerified,
+        lastLogin,
+        createdAt,
+        updatedAt,
+        fullName,
+        gender,
+        joiningDate,
+        designation,
+        roles,
+        roleId,
+        isDefault,
+      ];
 }
 
 class StaffMemberModel extends StaffMember {
@@ -79,9 +111,20 @@ class StaffMemberModel extends StaffMember {
     super.joiningDate,
     super.designation,
     required super.roles,
+    super.roleId,
+    super.isDefault,
   });
 
-  static String _parseAccountStatus(Map<String, dynamic> json) {
+  static String _parseAccountStatus(Map<String, dynamic> json, List<String> parsedRoles) {
+    final isSuper = (json['isDefault'] == true) || parsedRoles.any((r) {
+      final clean = r.toUpperCase().replaceAll(' ', '').replaceAll('_', '');
+      return clean.contains('SUPERADMIN');
+    });
+
+    if (isSuper) {
+      return 'ACTIVE';
+    }
+
     if (json['isActive'] == false || json['isActive'] == 'false' || json['isActive'] == 'FALSE') {
       return 'INACTIVE';
     }
@@ -107,7 +150,8 @@ class StaffMemberModel extends StaffMember {
       return rawStatus;
     }
 
-    if (json['isActive'] == true || json['isActive'] == 'true' || json['isActive'] == 'TRUE') {
+    if (json['isActive'] == true || json['isActive'] == 'true' || json['isActive'] == 'TRUE' ||
+        json['active'] == true || json['active'] == 'true' || json['active'] == 'TRUE') {
       return 'ACTIVE';
     }
 
@@ -131,16 +175,37 @@ class StaffMemberModel extends StaffMember {
       fullName = json['username'].toString();
     }
 
+    String parsedEmail = '';
+    if (json['email'] != null && json['email'].toString().trim().isNotEmpty) {
+      parsedEmail = json['email'].toString().trim();
+    } else if (json['emailId'] != null && json['emailId'].toString().trim().isNotEmpty) {
+      parsedEmail = json['emailId'].toString().trim();
+    } else if (json['emailAddress'] != null && json['emailAddress'].toString().trim().isNotEmpty) {
+      parsedEmail = json['emailAddress'].toString().trim();
+    } else if (json['mail'] != null && json['mail'].toString().trim().isNotEmpty) {
+      parsedEmail = json['mail'].toString().trim();
+    } else if (json['userEmail'] != null && json['userEmail'].toString().trim().isNotEmpty) {
+      parsedEmail = json['userEmail'].toString().trim();
+    } else if (json['officialEmail'] != null && json['officialEmail'].toString().trim().isNotEmpty) {
+      parsedEmail = json['officialEmail'].toString().trim();
+    } else if (json['workEmail'] != null && json['workEmail'].toString().trim().isNotEmpty) {
+      parsedEmail = json['workEmail'].toString().trim();
+    } else if (json['contactEmail'] != null && json['contactEmail'].toString().trim().isNotEmpty) {
+      parsedEmail = json['contactEmail'].toString().trim();
+    } else if (json['username'] != null && json['username'].toString().contains('@')) {
+      parsedEmail = json['username'].toString().trim();
+    }
+
     return StaffMemberModel(
       id: json['id'] ?? '',
       organizationId: json['organizationId'],
       userCode: json['userCode'] ?? '',
       username: json['username'] ?? '',
-      email: json['email'] ?? '',
+      email: parsedEmail,
       phone: json['phone'] ?? json['phoneNumber'] ?? '',
-      accountStatus: _parseAccountStatus(json),
-      emailVerified: json['emailVerified'] ?? false,
-      phoneVerified: json['phoneVerified'] ?? false,
+      accountStatus: _parseAccountStatus(json, parsedRoles),
+      emailVerified: json['emailVerified'] == true,
+      phoneVerified: json['phoneVerified'] == true,
       lastLogin: json['lastLogin'],
       createdAt: json['createdAt'] ?? '',
       updatedAt: json['updatedAt'],
@@ -149,6 +214,8 @@ class StaffMemberModel extends StaffMember {
       joiningDate: json['joiningDate'],
       designation: json['designation'],
       roles: parsedRoles,
+      roleId: json['roleId'],
+      isDefault: json['isDefault'] == true,
     );
   }
 }

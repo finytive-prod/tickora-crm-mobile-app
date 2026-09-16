@@ -33,6 +33,16 @@ class CallRecordingService {
     }
   }
 
+  Future<bool> requestAllFilesAccess() async {
+    try {
+      final bool result = await _channel.invokeMethod('requestAllFilesAccess');
+      return result;
+    } on PlatformException catch (e) {
+      print("Failed to request all files access: '${e.message}'.");
+      return false;
+    }
+  }
+
 
   Future<String?> findLatestSystemRecording({
     required int callTimestamp,
@@ -65,6 +75,25 @@ class CallRecordingService {
     } on PlatformException catch (e) {
       print("Failed to get all system recordings: '${e.message}'.");
       return [];
+    }
+  }
+
+  Future<Map<String, dynamic>?> getLatestCallDetails({
+    required String phoneNumber,
+    int callTimestamp = 0,
+  }) async {
+    try {
+      final Map<dynamic, dynamic>? res = await _channel.invokeMethod('getLatestCallDetails', {
+        'phoneNumber': phoneNumber,
+        'callTimestamp': callTimestamp,
+      });
+      if (res != null) {
+        return Map<String, dynamic>.from(res);
+      }
+      return null;
+    } on PlatformException catch (e) {
+      print("Failed to get latest call details: '${e.message}'.");
+      return null;
     }
   }
 
@@ -120,6 +149,16 @@ class CallRecordingService {
     } on PlatformException catch (e) {
       print("Failed to detect call type: '${e.message}'.");
       return 'inbound';
+    }
+  }
+
+  Future<int> getAudioDuration(String filePath) async {
+    try {
+      final int ms = await _channel.invokeMethod('getAudioDuration', {'filePath': filePath});
+      return ms;
+    } on PlatformException catch (e) {
+      print("Failed to get audio duration: '${e.message}'.");
+      return 0;
     }
   }
 

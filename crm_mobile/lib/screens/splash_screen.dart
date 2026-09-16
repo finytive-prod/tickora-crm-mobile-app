@@ -8,6 +8,9 @@ import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/screens/home_screen.dart';
 import 'package:crm_mobile/screens/auth/login_screen.dart';
 import 'package:crm_mobile/core/services/call_recording_service.dart';
+import 'package:crm_mobile/core/services/app_update_service.dart';
+import 'package:crm_mobile/core/config/app_update_config.dart';
+import 'package:crm_mobile/screens/force_update_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -30,24 +33,57 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     _navigateNext();
   }
 
+  void _runStartupBackgroundTasks() async {
+    try {
+      await sl<PrivilegeService>().fetchPrivileges();
+    } catch (e) {
+      debugPrint('Error fetching privileges on startup: $e');
+    }
+    try {
+      await FcmService.instance.initialize();
+    } catch (e) {
+      debugPrint('Error initializing FCM on startup: $e');
+    }
+    try {
+      await CallRecordingService().requestPermissionsSequentially();
+    } catch (e) {
+      debugPrint('Error requesting permissions on startup: $e');
+    }
+  }
+
   Future<void> _navigateNext() async {
     final startTime = DateTime.now();
+
+    // Check minimum supported app version
+    final updateService = sl<AppUpdateService>();
+    final updateRequired = await updateService.isUpdateRequired();
+
+    if (updateRequired) {
+      final currentVersion = await updateService.getInstalledVersion();
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => ForceUpdateScreen(
+            currentVersion: currentVersion,
+            requiredVersion: AppUpdateConfig.minimumSupportedVersion,
+          ),
+        ),
+      );
+      return;
+    }
 
     final prefs = sl<SharedPreferences>();
     final token = prefs.getString('token');
     final isLoggedIn = token != null && token.isNotEmpty;
 
     if (isLoggedIn) {
-      await sl<PrivilegeService>().fetchPrivileges();
-      // Initialize FCM after authentication so the auth token is available
-      await FcmService.instance.initialize();
-      await CallRecordingService().requestPermissionsSequentially();
+      _runStartupBackgroundTasks();
     }
 
-    // Ensure the spinning logo screen displays for at least 2 seconds
+    // Keep splash visible for a brief, smooth 600ms transition
     final elapsed = DateTime.now().difference(startTime);
-    if (elapsed < const Duration(seconds: 2)) {
-      await Future.delayed(const Duration(seconds: 2) - elapsed);
+    if (elapsed < const Duration(milliseconds: 600)) {
+      await Future.delayed(const Duration(milliseconds: 600) - elapsed);
     }
 
     if (!mounted) return;
