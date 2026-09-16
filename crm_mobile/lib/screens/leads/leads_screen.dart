@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:crm_mobile/core/theme/app_colors.dart';
 import 'package:crm_mobile/widgets/lead_card.dart';
+import 'package:crm_mobile/widgets/empty_state_widget.dart';
+import 'package:crm_mobile/widgets/poor_internet_widget.dart';
+import 'package:crm_mobile/widgets/server_error_503_widget.dart';
 import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/blocs/leads_bloc.dart';
 import 'package:crm_mobile/blocs/leads_event.dart';
@@ -9,6 +12,8 @@ import 'package:crm_mobile/blocs/leads_state.dart';
 import 'package:crm_mobile/screens/leads/lead_details_screen.dart';
 import 'package:crm_mobile/widgets/expandable_fab.dart';
 import 'package:crm_mobile/widgets/spinning_logo.dart';
+import 'package:crm_mobile/models/lead.dart';
+import 'package:crm_mobile/models/staff_user.dart';
 
 class LeadsScreen extends StatelessWidget {
   const LeadsScreen({super.key});
@@ -27,8 +32,118 @@ class LeadsScreen extends StatelessWidget {
   }
 }
 
-class LeadsScreenView extends StatelessWidget {
+class LeadsScreenView extends StatefulWidget {
   const LeadsScreenView({super.key});
+
+  @override
+  State<LeadsScreenView> createState() => _LeadsScreenViewState();
+}
+
+class _LeadsScreenViewState extends State<LeadsScreenView> {
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  String _sanitizeSearchQuery(String query) {
+    String cleaned = query.trim();
+    if (cleaned.isEmpty) return cleaned;
+
+    // If query starts with '+' (e.g. +91 7878788787, +917878788787, +1-800-555)
+    if (cleaned.startsWith('+')) {
+      final countryCodeRegExp = RegExp(r'^\+\d{1,3}[\s\-]*');
+      cleaned = cleaned.replaceFirst(countryCodeRegExp, '');
+    } else {
+      final digitsOnly = cleaned.replaceAll(RegExp(r'[^\d]'), '');
+      // Handle 91XXXXXXXXXX (12 digits starting with 91)
+      if (digitsOnly.length == 12 && digitsOnly.startsWith('91')) {
+        cleaned = digitsOnly.substring(2);
+      }
+      // Handle 0XXXXXXXXXX (11 digits starting with 0)
+      else if (digitsOnly.length == 11 && digitsOnly.startsWith('0')) {
+        cleaned = digitsOnly.substring(1);
+      }
+    }
+
+    // If after stripping prefix, query consists of digits and spaces/dashes (e.g., 98765 43210), format as clean digits
+    final digits = cleaned.replaceAll(RegExp(r'[^\d]'), '');
+    if (digits.length >= 7 && cleaned.replaceAll(RegExp(r'[\d\s\-]'), '').isEmpty) {
+      cleaned = digits;
+    }
+
+    return cleaned;
+  }
+
+  void _onSearchChanged(String input, String? selectedStatusId, bool? selectedIsActive) {
+    final sanitized = _sanitizeSearchQuery(input);
+    if (sanitized != input) {
+      _searchController.value = TextEditingValue(
+        text: sanitized,
+        selection: TextSelection.collapsed(offset: sanitized.length),
+      );
+    }
+
+    if (sanitized.isEmpty) {
+      context.read<LeadsBloc>().add(
+        FetchLeads(
+          page: 0,
+          size: 15,
+          statusId: selectedStatusId,
+          isActive: selectedIsActive ?? true,
+        ),
+      );
+    } else {
+      context.read<LeadsBloc>().add(
+        SearchLeads(query: sanitized, page: 0, size: 15),
+      );
+    }
+  }
+
+  String _resolveAssigneeName(Lead lead, List<dynamic> owners) {
+    if (lead.ownerUserName != null && lead.ownerUserName!.trim().isNotEmpty) {
+      final name = lead.ownerUserName!.trim();
+      final isUuid = RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$').hasMatch(name);
+      if (!isUuid) {
+        return name;
+      }
+      for (final staff in owners) {
+        if (staff is StaffUser && staff.userId == name) {
+          return staff.name;
+        }
+      }
+    }
+
+    if (lead.ownerUserId != null && lead.ownerUserId!.trim().isNotEmpty) {
+      final id = lead.ownerUserId!.trim();
+      for (final staff in owners) {
+        if (staff is StaffUser && staff.userId == id) {
+          return staff.name;
+        }
+      }
+    }
+
+    final candidateIds = [
+      if (lead.ownerUserId != null) lead.ownerUserId!.trim(),
+      if (lead.ownerUserName != null) lead.ownerUserName!.trim(),
+    ];
+
+    for (final candidate in candidateIds) {
+      if (candidate.isEmpty) continue;
+      for (final staff in owners) {
+        if (staff is StaffUser) {
+          if (staff.userId.toLowerCase() == candidate.toLowerCase() ||
+              staff.name.toLowerCase() == candidate.toLowerCase()) {
+            return staff.name;
+          }
+        }
+      }
+    }
+
+    return 'Unassigned';
+  }
 
   Color _hexToColor(String hexString) {
     final buffer = StringBuffer();
@@ -67,6 +182,15 @@ class LeadsScreenView extends StatelessWidget {
                         style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
                       ),
                       const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.refresh, color: AppColors.textPrimary),
+                        tooltip: 'Refresh Leads',
+                        onPressed: () {
+                          context.read<LeadsBloc>().add(
+                            FetchLeads(page: 0, size: 15, statusId: selectedStatusId, isActive: selectedIsActive ?? true),
+                          );
+                        },
+                      ),
                       PopupMenuButton<bool>(
                         icon: const Icon(Icons.more_vert, color: AppColors.textPrimary),
                         onSelected: (bool showActive) {
@@ -107,20 +231,23 @@ class LeadsScreenView extends StatelessWidget {
                       border: Border.all(color: AppColors.borderEnabled),
                     ),
                     child: TextField(
-                      onChanged: (query) {
-                        final trimmed = query.trim();
-                        if (trimmed.isEmpty) {
-                          context.read<LeadsBloc>().add(FetchLeads(page: 0, size: 15, statusId: selectedStatusId, isActive: selectedIsActive ?? true));
-                        } else {
-                          context.read<LeadsBloc>().add(SearchLeads(query: trimmed, page: 0, size: 15));
-                        }
-                      },
-                      decoration: const InputDecoration(
+                      controller: _searchController,
+                      onChanged: (query) => _onSearchChanged(query, selectedStatusId, selectedIsActive),
+                      decoration: InputDecoration(
                         hintText: 'Search leads, assignees...',
-                        hintStyle: TextStyle(color: AppColors.textHint, fontSize: 14),
-                        prefixIcon: Icon(Icons.search, color: AppColors.textHint),
+                        hintStyle: const TextStyle(color: AppColors.textHint, fontSize: 14),
+                        prefixIcon: const Icon(Icons.search, color: AppColors.textHint),
+                        suffixIcon: _searchController.text.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear, color: AppColors.textHint, size: 18),
+                                onPressed: () {
+                                  _searchController.clear();
+                                  _onSearchChanged('', selectedStatusId, selectedIsActive);
+                                },
+                              )
+                            : null,
                         border: InputBorder.none,
-                        contentPadding: EdgeInsets.symmetric(vertical: 14),
+                        contentPadding: const EdgeInsets.symmetric(vertical: 14),
                       ),
                     ),
                   ),
@@ -153,7 +280,7 @@ class LeadsScreenView extends StatelessWidget {
                 const SizedBox(height: 16),
                 // Leads List
                 Expanded(
-                  child: _buildLeadsContent(state),
+                  child: _buildLeadsContent(context, state),
                 ),
               ],
             );
@@ -164,10 +291,25 @@ class LeadsScreenView extends StatelessWidget {
     );
   }
 
-  Widget _buildLeadsContent(LeadsState state) {
+  Widget _buildLeadsContent(BuildContext context, LeadsState state) {
     if (state is LeadsLoading) {
       return const Center(child: SpinningLogo(size: 60));
     } else if (state is LeadsError) {
+      if (state.message.contains('503') || state.message.contains('Service Unavailable')) {
+        return ServerError503Widget(
+          onRetry: () => context.read<LeadsBloc>().add(
+            const FetchLeads(page: 0, size: 15),
+          ),
+        );
+      } else if (state.message.toLowerCase().contains('internet') ||
+          state.message.toLowerCase().contains('connection') ||
+          state.message.toLowerCase().contains('timed out')) {
+        return PoorInternetWidget(
+          onRetry: () => context.read<LeadsBloc>().add(
+            const FetchLeads(page: 0, size: 15),
+          ),
+        );
+      }
       return Center(
         child: Text(
           state.message,
@@ -179,7 +321,12 @@ class LeadsScreenView extends StatelessWidget {
         return const Center(child: SpinningLogo(size: 60));
       }
       if (state.leads.isEmpty) {
-        return const Center(child: Text('No leads found.'));
+        return EmptyStateWidget(
+          title: 'No Leads Found',
+          message: state.searchQuery != null && state.searchQuery!.isNotEmpty
+              ? 'No leads match "${state.searchQuery}"'
+              : 'There are no leads matching your filter.',
+        );
       }
       final selectedIsActive = state.selectedIsActive;
       final totalItemCount = state.leads.length + (state.hasMoreLeads ? 1 : 0) + 1; // +1 for view more, +1 for FAB
@@ -187,7 +334,7 @@ class LeadsScreenView extends StatelessWidget {
       return ListView.separated(
         padding: const EdgeInsets.symmetric(horizontal: 16.0),
         itemCount: totalItemCount,
-        separatorBuilder: (context, index) => const SizedBox(height: 12),
+        separatorBuilder: (context, index) => const SizedBox(height: 8),
         itemBuilder: (context, index) {
           if (index < state.leads.length) {
             final lead = state.leads[index];
@@ -203,43 +350,40 @@ class LeadsScreenView extends StatelessWidget {
             if (lead.priority == 'LOW') priorityColor = Colors.green;
 
             return GestureDetector(
-              onTap: () {
-                Navigator.push(
+              onTap: () async {
+                final wasEdited = await Navigator.push(
                   context,
                   MaterialPageRoute(
                     builder: (context) => LeadDetailsScreen(leadId: lead.id, isActive: selectedIsActive ?? true),
                   ),
-                ).then((wasEdited) {
-                  if (wasEdited == true) {
-                    final currentState = context.read<LeadsBloc>().state;
-                    final currentStatusId = currentState is LeadsLoaded ? currentState.selectedStatusId : null;
-                    final currentIsActive = currentState is LeadsLoaded ? currentState.selectedIsActive : null;
-                    final searchQuery = currentState is LeadsLoaded ? currentState.searchQuery : null;
-                    
-                    if (searchQuery != null && searchQuery.isNotEmpty) {
-                      context.read<LeadsBloc>().add(SearchLeads(query: searchQuery, page: 0, size: 15));
-                    } else {
-                      context.read<LeadsBloc>().add(FetchLeads(page: 0, size: 15, statusId: currentStatusId, isActive: currentIsActive));
-                    }
+                );
+                if (wasEdited == true && context.mounted) {
+                  final currentState = context.read<LeadsBloc>().state;
+                  final currentStatusId = currentState is LeadsLoaded ? currentState.selectedStatusId : null;
+                  final currentIsActive = currentState is LeadsLoaded ? currentState.selectedIsActive : null;
+                  final searchQuery = currentState is LeadsLoaded ? currentState.searchQuery : null;
+                  
+                  if (searchQuery != null && searchQuery.isNotEmpty) {
+                    context.read<LeadsBloc>().add(SearchLeads(query: searchQuery, page: 0, size: 15));
+                  } else {
+                    context.read<LeadsBloc>().add(FetchLeads(page: 0, size: 15, statusId: currentStatusId, isActive: currentIsActive));
                   }
-                });
+                }
               },
               child: LeadCard(
                 leadId: lead.id,
                 initials: initials.toUpperCase(),
-                avatarColor: statusColor.withOpacity(0.2),
+                avatarColor: statusColor.withValues(alpha: 0.2),
                 avatarTextColor: statusColor,
                 name: '${lead.firstName} ${lead.lastName}',
                 company: lead.companyName,
                 status: lead.status?.statusName ?? 'Unknown',
-                statusBgColor: statusColor.withOpacity(0.2),
+                statusBgColor: statusColor.withValues(alpha: 0.2),
                 statusTextColor: statusColor,
-                description: lead.source?.description ?? 'No description available.',
+                description: lead.source?.description ?? '',
                 priority: lead.priority != null ? '${lead.priority} Priority' : 'No Priority',
                 priorityColor: priorityColor,
-                assignee: (lead.ownerUserName != null && lead.ownerUserName!.isNotEmpty) 
-                    ? lead.ownerUserName! 
-                    : 'Unassigned',
+                assignee: _resolveAssigneeName(lead, state.owners),
                 phone: lead.phone,
               ),
             );

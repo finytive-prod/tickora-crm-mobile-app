@@ -32,7 +32,14 @@ class LeadAudio extends Equatable {
         combined.contains('call_in') ||
         combined.contains('call_out') ||
         combined.contains('rec_in') ||
-        combined.contains('rec_out');
+        combined.contains('rec_out') ||
+        combined.contains('_inc_') ||
+        combined.contains('_outg_') ||
+        combined.contains('(in)') ||
+        combined.contains('(out)') ||
+        combined.contains('sent') ||
+        combined.contains('recv') ||
+        combined.contains('received');
   }
 
   String get callType {
@@ -45,6 +52,8 @@ class LeadAudio extends Equatable {
         combined.contains('outbound') ||
         combined.contains('call_out') ||
         combined.contains('rec_out') ||
+        combined.contains('_outg_') ||
+        combined.contains('(out)') ||
         combined.contains('sent')) {
       return 'outbound';
     }
@@ -54,6 +63,8 @@ class LeadAudio extends Equatable {
         combined.contains('inbound') ||
         combined.contains('call_in') ||
         combined.contains('rec_in') ||
+        combined.contains('_inc_') ||
+        combined.contains('(in)') ||
         combined.contains('recv') ||
         combined.contains('received')) {
       return 'inbound';

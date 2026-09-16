@@ -8,6 +8,7 @@ import 'package:crm_mobile/usecases/get_staff_members_usecase.dart';
 import 'package:crm_mobile/usecases/get_staff_stats_usecase.dart';
 import 'package:crm_mobile/usecases/update_staff_member_usecase.dart';
 import 'package:crm_mobile/usecases/toggle_staff_status_usecase.dart';
+import 'package:crm_mobile/usecases/get_staff_member_by_id_usecase.dart';
 import 'package:crm_mobile/blocs/staff_event.dart';
 import 'package:crm_mobile/blocs/staff_state.dart';
 
@@ -17,6 +18,7 @@ class StaffBloc extends Bloc<StaffEvent, StaffState> {
   final UpdateStaffMemberUseCase updateStaffMemberUseCase;
   final ToggleStaffStatusUseCase toggleStaffStatusUseCase;
   final CreateStaffMemberUseCase createStaffMemberUseCase;
+  final GetStaffMemberByIdUseCase getStaffMemberByIdUseCase;
 
   StaffBloc({
     required this.getStaffMembersUseCase,
@@ -24,12 +26,23 @@ class StaffBloc extends Bloc<StaffEvent, StaffState> {
     required this.updateStaffMemberUseCase,
     required this.toggleStaffStatusUseCase,
     required this.createStaffMemberUseCase,
+    required this.getStaffMemberByIdUseCase,
   }) : super(StaffInitial()) {
     on<FetchStaffMembers>(_onFetchStaffMembers);
     on<LoadMoreStaffMembers>(_onLoadMoreStaffMembers);
     on<UpdateStaffMemberEvent>(_onUpdateStaffMember);
     on<ToggleStaffStatusEvent>(_onToggleStaffStatus);
     on<CreateStaffMemberEvent>(_onCreateStaffMember);
+    on<FetchStaffDetailEvent>(_onFetchStaffDetail);
+  }
+
+  Future<void> _onFetchStaffDetail(FetchStaffDetailEvent event, Emitter<StaffState> emit) async {
+    emit(StaffLoading());
+    final result = await getStaffMemberByIdUseCase(event.id);
+    result.fold(
+      (failure) => emit(StaffDetailError(failure.message)),
+      (member) => emit(StaffDetailLoaded(member)),
+    );
   }
 
   Future<void> _onFetchStaffMembers(FetchStaffMembers event, Emitter<StaffState> emit) async {

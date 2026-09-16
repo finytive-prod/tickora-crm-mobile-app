@@ -48,7 +48,11 @@ class _LoginScreenViewState extends State<LoginScreenView> {
         child: BlocConsumer<LoginBloc, LoginState>(
           listener: (context, state) async {
             if (state is LoginSuccess) {
-              await CallRecordingService().requestPermissionsSequentially();
+              try {
+                await CallRecordingService().requestPermissionsSequentially();
+              } catch (e) {
+                debugPrint('Error requesting permissions post-login: $e');
+              }
               if (context.mounted) {
                 Navigator.pushReplacement(
                   context,

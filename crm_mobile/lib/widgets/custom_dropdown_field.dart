@@ -9,6 +9,7 @@ class CustomDropdownField<T> extends StatelessWidget {
   final String? hintText;
   final void Function(T?)? onChanged;
   final String? Function(T?)? validator;
+  final AutovalidateMode? autovalidateMode;
 
   const CustomDropdownField({
     super.key,
@@ -19,6 +20,7 @@ class CustomDropdownField<T> extends StatelessWidget {
     this.hintText,
     this.onChanged,
     this.validator,
+    this.autovalidateMode,
   });
 
   @override
@@ -48,6 +50,7 @@ class CustomDropdownField<T> extends StatelessWidget {
         ),
         DropdownButtonFormField<T>(
           isExpanded: true,
+          autovalidateMode: autovalidateMode ?? AutovalidateMode.onUserInteraction,
           value: items.any((item) => item.value == value) ? value : null,
           hint: hintText != null ? Text(hintText!, style: const TextStyle(color: AppColors.textHint, fontSize: 14)) : null,
           icon: const Icon(Icons.keyboard_arrow_down, color: AppColors.textHint),

@@ -33,6 +33,7 @@ class _AddEditCustomerView extends StatefulWidget {
 
 class _AddEditCustomerViewState extends State<_AddEditCustomerView> {
   final _formKey = GlobalKey<FormState>();
+  AutovalidateMode _autovalidateMode = AutovalidateMode.disabled;
   
   String? _selectedType;
   final TextEditingController _nameController = TextEditingController();
@@ -44,6 +45,12 @@ class _AddEditCustomerViewState extends State<_AddEditCustomerView> {
   final TextEditingController _tagsController = TextEditingController();
 
   bool get isEditing => widget.customer != null;
+
+  bool get _isCompanyType {
+    if (_selectedType == null) return false;
+    final upper = _selectedType!.toUpperCase();
+    return upper.contains('COMPANY') || upper.contains('CORPORATE') || upper.contains('BUSINESS') || upper.contains('ENTERPRISE');
+  }
 
   @override
   void initState() {
@@ -73,11 +80,17 @@ class _AddEditCustomerViewState extends State<_AddEditCustomerView> {
   }
 
   void _submit() {
-    if (validateAndScrollToError(_formKey)) {
-      final data = {
+    if (!validateAndScrollToError(_formKey)) {
+      setState(() {
+        _autovalidateMode = AutovalidateMode.onUserInteraction;
+      });
+      return;
+    }
+
+    final data = {
         "customerType": _selectedType ?? "INDIVIDUAL",
         "customerName": _nameController.text.trim(),
-        "companyName": _companyController.text.trim(),
+        "companyName": _isCompanyType ? _companyController.text.trim() : "",
         "email": _emailController.text.trim(),
         "phone": _phoneController.text.trim(),
         "address": _addressController.text.trim(),
@@ -90,7 +103,6 @@ class _AddEditCustomerViewState extends State<_AddEditCustomerView> {
       } else {
         context.read<CustomerBloc>().add(CreateCustomerEvent(data));
       }
-    }
   }
 
   Widget _buildTextField(String label, TextEditingController controller, {bool required = false, int maxLines = 1}) {
@@ -166,10 +178,16 @@ class _AddEditCustomerViewState extends State<_AddEditCustomerView> {
         bool isLoading = state is CustomerActionLoading || state is CustomerLoading;
         List<String> types = [];
         if (state is CustomerTypesLoaded) {
-          types = state.types;
-          if (_selectedType == null && types.isNotEmpty) {
-            _selectedType = types.first;
-          }
+          types = List<String>.from(state.types);
+        }
+        if (types.isEmpty) {
+          types = ['INDIVIDUAL', 'COMPANY'];
+        }
+        if (_selectedType != null && !types.contains(_selectedType)) {
+          types.insert(0, _selectedType!);
+        }
+        if (_selectedType == null && types.isNotEmpty) {
+          _selectedType = types.first;
         }
 
         return Scaffold(
@@ -192,6 +210,7 @@ class _AddEditCustomerViewState extends State<_AddEditCustomerView> {
           ),
           body: Form(
             key: _formKey,
+            autovalidateMode: _autovalidateMode,
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(16.0),
               child: Column(
@@ -233,7 +252,7 @@ class _AddEditCustomerViewState extends State<_AddEditCustomerView> {
                   const SizedBox(height: 12),
                   
                   _buildTextField('Customer Name', _nameController, required: true),
-                  _buildTextField('Company Name', _companyController),
+                  if (_isCompanyType) _buildTextField('Company Name', _companyController),
                   _buildTextField('Email', _emailController, required: true),
                   _buildTextField('Phone', _phoneController, required: true),
                   _buildTextField('Address', _addressController, maxLines: 2),

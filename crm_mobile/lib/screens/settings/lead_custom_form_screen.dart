@@ -235,6 +235,11 @@ class _LeadCustomFormViewState extends State<LeadCustomFormView> {
             ),
             centerTitle: true,
             actions: [
+              IconButton(
+                icon: const Icon(Icons.refresh_rounded, color: AppColors.textPrimary),
+                tooltip: 'Refresh Form Layout',
+                onPressed: () => context.read<SettingsBloc>().add(FetchCustomFields()),
+              ),
               if (!showLoader && _hasLoadedData)
                 IconButton(
                   icon: const Icon(Icons.check, color: AppColors.primary, size: 28),
@@ -376,6 +381,7 @@ class _LeadCustomFormViewState extends State<LeadCustomFormView> {
                 // Field Label Input
                 TextFormField(
                   initialValue: config.label,
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
                   enabled: config.isEditable && !_isLocalLoading,
                   decoration: const InputDecoration(
                     labelText: 'Field Label *',
@@ -396,6 +402,7 @@ class _LeadCustomFormViewState extends State<LeadCustomFormView> {
                     Expanded(
                       flex: 2,
                       child: DropdownButtonFormField<String>(
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
                         value: _fieldTypes.contains(config.type) ? config.type : (_fieldTypes.isNotEmpty ? _fieldTypes.first : 'TEXT'),
                         decoration: const InputDecoration(
                           labelText: 'Type',

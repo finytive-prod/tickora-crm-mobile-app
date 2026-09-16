@@ -57,16 +57,40 @@ class LoginRepositoryImpl implements LoginRepository {
           }
         } catch (_) {}
         
-        final name = userModel.userName.isNotEmpty ? userModel.userName : (decoded['name'] ?? 'Ezhil Kumar');
-        final userEmail = decoded['email'] ?? 'admin@lumen.io';
+        // Determine real user name (without hardcoded defaults)
+        String name = userModel.userName;
+        if (name.isEmpty) {
+          name = (decoded['fullName'] ?? decoded['name'] ?? decoded['preferred_username'] ?? decoded['username'] ?? decoded['sub'] ?? '').toString();
+        }
+        if (name.isEmpty && email.isNotEmpty) {
+          name = email.split('@').first;
+        }
+        if (name.isEmpty) {
+          name = 'User';
+        }
+
+        // Determine real user email (fallback to the email entered at login)
+        String userEmail = (decoded['email'] ?? body['data']['email'] ?? body['data']['username'] ?? '').toString();
+        if (userEmail.isEmpty || !userEmail.contains('@')) {
+          userEmail = email.trim();
+        }
+
+        final userPhone = (decoded['phone'] ?? decoded['phoneNumber'] ?? decoded['mobile'] ?? '').toString();
+
         await sharedPreferences.setString('userName', name);
         await sharedPreferences.setString('userEmail', userEmail);
+        if (userModel.userId.isNotEmpty) {
+          await sharedPreferences.setString('userId', userModel.userId);
+        }
+        if (userPhone.isNotEmpty) {
+          await sharedPreferences.setString('userPhone', userPhone);
+        }
 
         return Right(userModel);
       } else {
         throw ApiException(message: body?['message'] ?? 'Login failed');
       }
-    } on Exception catch (e) {
+    } catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));
     }
   }
@@ -89,7 +113,7 @@ class LoginRepositoryImpl implements LoginRepository {
       } else {
         throw ApiException(message: body?['message'] ?? 'Failed to send reset link');
       }
-    } on Exception catch (e) {
+    } catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));
     }
   }
@@ -114,7 +138,7 @@ class LoginRepositoryImpl implements LoginRepository {
       } else {
         throw ApiException(message: body?['message'] ?? 'Failed to reset password');
       }
-    } on Exception catch (e) {
+    } catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));
     }
   }

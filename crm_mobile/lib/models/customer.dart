@@ -24,17 +24,23 @@ class Customer {
   });
 
   factory Customer.fromJson(Map<String, dynamic> json) {
+    String nameVal = (json['customerName'] ?? json['name'] ?? json['fullName'] ?? '').toString().trim();
+    if (nameVal.isEmpty) {
+      final fName = (json['firstName'] ?? '').toString().trim();
+      final lName = (json['lastName'] ?? '').toString().trim();
+      nameVal = '$fName $lName'.trim();
+    }
     return Customer(
-      id: json['id'] ?? '',
-      customerType: json['customerType'] ?? 'INDIVIDUAL',
-      customerName: json['customerName'] ?? json['name'] ?? '',
-      companyName: json['companyName'] ?? '',
-      email: json['email'] ?? '',
-      phone: json['phone'] ?? json['phoneNumber'] ?? '',
-      designation: json['designation'] ?? '',
-      address: json['address'] ?? '',
-      notes: json['notes'],
-      tags: json['tags'],
+      id: (json['id'] ?? json['_id'] ?? '').toString(),
+      customerType: (json['customerType'] ?? json['type'] ?? 'INDIVIDUAL').toString(),
+      customerName: nameVal.isEmpty ? 'Unnamed' : nameVal,
+      companyName: (json['companyName'] ?? json['company'] ?? '').toString(),
+      email: (json['email'] ?? '').toString(),
+      phone: (json['phone'] ?? json['phoneNumber'] ?? json['mobile'] ?? '').toString(),
+      designation: (json['designation'] ?? json['title'] ?? '').toString(),
+      address: (json['address'] ?? '').toString(),
+      notes: json['notes']?.toString(),
+      tags: json['tags']?.toString(),
     );
   }
 

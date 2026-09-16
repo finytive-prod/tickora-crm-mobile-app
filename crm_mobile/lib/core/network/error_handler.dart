@@ -19,26 +19,26 @@ class ErrorHandler {
   static ApiException _handleDioError(DioException error) {
     switch (error.type) {
       case DioExceptionType.connectionTimeout:
-        return ApiException(message: 'Connection timeout');
+        return ApiException(message: 'Connection timed out. Please check your internet connection.');
       case DioExceptionType.sendTimeout:
-        return ApiException(message: 'Send timeout');
+        return ApiException(message: 'Send request timed out. Please try again.');
       case DioExceptionType.receiveTimeout:
-        return ApiException(message: 'Receive timeout');
+        return ApiException(message: 'Server response timed out. Please try again.');
       case DioExceptionType.badCertificate:
         return ApiException(message: 'Bad certificate');
       case DioExceptionType.badResponse:
         return _handleStatusCode(error.response?.statusCode, error.response?.data);
       case DioExceptionType.cancel:
-        return ApiException(message: 'Request to API server was cancelled');
+        return ApiException(message: 'Request was cancelled');
       case DioExceptionType.connectionError:
-        return ApiException(message: 'Connection error');
+        return ApiException(message: 'Unable to connect to server. Please check your internet connection.');
       case DioExceptionType.transformTimeout:
-        return ApiException(message: 'Transform timeout');
+        return ApiException(message: 'Data processing timed out');
       case DioExceptionType.unknown:
         if (error.error is SocketException) {
-          return ApiException(message: 'No Internet connection');
+          return ApiException(message: 'No Internet connection. Please check your network.');
         }
-        return ApiException(message: 'Unknown API error');
+        return ApiException(message: 'Network error occurred. Please try again.');
     }
   }
 

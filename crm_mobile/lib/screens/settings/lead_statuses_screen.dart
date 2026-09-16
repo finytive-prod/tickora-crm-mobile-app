@@ -38,6 +38,7 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
 
   // Form states for creating status
   final _formKey = GlobalKey<FormState>();
+  AutovalidateMode _autovalidateMode = AutovalidateMode.disabled;
   final _nameController = TextEditingController();
   final _orderController = TextEditingController(text: '1');
   bool _isDefault = false;
@@ -62,7 +63,12 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
   }
 
   void _createStatus(BuildContext context) {
-    if (!validateAndScrollToError(_formKey)) return;
+    if (!validateAndScrollToError(_formKey)) {
+      setState(() {
+        _autovalidateMode = AutovalidateMode.onUserInteraction;
+      });
+      return;
+    }
 
     final newStatusName = _nameController.text.trim();
     final nextOrder = int.tryParse(_orderController.text) ?? (_statuses.length + 1);
@@ -173,6 +179,13 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
               style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 18),
             ),
             centerTitle: true,
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.refresh_rounded, color: AppColors.textPrimary),
+                tooltip: 'Refresh Statuses',
+                onPressed: () => context.read<SettingsBloc>().add(FetchLeadStatuses()),
+              ),
+            ],
           ),
           body: showLoader
               ? const Center(child: SpinningLogo(size: 60))
@@ -317,6 +330,7 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
                           ),
                           child: Form(
                             key: _formKey,
+                            autovalidateMode: _autovalidateMode,
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [

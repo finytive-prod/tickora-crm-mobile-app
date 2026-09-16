@@ -70,6 +70,15 @@ class CreateLead extends LeadsEvent {
   List<Object?> get props => [leadData, filePaths, leadFileName];
 }
 
+class QuickInviteLead extends LeadsEvent {
+  final Map<String, dynamic> data;
+
+  const QuickInviteLead(this.data);
+
+  @override
+  List<Object?> get props => [data];
+}
+
 class UpdateLead extends LeadsEvent {
   final String leadId;
   final Map<String, dynamic> leadData;

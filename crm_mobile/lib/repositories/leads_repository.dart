@@ -3,7 +3,6 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http_parser/http_parser.dart';
 import 'package:dartz/dartz.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:crm_mobile/core/error/failure.dart';
 import 'package:crm_mobile/core/network/api_client.dart';
@@ -42,6 +41,7 @@ abstract class LeadsRepository {
   Future<Either<Failure, List<PipelineColumnData>>> getLeadPipeline({int page = 0, int size = 50});
   Future<Either<Failure, void>> updateLeadStatusInPipeline(String leadId, String statusId);
   Future<Either<Failure, DialpadLeadSearchResult>> searchLeadByNumber(String phoneNumber);
+  Future<Either<Failure, void>> quickInviteLead(Map<String, dynamic> data);
 }
 
 class LeadsRepositoryImpl implements LeadsRepository {
@@ -57,84 +57,33 @@ class LeadsRepositoryImpl implements LeadsRepository {
     try {
       final leadsBaseUrl = _leadsBaseUrl;
 
-      // If specific filters like statusId or isActive are provided, use standard filter endpoint
-      if (statusId != null || isActive != null) {
-        final queryParameters = <String, dynamic>{
-          'page': page,
-          'size': size,
-          'sort': 'createdAt,desc',
-        };
-        if (statusId != null) queryParameters['statusId'] = statusId;
-        if (isActive != null) queryParameters['isActive'] = isActive;
-
-        final response = await apiClient.get(
-          '$leadsBaseUrl/leads',
-          queryParameters: queryParameters,
-        );
-
-        final body = response.data;
-        if (body['success'] == true && body['data'] != null && body['data']['content'] != null) {
-          final List<dynamic> content = body['data']['content'];
-          final leads = content.map((json) => LeadModel.fromJson(json)).toList();
-          return Right(leads);
-        } else {
-          throw ApiException(message: body['message'] ?? 'Failed to load leads');
-        }
-      }
-
-      try {
-        final response = await apiClient.post(
-          '$leadsBaseUrl/leads/search/global',
-          queryParameters: {
-            'page': page,
-            'size': size,
-          },
-          data: {
-            'query': null,
-            'isLead': true,
-            'isCustomer': false,
-            'isUser': false,
-            'isFollowup': false,
-          },
-        );
-
-        final body = response.data;
-        if (body['success'] == true && body['data'] != null && body['data']['content'] != null) {
-          final List<dynamic> content = body['data']['content'];
-          final leads = content
-              .where((json) {
-                if (json is Map && json['role'] != null) {
-                  final roleStr = json['role'].toString().toUpperCase();
-                  if (roleStr.isNotEmpty && !roleStr.contains('LEAD')) {
-                    return false;
-                  }
-                }
-                return true;
-              })
-              .map((json) => LeadModel.fromJson(json))
-              .toList();
-          if (leads.isNotEmpty) {
-            return Right(leads);
-          }
-        }
-      } catch (_) {}
+      final queryParameters = <String, dynamic>{
+        'page': page,
+        'size': size,
+        'sort': 'createdAt,desc',
+      };
+      if (statusId != null) queryParameters['statusId'] = statusId;
+      if (isActive != null) queryParameters['isActive'] = isActive;
 
       final response = await apiClient.get(
         '$leadsBaseUrl/leads',
-        queryParameters: {
-          'page': page,
-          'size': size,
-          'sort': 'createdAt,desc',
-        },
+        queryParameters: queryParameters,
       );
 
       final body = response.data;
-      if (body['success'] == true && body['data'] != null && body['data']['content'] != null) {
-        final List<dynamic> content = body['data']['content'];
+      if (body != null && body['success'] == true && body['data'] != null) {
+        final List<dynamic> content;
+        if (body['data'] is List) {
+          content = body['data'];
+        } else if (body['data'] is Map && body['data']['content'] is List) {
+          content = body['data']['content'];
+        } else {
+          content = [];
+        }
         final leads = content.map((json) => LeadModel.fromJson(json)).toList();
         return Right(leads);
       } else {
-        throw ApiException(message: body['message'] ?? 'Failed to load leads');
+        throw ApiException(message: body?['message'] ?? 'Failed to load leads');
       }
     } on Exception catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));
@@ -161,19 +110,18 @@ class LeadsRepositoryImpl implements LeadsRepository {
       );
 
       final body = response.data;
-      if (body != null && body['success'] == true && body['data'] != null && body['data']['content'] != null) {
-        final List<dynamic> content = body['data']['content'];
+      if (body != null && body['success'] == true && body['data'] != null) {
+        final List<dynamic> content;
+        if (body['data'] is List) {
+          content = body['data'];
+        } else if (body['data'] is Map && body['data']['content'] is List) {
+          content = body['data']['content'];
+        } else {
+          content = [];
+        }
+
         final q = query.trim().toLowerCase();
         final leads = content
-            .where((json) {
-              if (json is Map && json['role'] != null) {
-                final roleStr = json['role'].toString().toUpperCase();
-                if (roleStr.isNotEmpty && !roleStr.contains('LEAD')) {
-                  return false;
-                }
-              }
-              return true;
-            })
             .map((json) => LeadModel.fromJson(json))
             .where((lead) {
               if (q.isEmpty) return true;
@@ -186,7 +134,7 @@ class LeadsRepositoryImpl implements LeadsRepository {
             .toList();
         return Right(leads);
       } else {
-        throw ApiException(message: body['message'] ?? 'Failed to search leads');
+        throw ApiException(message: body?['message'] ?? 'Failed to search leads');
       }
     } on Exception catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));
@@ -714,6 +662,28 @@ class LeadsRepositoryImpl implements LeadsRepository {
       return Left(ErrorHandler.mapExceptionToFailure(e));
     } catch (e) {
       return Left(ServerFailure('Error searching lead by number: $e'));
+    }
+  }
+
+  @override
+  Future<Either<Failure, void>> quickInviteLead(Map<String, dynamic> data) async {
+    try {
+      final leadsBaseUrl = _leadsBaseUrl;
+      final response = await apiClient.post(
+        '$leadsBaseUrl/leads/quick-invite',
+        data: data,
+      );
+
+      final body = response.data;
+      if (body != null && (body['success'] == true || body['statusCode'] == 200 || body['statusCode'] == 201)) {
+        return const Right(null);
+      } else {
+        return Left(ServerFailure(body?['message'] ?? 'Failed to send quick invite'));
+      }
+    } on Exception catch (e) {
+      return Left(ErrorHandler.mapExceptionToFailure(e));
+    } catch (e) {
+      return Left(ServerFailure('Error sending quick invite: $e'));
     }
   }
 }

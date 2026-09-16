@@ -23,8 +23,8 @@ class MoreScreen extends StatefulWidget {
 }
 
 class _MoreScreenState extends State<MoreScreen> {
-  String _userName = 'Ezhil Kumar';
-  String _userEmail = 'admin@lumen.io';
+  String _userName = 'User';
+  String _userEmail = '';
 
   @override
   void initState() {
@@ -46,8 +46,8 @@ class _MoreScreenState extends State<MoreScreen> {
   void _loadUserData() async {
     final prefs = sl<SharedPreferences>();
     setState(() {
-      _userName = prefs.getString('userName') ?? 'Ezhil Kumar';
-      _userEmail = prefs.getString('userEmail') ?? 'admin@lumen.io';
+      _userName = prefs.getString('userName') ?? 'User';
+      _userEmail = prefs.getString('userEmail') ?? '';
     });
   }
 
@@ -86,9 +86,8 @@ class _MoreScreenState extends State<MoreScreen> {
                 Navigator.of(dialogContext).pop();
                 
                 final prefs = sl<SharedPreferences>();
-                await prefs.remove('token');
-                await prefs.remove('userName');
-                await prefs.remove('userEmail');
+                await prefs.clear(); // Complete session wipe
+                sl<PrivilegeService>().clearPrivileges();
                 
                 // Delete FCM token so this device stops receiving notifications
                 await FcmService.instance.deleteToken();

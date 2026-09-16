@@ -80,9 +80,39 @@ class CallRecordingManager(private val context: Context) {
     /** Returns the list of directories to scan, resolved from the companion list. */
     private fun getCallRecordingDirs(): List<File> {
         val root = Environment.getExternalStorageDirectory()
-        val dirs = CALL_RECORDING_DIRS.map { File(root, it) }.toMutableList()
+        val dirs = mutableSetOf<File>()
+
+        for (relativePath in CALL_RECORDING_DIRS) {
+            val f = File(root, relativePath)
+            if (f.exists() && f.isDirectory) {
+                dirs.add(f)
+            }
+        }
+
+        val publicNames = listOf(
+            Environment.DIRECTORY_RECORDINGS,
+            Environment.DIRECTORY_DOWNLOADS,
+            Environment.DIRECTORY_MUSIC,
+            Environment.DIRECTORY_DOCUMENTS
+        )
+        for (name in publicNames) {
+            val pubDir = Environment.getExternalStoragePublicDirectory(name)
+            if (pubDir != null && pubDir.exists() && pubDir.isDirectory) {
+                dirs.add(pubDir)
+                pubDir.listFiles()?.filter { it.isDirectory }?.forEach { dirs.add(it) }
+            }
+        }
+
+        listOf("Recordings", "MIUI", "Call", "sound_recorder", "Record").forEach { folderName ->
+            val base = File(root, folderName)
+            if (base.exists() && base.isDirectory) {
+                dirs.add(base)
+                base.listFiles()?.filter { it.isDirectory }?.forEach { dirs.add(it) }
+            }
+        }
+
         dirs.add(root)
-        return dirs
+        return dirs.toList()
     }
 
     private fun isCallOngoing(): Boolean {
@@ -110,32 +140,24 @@ class CallRecordingManager(private val context: Context) {
         val lastMod = f.lastModified()
         val ageMs = now - lastMod
 
-        // 1. If TelephonyManager confirms an active phone call (OFFHOOK / RINGING) and file was modified within 15 minutes:
-        if (isCallOngoing() && ageMs <= 15 * 60 * 1000L) {
-            Log.d(TAG, "Active call in progress (OFFHOOK/RINGING). Skipping live call recording file ${f.name} until call ends.")
-            return true
-        }
-
-        // 2. File modification window check for active writes:
-        if (ageMs <= 5000L) {
+        // Only check if file is actively growing right now (length increases over 200ms)
+        if (ageMs <= 10000L) {
             val len1 = f.length()
             try {
-                Thread.sleep(250)
+                Thread.sleep(200)
             } catch (_: Exception) {}
             val len2 = f.length()
-            if (len1 != len2 || isCallOngoing()) {
-                Log.d(TAG, "File ${f.name} is actively growing ($len1 -> $len2 bytes). Live call ongoing, skipping.")
+            if (len2 > len1) {
+                Log.d(TAG, "File ${f.name} is actively growing ($len1 -> $len2 bytes). Skipping.")
                 return true
             }
         }
-
         return false
     }
 
-    /** Checks if a file is a valid recording candidate. */
     private fun isValidRecording(f: File): Boolean =
         f.isFile && f.canRead() && f.length() >= MIN_RECORDING_BYTES &&
-                VALID_EXTENSIONS.contains(f.extension.lowercase()) &&
+                getAudioExtension(f.name) != null &&
                 !isFileActivelyBeingRecorded(f)
 
     /** Extracts clean phone digits from a raw phone string. */
@@ -263,13 +285,20 @@ class CallRecordingManager(private val context: Context) {
         val targetLast10 = if (targetCleanPhone.length >= 10) targetCleanPhone.takeLast(10) else targetCleanPhone
         if (targetLast10.length < 7) return false
 
-        // Remove date and time patterns completely before looking for phone numbers
-        var sanitizedName = fileName
+        // Extract all digit sequences attached to pending prefix so they aren't treated as conflicting numbers
+        val pendingDigits = Regex("\\.?pending[-_]?(\\d+)", RegexOption.IGNORE_CASE)
+            .findAll(fileName)
+            .flatMap { listOf(it.groupValues[1], it.value.replace("[^0-9]".toRegex(), "")) }
+            .toSet()
+
+        var sanitizedName = extractCleanOriginalName(fileName)
+            .replace(Regex("\\.?pending[-_]?[a-zA-Z0-9]*[-_]?", RegexOption.IGNORE_CASE), "")
             .replace(Regex("\\d{14}"), "") // YYYYMMDDHHMMSS
             .replace(Regex("\\d{12}"), "") // YYMMDDHHMMSS
             .replace(Regex("\\d{8}_\\d{6}"), "")
             .replace(Regex("\\d{6}_\\d{6}"), "")
             .replace(Regex("1\\d{12}"), "") // Epoch ms timestamp
+            .replace(Regex("\\b1[5-9]\\d{8}\\b"), "") // 10-digit Epoch seconds timestamp (e.g. 1789811464)
 
         for (pattern in DATE_STRIP_PATTERNS) {
             sanitizedName = sanitizedName.replace(pattern, "")
@@ -278,8 +307,7 @@ class CallRecordingManager(private val context: Context) {
         // Find remaining phone-length digit sequences (10 to 13 digits)
         val digitChunks = Regex("\\d{10,13}").findAll(sanitizedName).map { it.value }.toList()
         for (chunk in digitChunks) {
-            // Ignore timestamps starting with 202, 203, 260, 250, 240, 17, etc.
-            if (chunk.startsWith("202") || chunk.startsWith("203") || chunk.startsWith("260") || chunk.startsWith("250") || chunk.startsWith("240") || chunk.startsWith("17")) continue
+            if (pendingDigits.contains(chunk)) continue
             val chunkLast10 = if (chunk.length >= 10) chunk.takeLast(10) else chunk
             val matchesTarget = targetLast10 == chunkLast10 || targetLast10.contains(chunkLast10) || chunkLast10.contains(targetLast10)
             if (!matchesTarget) {
@@ -409,11 +437,17 @@ class CallRecordingManager(private val context: Context) {
             val projection = projectionList.toTypedArray()
             val sortOrder = "${MediaStore.Audio.Media.DATE_MODIFIED} DESC"
 
+            val queryUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                MediaStore.setIncludePending(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI)
+            } else {
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+            }
+
             val cursor = context.contentResolver.query(
-                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, projection, null, null, sortOrder
+                queryUri, projection, null, null, sortOrder
             ) ?: return null
 
-            val minTime = if (callTimestamp > 0L) callTimestamp - 10_000L else 0L
+            val minTime = if (callTimestamp > 0L) callTimestamp - (15 * 60 * 1000L) else 0L
             val maxTime = if (callTimestamp > 0L) callTimestamp + MAX_POST_CALL_WINDOW_MS else Long.MAX_VALUE
 
             var bestCandidateFile: File? = null
@@ -434,8 +468,8 @@ class CallRecordingManager(private val context: Context) {
                     val size = if (sizeIdx >= 0) c.getLong(sizeIdx) else 0L
                     if (size < MIN_RECORDING_BYTES) continue
 
-                    val ext = fileName.substringAfterLast('.', "").lowercase()
-                    if (!VALID_EXTENSIONS.contains(ext)) continue
+                    val audioExt = getAudioExtension(fileName)
+                    if (audioExt == null) continue
 
                     val modDateMs = if (dateIdx >= 0) c.getLong(dateIdx) * 1000L else System.currentTimeMillis()
                     val effectiveTime = parseTimestampFromFileName(fileName) ?: modDateMs
@@ -449,20 +483,20 @@ class CallRecordingManager(private val context: Context) {
 
                     val score = scoreFile(fileName, effectiveTime, callTimestamp, cleanPhone)
                     if (score > highestScore || (score == highestScore && effectiveTime > newestTime)) {
-                        val directFile = File(path)
-                        if (directFile.exists() && directFile.canRead() && isValidRecording(directFile)) {
-                            bestCandidateFile = directFile
+                        val fileForUse = File(path)
+                        val cleanName = extractCleanOriginalName(fileName)
+                        val safeName = cleanName.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                        val destFile = File(cacheRecordingsDir, "REC_${id}_$safeName")
+                        val contentUri = if (id > 0) ContentUris.withAppendedId(queryUri, id) else null
+
+                        if (copyToCache(fileForUse, contentUri, destFile)) {
+                            bestCandidateFile = destFile
                             highestScore = score
                             newestTime = effectiveTime
-                        } else if (id > 0) {
-                            val safeName = fileName.replace(Regex("[^a-zA-Z0-9._-]"), "_")
-                            val destFile = File(cacheRecordingsDir, "REC_${id}_$safeName")
-                            val contentUri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
-                            if (copyUriToDestFile(contentUri, destFile)) {
-                                bestCandidateFile = destFile
-                                highestScore = score
-                                newestTime = effectiveTime
-                            }
+                        } else if (fileForUse.exists() && fileForUse.canRead()) {
+                            bestCandidateFile = fileForUse
+                            highestScore = score
+                            newestTime = effectiveTime
                         }
                     }
                 }
@@ -476,17 +510,37 @@ class CallRecordingManager(private val context: Context) {
 
     private fun extractCleanOriginalName(fileName: String): String {
         var clean = fileName
-        while (clean.startsWith("REC_") || clean.startsWith("INBOUND_") || clean.startsWith("OUTBOUND_") || clean.startsWith("INCOMING_") || clean.startsWith("OUTGOING_")) {
-            val parts = clean.split("_")
-            if (parts.size >= 3) {
-                clean = parts.drop(2).joinToString("_")
-            } else if (parts.size >= 2) {
-                clean = parts.drop(1).joinToString("_")
-            } else {
-                break
+        while (true) {
+            val old = clean
+            clean = clean.replace(Regex("^\\.?pending[-_]?[a-zA-Z0-9]*[-_]?", RegexOption.IGNORE_CASE), "")
+            clean = clean.replace(Regex("^\\.?pending", RegexOption.IGNORE_CASE), "")
+            while (clean.startsWith(".")) {
+                clean = clean.substring(1)
+            }
+            clean = clean
+                .replace(Regex("^REC_\\d+_", RegexOption.IGNORE_CASE), "")
+                .replace(Regex("^REC_", RegexOption.IGNORE_CASE), "")
+                .replace(Regex("^INBOUND_", RegexOption.IGNORE_CASE), "")
+                .replace(Regex("^OUTBOUND_", RegexOption.IGNORE_CASE), "")
+                .replace(Regex("^INCOMING_", RegexOption.IGNORE_CASE), "")
+                .replace(Regex("^OUTGOING_", RegexOption.IGNORE_CASE), "")
+                .replace(Regex("^\\d{7,15}_"), "")
+            if (clean == old) break
+        }
+        if (clean.isBlank()) return fileName
+        return clean
+    }
+
+    private fun getAudioExtension(fileName: String): String? {
+        val cleanName = extractCleanOriginalName(fileName)
+        val ext = cleanName.substringAfterLast('.', "").lowercase()
+        if (VALID_EXTENSIONS.contains(ext)) return ext
+        for (validExt in VALID_EXTENSIONS) {
+            if (cleanName.lowercase().contains(".$validExt")) {
+                return validExt
             }
         }
-        return clean
+        return null
     }
 
     // ─── Get all recordings for a phone number ────────────────────────────────
@@ -494,18 +548,20 @@ class CallRecordingManager(private val context: Context) {
     suspend fun getAllSystemRecordings(phoneNumber: String = "", callTimestamp: Long = 0L): List<Map<String, Any>> = withContext(Dispatchers.IO) {
         clearInternalRecordings()
         val phone = cleanPhone(phoneNumber)
-        val uniqueRecordingsMap = LinkedHashMap<String, File>() // key (cleanName) -> File
+        val uniqueRecordingsMap = LinkedHashMap<String, File>() // key (cleanBaseName) -> File
+        val registeredCleanNames = mutableSetOf<String>()
 
         fun registerFile(file: File) {
-            if (!file.exists() || !isValidRecording(file)) return
-            val cleanName = extractCleanOriginalName(file.name).lowercase()
-            val fileLength = file.length()
-            val key = "${cleanName}_$fileLength"
+            if (!file.exists() || !file.isFile || !file.canRead() || file.length() < MIN_RECORDING_BYTES) return
+            var cleanName = extractCleanOriginalName(file.name).lowercase()
+            while (cleanName.startsWith("incoming_") || cleanName.startsWith("outgoing_") || cleanName.startsWith("inbound_") || cleanName.startsWith("outbound_")) {
+                cleanName = cleanName.replace(Regex("^(incoming|outgoing|inbound|outbound)_"), "")
+            }
+            cleanName = cleanName.replace(Regex("^\\d{7,15}_"), "")
 
-            val isTagged = file.name.contains("INCOMING_") || file.name.contains("OUTGOING_") || file.name.contains("INBOUND_") || file.name.contains("OUTBOUND_")
-
-            if (!uniqueRecordingsMap.containsKey(key) || isTagged) {
-                uniqueRecordingsMap[key] = file
+            if (!registeredCleanNames.contains(cleanName)) {
+                registeredCleanNames.add(cleanName)
+                uniqueRecordingsMap[cleanName] = file
             }
         }
 
@@ -528,8 +584,13 @@ class CallRecordingManager(private val context: Context) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 projectionList.add(MediaStore.Audio.Media.RELATIVE_PATH)
             }
+            val queryUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                MediaStore.setIncludePending(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI)
+            } else {
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+            }
             context.contentResolver.query(
-                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, projectionList.toTypedArray(), null, null, "${MediaStore.Audio.Media.DATE_MODIFIED} DESC"
+                queryUri, projectionList.toTypedArray(), null, null, "${MediaStore.Audio.Media.DATE_MODIFIED} DESC"
             )?.use { c ->
                 val idIdx = c.getColumnIndex(MediaStore.Audio.Media._ID)
                 val dataIdx = c.getColumnIndex(MediaStore.Audio.Media.DATA)
@@ -544,8 +605,8 @@ class CallRecordingManager(private val context: Context) {
                     val size = if (sizeIdx >= 0) c.getLong(sizeIdx) else 0L
                     if (size < MIN_RECORDING_BYTES) continue
 
-                    val ext = fileName.substringAfterLast('.', "").lowercase()
-                    if (!VALID_EXTENSIONS.contains(ext)) continue
+                    val audioExt = getAudioExtension(fileName)
+                    if (audioExt == null) continue
 
                     val modDateMs = if (dateIdx >= 0) c.getLong(dateIdx) * 1000L else System.currentTimeMillis()
                     val effectiveTime = parseTimestampFromFileName(fileName) ?: modDateMs
@@ -568,13 +629,11 @@ class CallRecordingManager(private val context: Context) {
 
                     val cacheDir = File(context.cacheDir, "recordings").apply { mkdirs() }
                     val destFile = File(cacheDir, "$filePrefix$safeName")
-                    if (fileForMatch.exists() && fileForMatch.canRead() && copyStreamSafely(fileForMatch, destFile)) {
+                    val contentUri = if (id > 0) ContentUris.withAppendedId(queryUri, id) else null
+                    if (copyToCache(fileForMatch, contentUri, destFile)) {
                         registerFile(destFile)
-                    } else if (id > 0) {
-                        val contentUri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
-                        if (copyUriToDestFile(contentUri, destFile)) {
-                            registerFile(destFile)
-                        }
+                    } else if (fileForMatch.exists() && fileForMatch.canRead()) {
+                        registerFile(fileForMatch)
                     }
                 }
             }
@@ -605,9 +664,9 @@ class CallRecordingManager(private val context: Context) {
 
                     val cacheDir = File(context.cacheDir, "recordings").apply { mkdirs() }
                     val destFile = File(cacheDir, "$filePrefix$safeName")
-                    if (copyStreamSafely(file, destFile)) {
+                    if (copyToCache(file, null, destFile)) {
                         registerFile(destFile)
-                    } else {
+                    } else if (file.canRead()) {
                         registerFile(file)
                     }
                 }
@@ -650,14 +709,10 @@ class CallRecordingManager(private val context: Context) {
 
         val cleanDigits = cleanPhone(phone)
         val last10 = if (cleanDigits.length >= 10) cleanDigits.takeLast(10) else cleanDigits
+        val effectiveTime = if (timestamp > 0L) timestamp else (File(filePath).let { if (it.exists()) it.lastModified() else System.currentTimeMillis() })
 
-        if (cleanDigits.isNotEmpty() && callTimestamp > 0L) {
-            appOutboundCalls[cleanDigits] = callTimestamp
-            if (last10.isNotEmpty()) appOutboundCalls[last10] = callTimestamp
-        }
-
-        // 2. Query CallLog (Android OS official record of call direction)
-        if (last10.length >= 7 && timestamp > 0L) {
+        // 2. Query System CallLog FIRST (Android OS official ground truth for call direction)
+        if (effectiveTime > 0L) {
             try {
                 val projection = arrayOf(CallLog.Calls.TYPE, CallLog.Calls.NUMBER, CallLog.Calls.DATE, CallLog.Calls.DURATION)
                 context.contentResolver.query(
@@ -675,14 +730,16 @@ class CallRecordingManager(private val context: Context) {
                         val num = if (numIdx >= 0) c.getString(numIdx) ?: "" else ""
                         val cleanNum = cleanPhone(num)
                         val callLast10 = if (cleanNum.length >= 10) cleanNum.takeLast(10) else cleanNum
-                        if (callLast10.length >= 7 && (callLast10 == last10 || cleanNum.contains(last10) || last10.contains(callLast10))) {
+                        val isPhoneMatch = last10.isEmpty() || (callLast10.length >= 7 && (callLast10 == last10 || cleanNum.contains(last10) || last10.contains(callLast10)))
+
+                        if (isPhoneMatch) {
                             val callStart = if (dateIdx >= 0) c.getLong(dateIdx) else 0L
                             val callDurSec = if (durIdx >= 0) c.getLong(durIdx) else 0L
                             val callEnd = callStart + (callDurSec * 1000L)
                             val rawType = if (typeIdx >= 0) c.getInt(typeIdx) else CallLog.Calls.INCOMING_TYPE
 
-                            val diffStart = abs(callStart - timestamp)
-                            val diffEnd = abs(callEnd - timestamp)
+                            val diffStart = abs(callStart - effectiveTime)
+                            val diffEnd = abs(callEnd - effectiveTime)
                             val diff = minOf(diffStart, diffEnd)
 
                             if (diff <= 30 * 60 * 1000L && diff < minDiff) {
@@ -696,6 +753,7 @@ class CallRecordingManager(private val context: Context) {
                         }
                     }
                     if (bestCallType != null) {
+                        Log.d(TAG, "CallLog direction match for $last10: $bestCallType (diff=$minDiff ms)")
                         return bestCallType
                     }
                 }
@@ -704,12 +762,11 @@ class CallRecordingManager(private val context: Context) {
             }
         }
 
-        // 3. Check app-initiated outbound call tracking (within 10 minutes)
-        val appCallTime = if (callTimestamp > 0L) callTimestamp else (if (last10.isNotEmpty()) appOutboundCalls[last10] ?: 0L else 0L)
-        if (appCallTime > 0L && timestamp > 0L) {
-            val diff = abs(timestamp - appCallTime)
-            if (diff <= 10 * 60 * 1000L) {
-                Log.d(TAG, "App-initiated call match for $last10 ($diff ms) -> outbound")
+        // 3. Check explicit callTimestamp if passed for live call
+        if (callTimestamp > 0L) {
+            val diff = abs(effectiveTime - callTimestamp)
+            if (diff <= 15 * 60 * 1000L) {
+                Log.d(TAG, "Explicit callTimestamp match for $last10 ($diff ms) -> outbound")
                 return "outbound"
             }
         }
@@ -721,26 +778,61 @@ class CallRecordingManager(private val context: Context) {
     // ─── Utilities ────────────────────────────────────────────────────────────
 
     private fun copyStreamSafely(src: File, dst: File): Boolean {
-        return try {
-            if (!src.exists()) return false
-            src.inputStream().use { input ->
-                dst.outputStream().use { output ->
-                    input.copyTo(output)
-                    output.flush()
+        return copyToCache(src, null, dst)
+    }
+
+    private fun copyToCache(file: File, uri: Uri?, destFile: File): Boolean {
+        val srcTimestamp = parseTimestampFromFileName(file.name) ?: (if (file.exists()) file.lastModified() else System.currentTimeMillis())
+
+        if (destFile.exists() && destFile.length() >= MIN_RECORDING_BYTES) {
+            destFile.setLastModified(srcTimestamp)
+            return true
+        }
+        val cacheDir = destFile.parentFile
+        if (cacheDir != null && !cacheDir.exists()) {
+            cacheDir.mkdirs()
+        }
+
+        // Try 1: Copy via ContentResolver Uri if provided
+        if (uri != null) {
+            try {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    destFile.outputStream().use { output ->
+                        input.copyTo(output)
+                        output.flush()
+                    }
+                }
+                if (destFile.exists() && destFile.length() >= MIN_RECORDING_BYTES) {
+                    destFile.setLastModified(srcTimestamp)
+                    Log.d(TAG, "Successfully copied recording via Uri to cache: ${destFile.absolutePath}")
+                    return true
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Copy via Uri failed for $uri: ${e.message}")
+            }
+        }
+
+        // Try 2: Copy via File inputStream
+        try {
+            if (file.exists() && file.canRead()) {
+                file.inputStream().use { input ->
+                    destFile.outputStream().use { output ->
+                        input.copyTo(output)
+                        output.flush()
+                    }
+                }
+                if (destFile.exists() && destFile.length() >= MIN_RECORDING_BYTES) {
+                    destFile.setLastModified(srcTimestamp)
+                    Log.d(TAG, "Successfully copied recording via File to cache: ${destFile.absolutePath}")
+                    return true
                 }
             }
-            if (dst.exists() && dst.length() >= MIN_RECORDING_BYTES && dst.length() == src.length()) {
-                dst.setLastModified(src.lastModified())
-                true
-            } else {
-                dst.delete()
-                false
-            }
         } catch (e: Exception) {
-            Log.e(TAG, "Copy failed: ${src.absolutePath}", e)
-            dst.delete()
-            false
+            Log.w(TAG, "Copy via File failed for ${file.absolutePath}: ${e.message}")
         }
+
+        destFile.delete()
+        return false
     }
 
     /**
@@ -749,26 +841,51 @@ class CallRecordingManager(private val context: Context) {
      */
     private fun parseTimestampFromFileName(fileName: String): Long? {
         try {
-            // Pattern 1: YYMMDD_HHMMSS
-            Regex("(\\d{2})(\\d{2})(\\d{2})_(\\d{2})(\\d{2})(\\d{2})").find(fileName)?.let { match ->
-                val (yy, mm, dd, hh, min, ss) = match.destructured
-                val cal = Calendar.getInstance()
-                cal.set(2000 + yy.toInt(), mm.toInt() - 1, dd.toInt(), hh.toInt(), min.toInt(), ss.toInt())
-                cal.set(Calendar.MILLISECOND, 0)
-                return cal.timeInMillis
-            }
+            val cleanName = extractCleanOriginalName(fileName)
 
-            // Pattern 2: YYYYMMDD_HHMMSS
-            Regex("(\\d{4})(\\d{2})(\\d{2})_?(\\d{2})(\\d{2})(\\d{2})").find(fileName)?.let { match ->
+            // Pattern 1: YYYYMMDD_HHMMSS or YYYYMMDDHHMMSS (e.g. 20260911_110844, 20260911110844)
+            Regex("\\b(20\\d{2})[-_]?(\\d{2})[-_]?(\\d{2})[-_._]?(\\d{2})[-_.]?(\\d{2})[-_.]?(\\d{2})\\b").find(cleanName)?.let { match ->
                 val (yyyy, mm, dd, hh, min, ss) = match.destructured
-                val cal = Calendar.getInstance()
-                cal.set(yyyy.toInt(), mm.toInt() - 1, dd.toInt(), hh.toInt(), min.toInt(), ss.toInt())
-                cal.set(Calendar.MILLISECOND, 0)
-                return cal.timeInMillis
+                val m = mm.toInt()
+                val d = dd.toInt()
+                val h = hh.toInt()
+                val mi = min.toInt()
+                val s = ss.toInt()
+                if (m in 1..12 && d in 1..31 && h in 0..23 && mi in 0..59 && s in 0..59) {
+                    val cal = Calendar.getInstance()
+                    cal.set(yyyy.toInt(), m - 1, d, h, mi, s)
+                    cal.set(Calendar.MILLISECOND, 0)
+                    return cal.timeInMillis
+                }
             }
 
-            // Pattern 3: Epoch ms
-            return Regex("\\b(1\\d{12})\\b").find(fileName)?.value?.toLongOrNull()
+            // Pattern 2: Epoch timestamp (ms or 10-digit seconds)
+            Regex("\\b(1\\d{12})\\b").find(cleanName)?.value?.toLongOrNull()?.let {
+                if (it > 1500000000000L && it < 2500000000000L) return it
+            }
+            Regex("\\b(1[5-9]\\d{8})\\b").find(cleanName)?.value?.toLongOrNull()?.let {
+                val ms = it * 1000L
+                if (ms > 1500000000000L && ms < 2500000000000L) return ms
+            }
+
+            // Pattern 3: YYMMDD_HHMMSS (e.g. 260911_110844) - Strict boundary & component validation
+            Regex("(?:^|[^0-9])(\\d{2})(\\d{2})(\\d{2})_(\\d{2})(\\d{2})(\\d{2})(?:$|[^0-9])").find(cleanName)?.let { match ->
+                val (yy, mm, dd, hh, min, ss) = match.destructured
+                val y = 2000 + yy.toInt()
+                val m = mm.toInt()
+                val d = dd.toInt()
+                val h = hh.toInt()
+                val mi = min.toInt()
+                val s = ss.toInt()
+                if (y in 2020..2040 && m in 1..12 && d in 1..31 && h in 0..23 && mi in 0..59 && s in 0..59) {
+                    val cal = Calendar.getInstance()
+                    cal.set(y, m - 1, d, h, mi, s)
+                    cal.set(Calendar.MILLISECOND, 0)
+                    return cal.timeInMillis
+                }
+            }
+
+            return null
         } catch (e: Exception) {
             return null
         }
@@ -896,5 +1013,61 @@ class CallRecordingManager(private val context: Context) {
         } catch (_: Exception) {
             mapOf("isPlaying" to false, "positionMs" to 0, "durationMs" to 0)
         }
+    }
+
+    fun getLatestCallDetails(phoneNumber: String, callTimestamp: Long): Map<String, Any>? {
+        val cleanDigits = cleanPhone(phoneNumber)
+        val last10 = if (cleanDigits.length >= 10) cleanDigits.takeLast(10) else cleanDigits
+        val searchTime = if (callTimestamp > 0L) callTimestamp else System.currentTimeMillis()
+
+        try {
+            val projection = arrayOf(
+                CallLog.Calls._ID,
+                CallLog.Calls.NUMBER,
+                CallLog.Calls.CACHED_NAME,
+                CallLog.Calls.TYPE,
+                CallLog.Calls.DATE,
+                CallLog.Calls.DURATION
+            )
+            context.contentResolver.query(
+                CallLog.Calls.CONTENT_URI, projection, null, null, "${CallLog.Calls.DATE} DESC"
+            )?.use { c ->
+                val numIdx = c.getColumnIndex(CallLog.Calls.NUMBER)
+                val nameIdx = c.getColumnIndex(CallLog.Calls.CACHED_NAME)
+                val typeIdx = c.getColumnIndex(CallLog.Calls.TYPE)
+                val dateIdx = c.getColumnIndex(CallLog.Calls.DATE)
+                val durIdx = c.getColumnIndex(CallLog.Calls.DURATION)
+
+                while (c.moveToNext()) {
+                    val num = if (numIdx >= 0) c.getString(numIdx) ?: "" else ""
+                    val cleanNum = cleanPhone(num)
+                    val callLast10 = if (cleanNum.length >= 10) cleanNum.takeLast(10) else cleanNum
+
+                    if (last10.isEmpty() || callLast10 == last10 || cleanNum.contains(last10) || last10.contains(callLast10)) {
+                        val startTime = if (dateIdx >= 0) c.getLong(dateIdx) else 0L
+                        val durationSec = if (durIdx >= 0) c.getLong(durIdx) else 0L
+                        val endTime = startTime + (durationSec * 1000L)
+                        val rawType = if (typeIdx >= 0) c.getInt(typeIdx) else CallLog.Calls.OUTGOING_TYPE
+                        val typeStr = if (rawType == CallLog.Calls.INCOMING_TYPE) "INCOMING" else "OUTGOING"
+                        val contactName = if (nameIdx >= 0) c.getString(nameIdx) ?: "" else ""
+
+                        val diff = abs(startTime - searchTime)
+                        if (diff <= 30 * 60 * 1000L || searchTime == 0L) {
+                            return mapOf(
+                                "toNumber" to num,
+                                "contactName" to contactName,
+                                "startTime" to startTime,
+                                "endTime" to endTime,
+                                "durationSeconds" to durationSec,
+                                "callType" to typeStr
+                            )
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error querying system CallLog details", e)
+        }
+        return null
     }
 }

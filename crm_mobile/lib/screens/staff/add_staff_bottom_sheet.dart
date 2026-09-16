@@ -34,6 +34,7 @@ class AddStaffBottomSheet extends StatefulWidget {
 
 class _AddStaffBottomSheetState extends State<AddStaffBottomSheet> {
   final _formKey = GlobalKey<FormState>();
+  AutovalidateMode _autovalidateMode = AutovalidateMode.disabled;
 
   final TextEditingController _fullNameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
@@ -62,21 +63,41 @@ class _AddStaffBottomSheetState extends State<AddStaffBottomSheet> {
   }
 
   Future<void> _fetchRoles() async {
-    final repo = sl<SettingsRepository>();
-    final result = await repo.getRolesDropdown();
-    if (mounted) {
-      setState(() {
-        _isLoadingRoles = false;
+    try {
+      final repo = sl<SettingsRepository>();
+      final result = await repo.getRolesDropdown();
+      if (mounted) {
         result.fold(
-          (_) {},
+          (failure) {
+            _roleDropdownOptions = const [
+              RoleDropdownItem(id: '8780edfe-2c9d-4f23-ad3d-ca2a605e5bf9', roleName: 'Admin', roleCode: 'ADMIN'),
+              RoleDropdownItem(id: '5f2231c9-1f54-4c43-9f68-7d74f5f46d01', roleName: 'Staff', roleCode: 'STAFF'),
+              RoleDropdownItem(id: 'a013a3c8-1e2b-48e6-9074-0815e5a56b82', roleName: 'Manager', roleCode: 'MANAGER'),
+              RoleDropdownItem(id: '108e1635-4825-45ec-8284-f7ea4b4d3e7d', roleName: 'Assistant Manager', roleCode: 'ASSISTENT_MANAGER'),
+            ];
+          },
           (roles) {
             _roleDropdownOptions = roles;
-            if (_roleDropdownOptions.isNotEmpty) {
-              _selectedRole = _roleDropdownOptions.first.id;
-            }
           },
         );
-      });
+        if (_roleDropdownOptions.isNotEmpty) {
+          _selectedRole = _roleDropdownOptions.first.id;
+        }
+      }
+    } catch (e) {
+      if (_roleDropdownOptions.isEmpty) {
+        _roleDropdownOptions = const [
+          RoleDropdownItem(id: '8780edfe-2c9d-4f23-ad3d-ca2a605e5bf9', roleName: 'Admin', roleCode: 'ADMIN'),
+          RoleDropdownItem(id: '5f2231c9-1f54-4c43-9f68-7d74f5f46d01', roleName: 'Staff', roleCode: 'STAFF'),
+        ];
+        _selectedRole = _roleDropdownOptions.first.id;
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingRoles = false;
+        });
+      }
     }
   }
 
@@ -115,11 +136,17 @@ class _AddStaffBottomSheetState extends State<AddStaffBottomSheet> {
     if (_isSubmitting) return;
 
     // Validate fields and automatically drag/scroll to first error field
-    if (validateAndScrollToError(_formKey)) {
+    if (!validateAndScrollToError(_formKey)) {
       setState(() {
-        _isSubmitting = true;
-        _serverError = null;
+        _autovalidateMode = AutovalidateMode.onUserInteraction;
       });
+      return;
+    }
+
+    setState(() {
+      _isSubmitting = true;
+      _serverError = null;
+    });
 
       final name = _fullNameController.text.trim();
       final data = {
@@ -149,7 +176,6 @@ class _AddStaffBottomSheetState extends State<AddStaffBottomSheet> {
         }
       }
     }
-  }
 
   Widget _buildSectionHeader(String title) {
     return Row(
@@ -258,6 +284,7 @@ class _AddStaffBottomSheetState extends State<AddStaffBottomSheet> {
                 padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
                 child: Form(
                   key: _formKey,
+                  autovalidateMode: _autovalidateMode,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [

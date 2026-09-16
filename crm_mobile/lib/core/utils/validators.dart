@@ -97,6 +97,10 @@ class AppInputFormatters {
 }
 
 class MobileNumberInputFormatter extends TextInputFormatter {
+  final int maxLength;
+
+  MobileNumberInputFormatter({this.maxLength = 10});
+
   @override
   TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
     String input = newValue.text;
@@ -105,24 +109,49 @@ class MobileNumberInputFormatter extends TextInputFormatter {
     // Remove all non-digit characters
     String digits = input.replaceAll(RegExp(r'[^\d]'), '');
 
-    // Automatically strip country code (+91, 91, 0, etc.) if total digits > 10
-    while (digits.length > 10) {
-      if (digits.startsWith('91') && digits.length > 10) {
+    // Handle country code stripping for pasted or typed numbers >= 11 digits
+    if (digits.length > maxLength) {
+      if (digits.startsWith('91') && digits.length >= 11) {
         digits = digits.substring(2);
-      } else if (digits.startsWith('0')) {
-        digits = digits.substring(1);
-      } else if (newValue.text.startsWith('+')) {
-        digits = digits.substring(digits.length - 10);
-      } else if (oldValue.text.length == 10) {
-        digits = digits.substring(0, 10);
-      } else {
-        digits = digits.substring(digits.length - 10);
       }
+      if (digits.startsWith('0') && digits.length > maxLength) {
+        digits = digits.substring(1);
+      }
+    }
+
+    // Compute cursor offset relative to digits before cursor
+    int rawOffset = newValue.selection.baseOffset;
+    if (rawOffset < 0) rawOffset = 0;
+    if (rawOffset > newValue.text.length) rawOffset = newValue.text.length;
+
+    final textBeforeCursor = newValue.text.substring(0, rawOffset);
+    int digitsBeforeCursor = textBeforeCursor.replaceAll(RegExp(r'[^\d]'), '').length;
+
+    if (digits.length > maxLength) {
+      String oldDigits = oldValue.text.replaceAll(RegExp(r'[^\d]'), '');
+
+      // If a single character was inserted into an already full field (e.g. editing first digit or middle digit)
+      if (oldDigits.length == maxLength && digits.length == maxLength + 1 && digitsBeforeCursor <= maxLength) {
+        // Replace the digit right after the insertion cursor, rather than truncating the last digit
+        int removeIndex = digitsBeforeCursor;
+        if (removeIndex < digits.length) {
+          digits = digits.substring(0, removeIndex) + digits.substring(removeIndex + 1);
+        } else {
+          digits = digits.substring(0, maxLength);
+        }
+      } else {
+        // Multi-character paste or overflow at end: cap to maxLength
+        digits = digits.substring(0, maxLength);
+      }
+    }
+
+    if (digitsBeforeCursor > digits.length) {
+      digitsBeforeCursor = digits.length;
     }
 
     return TextEditingValue(
       text: digits,
-      selection: TextSelection.collapsed(offset: digits.length),
+      selection: TextSelection.collapsed(offset: digitsBeforeCursor),
     );
   }
 }

@@ -8,6 +8,7 @@ import 'package:crm_mobile/core/network/interceptors/error_interceptor.dart';
 import 'package:crm_mobile/core/network/interceptors/logger_interceptor.dart';
 import 'package:crm_mobile/core/services/privilege_service.dart';
 import 'package:crm_mobile/core/services/fcm_service.dart';
+import 'package:crm_mobile/core/services/app_update_service.dart';
 
 // BLoC Imports
 import 'package:crm_mobile/blocs/login_bloc.dart';
@@ -24,7 +25,6 @@ import 'package:crm_mobile/repositories/followups_repository.dart';
 import 'package:crm_mobile/repositories/customer_repository.dart';
 import 'package:crm_mobile/repositories/dashboard_repository.dart';
 import 'package:crm_mobile/usecases/customer_usecases.dart';
-import 'package:crm_mobile/usecases/dashboard_usecases.dart';
 import 'package:crm_mobile/blocs/customer_bloc.dart';
 import 'package:crm_mobile/blocs/dashboard_bloc.dart';
 import 'package:crm_mobile/repositories/settings_repository.dart';
@@ -52,6 +52,7 @@ import 'package:crm_mobile/usecases/get_lead_audios_usecase.dart';
 import 'package:crm_mobile/usecases/upload_lead_audio_usecase.dart';
 import 'package:crm_mobile/usecases/update_lead_active_status_usecase.dart';
 import 'package:crm_mobile/usecases/update_lead_usecase.dart';
+import 'package:crm_mobile/usecases/quick_invite_lead_usecase.dart';
 
 import 'package:crm_mobile/usecases/get_followups_usecase.dart';
 import 'package:crm_mobile/usecases/get_lead_followups_usecase.dart';
@@ -81,6 +82,7 @@ import 'package:crm_mobile/usecases/get_staff_stats_usecase.dart';
 import 'package:crm_mobile/usecases/update_staff_member_usecase.dart';
 import 'package:crm_mobile/usecases/toggle_staff_status_usecase.dart';
 import 'package:crm_mobile/usecases/create_staff_member_usecase.dart';
+import 'package:crm_mobile/usecases/get_staff_member_by_id_usecase.dart';
 
 final sl = GetIt.instance;
 
@@ -107,6 +109,7 @@ Future<void> init() async {
   // Core App Services
   sl.registerLazySingleton(() => PrivilegeService(apiClient: sl(), logger: sl()));
   sl.registerLazySingleton(() => FcmService.instance);
+  sl.registerLazySingleton(() => AppUpdateService());
 
   // Auth BLoC, Usecases & Repositories
   sl.registerFactory(() => LoginBloc(loginUseCase: sl()));
@@ -134,6 +137,7 @@ Future<void> init() async {
       updateLeadUseCase: sl(),
       updateLeadActiveStatusUseCase: sl(),
       searchLeadsUseCase: sl(),
+      quickInviteLeadUseCase: sl(),
     ),
   );
 
@@ -142,6 +146,7 @@ Future<void> init() async {
   sl.registerLazySingleton(() => GetLeadPrioritiesUseCase(sl()));
   sl.registerLazySingleton(() => GetStaffUsersUseCase(sl()));
   sl.registerLazySingleton(() => CreateLeadUseCase(sl()));
+  sl.registerLazySingleton(() => QuickInviteLeadUseCase(sl()));
   sl.registerLazySingleton(() => GetLeadDetailsUseCase(sl()));
   sl.registerLazySingleton(() => GetLeadAuditLogsUseCase(sl()));
   sl.registerLazySingleton(() => GetLeadAttachmentsUseCase(sl()));
@@ -257,6 +262,7 @@ Future<void> init() async {
       updateStaffMemberUseCase: sl(),
       toggleStaffStatusUseCase: sl(),
       createStaffMemberUseCase: sl(),
+      getStaffMemberByIdUseCase: sl(),
     ),
   );
 
@@ -265,6 +271,7 @@ Future<void> init() async {
   sl.registerLazySingleton(() => UpdateStaffMemberUseCase(sl()));
   sl.registerLazySingleton(() => ToggleStaffStatusUseCase(sl()));
   sl.registerLazySingleton(() => CreateStaffMemberUseCase(sl()));
+  sl.registerLazySingleton(() => GetStaffMemberByIdUseCase(sl()));
 
   // Calendar BLoC, Usecases & Repositories
   sl.registerFactory(

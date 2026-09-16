@@ -33,12 +33,12 @@ class RoleDropdownItemModel extends RoleDropdownItem {
 
   factory RoleDropdownItemModel.fromJson(Map<String, dynamic> json) {
     return RoleDropdownItemModel(
-      id: json['id'] ?? '',
-      roleName: json['roleName'] ?? '',
-      roleCode: json['roleCode'] ?? '',
-      description: json['description'] ?? json['roleDescription'] ?? '',
-      priority: (json['priority'] as num?)?.toInt() ?? (json['displayOrder'] as num?)?.toInt() ?? 0,
-      systemRole: json['systemRole'] ?? false,
+      id: (json['id'] ?? json['roleId'] ?? '').toString(),
+      roleName: (json['roleName'] ?? json['name'] ?? '').toString(),
+      roleCode: (json['roleCode'] ?? json['code'] ?? '').toString(),
+      description: (json['description'] ?? json['roleDescription'] ?? '').toString(),
+      priority: (json['priority'] is num) ? (json['priority'] as num).toInt() : (int.tryParse(json['priority']?.toString() ?? '') ?? 0),
+      systemRole: json['systemRole'] == true,
     );
   }
 }

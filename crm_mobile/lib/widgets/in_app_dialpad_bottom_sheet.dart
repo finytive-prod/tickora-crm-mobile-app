@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_phone_direct_caller/flutter_phone_direct_caller.dart';
 import 'package:crm_mobile/core/services/auto_call_recording_uploader.dart';
+import 'package:crm_mobile/core/services/direct_call_helper.dart';
 import 'package:crm_mobile/core/theme/app_colors.dart';
 import 'package:crm_mobile/repositories/leads_repository.dart';
 import 'package:crm_mobile/injection/injection.dart';
@@ -302,7 +302,7 @@ class _InAppDialpadBottomSheetState extends State<InAppDialpadBottomSheet> {
     if (_isMatched) {
       _showMatchedLeadPopup(numberToCall);
     } else {
-      await FlutterPhoneDirectCaller.callNumber(numberToCall);
+      await DirectCallHelper.makeCall(numberToCall);
     }
   }
 
@@ -328,7 +328,7 @@ class _InAppDialpadBottomSheetState extends State<InAppDialpadBottomSheet> {
                 leadName: _leadName,
               );
             } else {
-              await FlutterPhoneDirectCaller.callNumber(numberToCall);
+              await DirectCallHelper.makeCall(numberToCall);
             }
           },
         );
@@ -509,6 +509,19 @@ class _InAppDialpadBottomSheetState extends State<InAppDialpadBottomSheet> {
                                     color: AppColors.textPrimary,
                                   ),
                                 ),
+                                if (_leadAssignee.isNotEmpty && _leadAssignee != '--') ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Assigned to: $_leadAssignee',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                      color: Colors.grey[700],
+                                    ),
+                                  ),
+                                ],
                                 const SizedBox(height: 2),
                                 Row(
                                   children: [

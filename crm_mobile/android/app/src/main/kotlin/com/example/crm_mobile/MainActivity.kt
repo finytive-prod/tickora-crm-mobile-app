@@ -7,6 +7,9 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.Settings
+import android.content.Context
+import android.os.Bundle
+import android.telecom.TelecomManager
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
@@ -40,6 +43,9 @@ class MainActivity: FlutterActivity() {
                 "openStoragePermissionSettings" -> {
                     callRecordingManager.openStoragePermissionSettings(this)
                     result.success(null)
+                }
+                "requestAllFilesAccess" -> {
+                    result.success(true)
                 }
                 "findLatestSystemRecording" -> {
                     val callTimestampArg = call.argument<Any>("callTimestamp")
@@ -77,6 +83,19 @@ class MainActivity: FlutterActivity() {
                     val mimeType = call.argument<String>("mimeType")
                     documentDownloader.openFile(filePath, mimeType)
                     result.success(null)
+                }
+                "getAudioDuration" -> {
+                    val filePath = call.argument<String>("filePath") ?: ""
+                    val durationMs = try {
+                        val file = java.io.File(filePath)
+                        if (file.exists()) {
+                            android.media.MediaMetadataRetriever().use { mmr ->
+                                mmr.setDataSource(file.absolutePath)
+                                mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+                            }
+                        } else { 0L }
+                    } catch (_: Exception) { 0L }
+                    result.success(durationMs)
                 }
                 "detectCallType" -> {
                     val filePath = call.argument<String>("filePath") ?: ""
@@ -124,9 +143,69 @@ class MainActivity: FlutterActivity() {
                     val res = callRecordingManager.getNativeAudioState()
                     result.success(res)
                 }
+                "getLatestCallDetails" -> {
+                    val phoneNumber = call.argument<String>("phoneNumber") ?: ""
+                    val callTimestampArg = call.argument<Any>("callTimestamp")
+                    val callTimestamp = callTimestampArg?.toString()?.toLongOrNull() ?: 0L
+                    val details = callRecordingManager.getLatestCallDetails(phoneNumber, callTimestamp)
+                    result.success(details)
+                }
+                "makeDirectCall" -> {
+                    val phoneNumber = call.argument<String>("phoneNumber") ?: ""
+                    val success = makeDirectCall(phoneNumber)
+                    result.success(success)
+                }
                 else -> {
                     result.notImplemented()
                 }
+            }
+        }
+    }
+
+    private fun makeDirectCall(phoneNumber: String): Boolean {
+        if (phoneNumber.isBlank()) return false
+        return try {
+            var cleanNumber = phoneNumber.replace("#", "%23")
+            if (!cleanNumber.startsWith("tel:")) {
+                cleanNumber = "tel:$cleanNumber"
+            }
+            val uri = Uri.parse(cleanNumber)
+
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CALL_PHONE), PERMISSION_REQUEST_CODE)
+                return false
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val telecomManager = getSystemService(Context.TELECOM_SERVICE) as? TelecomManager
+                if (telecomManager != null) {
+                    val extras = Bundle()
+                    telecomManager.placeCall(uri, extras)
+                    return true
+                }
+            }
+
+            val intent = Intent(Intent.ACTION_CALL, uri).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            try {
+                var cleanNumber = phoneNumber.replace("#", "%23")
+                if (!cleanNumber.startsWith("tel:")) {
+                    cleanNumber = "tel:$cleanNumber"
+                }
+                val uri = Uri.parse(cleanNumber)
+                val intent = Intent(Intent.ACTION_CALL, uri).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(intent)
+                true
+            } catch (ex: Exception) {
+                ex.printStackTrace()
+                false
             }
         }
     }

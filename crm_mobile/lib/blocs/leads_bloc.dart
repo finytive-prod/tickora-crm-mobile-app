@@ -18,6 +18,7 @@ import 'package:crm_mobile/usecases/upload_lead_attachment_usecase.dart';
 import 'package:crm_mobile/usecases/get_lead_audios_usecase.dart';
 import 'package:crm_mobile/usecases/upload_lead_audio_usecase.dart';
 import 'package:crm_mobile/usecases/update_lead_usecase.dart';
+import 'package:crm_mobile/usecases/quick_invite_lead_usecase.dart';
 import 'package:crm_mobile/blocs/leads_event.dart';
 import 'package:crm_mobile/blocs/leads_state.dart';
 
@@ -38,6 +39,7 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
   final UpdateLeadUseCase updateLeadUseCase;
   final SearchLeadsUseCase searchLeadsUseCase;
   final UpdateLeadActiveStatusUseCase updateLeadActiveStatusUseCase;
+  final QuickInviteLeadUseCase? quickInviteLeadUseCase;
 
   LeadsBloc({
     required this.getLeadsUseCase,
@@ -56,6 +58,7 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
     required this.updateLeadUseCase,
     required this.searchLeadsUseCase,
     required this.updateLeadActiveStatusUseCase,
+    this.quickInviteLeadUseCase,
   }) : super(LeadsInitial()) {
     on<FetchLeads>(_onFetchLeads);
     on<SearchLeads>(_onSearchLeads);
@@ -65,6 +68,7 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
     on<FetchStaffUsers>(_onFetchStaffUsers);
     on<FetchCustomFieldsForm>(_onFetchCustomFieldsForm);
     on<CreateLead>(_onCreateLead);
+    on<QuickInviteLead>(_onQuickInviteLead);
     on<UpdateLead>(_onUpdateLead);
     on<FetchLeadDetails>(_onFetchLeadDetails);
     on<FetchLeadAuditLogs>(_onFetchLeadAuditLogs);
@@ -338,6 +342,22 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
       (failure) => emit(LeadActionError(failure.message)),
       (_) {
         emit(const LeadActionSuccess("Lead created successfully."));
+        add(const FetchLeads());
+      },
+    );
+  }
+
+  Future<void> _onQuickInviteLead(QuickInviteLead event, Emitter<LeadsState> emit) async {
+    emit(LeadActionLoading());
+    if (quickInviteLeadUseCase == null) {
+      emit(const LeadActionError("Quick invite service not initialized."));
+      return;
+    }
+    final result = await quickInviteLeadUseCase!(event.data);
+    result.fold(
+      (failure) => emit(LeadActionError(failure.message)),
+      (_) {
+        emit(const LeadActionSuccess("Lead invited successfully."));
         add(const FetchLeads());
       },
     );
