@@ -11,6 +11,7 @@ import 'package:crm_mobile/blocs/followups_event.dart';
 import 'package:crm_mobile/blocs/followups_state.dart';
 import 'package:crm_mobile/models/follow_up.dart';
 import 'package:crm_mobile/core/services/privilege_service.dart';
+import 'package:crm_mobile/core/utils/text_selection_utils.dart';
 import 'lead_followup_details_screen.dart';
 import 'add_followup_screen.dart';
 
@@ -180,6 +181,9 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
                 ),
                 child: TextField(
                   controller: _searchController,
+                  enableInteractiveSelection: true,
+                  selectionControls: MaterialTextSelectionControls(),
+                  contextMenuBuilder: buildAdaptiveContextMenu,
                   onChanged: (query) {
                     setState(() {});
                     context.read<FollowUpsBloc>().add(

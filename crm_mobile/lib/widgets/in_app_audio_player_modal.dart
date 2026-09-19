@@ -50,15 +50,18 @@ class _InAppAudioPlayerModalState extends State<InAppAudioPlayerModal> {
 
   Future<void> _initAudio() async {
     try {
-      final file = File(widget.filePath);
-      if (!await file.exists() || (await file.length()) == 0) {
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-            _errorMessage = 'Audio recording file not found or empty.';
-          });
+      final isUrl = widget.filePath.startsWith('http://') || widget.filePath.startsWith('https://');
+      if (!isUrl) {
+        final file = File(widget.filePath);
+        if (!await file.exists() || (await file.length()) == 0) {
+          if (mounted) {
+            setState(() {
+              _isLoading = false;
+              _errorMessage = 'Audio recording file not found or empty.';
+            });
+          }
+          return;
         }
-        return;
       }
 
       // Phase 1: Try native Android MediaPlayer for max OEM audio format compatibility (AMR, 3GP, M4A, MP3, WAV)
@@ -82,7 +85,11 @@ class _InAppAudioPlayerModalState extends State<InAppAudioPlayerModal> {
       ));
 
       await _audioPlayer.setVolume(1.0);
-      await _audioPlayer.play(DeviceFileSource(widget.filePath));
+      if (isUrl) {
+        await _audioPlayer.play(UrlSource(widget.filePath));
+      } else {
+        await _audioPlayer.play(DeviceFileSource(widget.filePath));
+      }
 
       // Ensure loading spinner is dismissed after brief delay if playing
       Future.delayed(const Duration(milliseconds: 500), () {
@@ -108,20 +115,23 @@ class _InAppAudioPlayerModalState extends State<InAppAudioPlayerModal> {
   Future<bool> _playViaNativePlayer() async {
     try {
       const channel = MethodChannel('com.example.crm_mobile/call_recording');
-      final res = await channel.invokeMethod<Map>('startNativeAudio', {'path': widget.filePath});
-      if (res != null && res['success'] == true) {
-        final durationMs = (res['durationMs'] as num?)?.toInt() ?? 0;
-        if (mounted) {
-          setState(() {
-            _usingNativePlayer = true;
-            _isPlaying = true;
-            _isLoading = false;
-            _errorMessage = null;
-            _duration = Duration(milliseconds: durationMs);
-          });
+      final dynamic resRaw = await channel.invokeMethod('startNativeAudio', {'path': widget.filePath});
+      if (resRaw != null) {
+        final res = Map<String, dynamic>.from(resRaw as Map);
+        if (res['success'] == true) {
+          final durationMs = (res['durationMs'] as num?)?.toInt() ?? 0;
+          if (mounted) {
+            setState(() {
+              _usingNativePlayer = true;
+              _isPlaying = true;
+              _isLoading = false;
+              _errorMessage = null;
+              _duration = Duration(milliseconds: durationMs);
+            });
+          }
+          _startNativePoller();
+          return true;
         }
-        _startNativePoller();
-        return true;
       }
     } catch (e) {
       debugPrint('Native player start error: $e');
@@ -138,8 +148,9 @@ class _InAppAudioPlayerModalState extends State<InAppAudioPlayerModal> {
       }
       try {
         const channel = MethodChannel('com.example.crm_mobile/call_recording');
-        final res = await channel.invokeMethod<Map>('getNativeAudioState');
-        if (res != null && mounted) {
+        final dynamic resRaw = await channel.invokeMethod('getNativeAudioState');
+        if (resRaw != null && mounted) {
+          final res = Map<String, dynamic>.from(resRaw as Map);
           final isPlaying = res['isPlaying'] == true;
           final posMs = (res['positionMs'] as num?)?.toInt() ?? 0;
           final durMs = (res['durationMs'] as num?)?.toInt() ?? 0;
@@ -231,8 +242,13 @@ class _InAppAudioPlayerModalState extends State<InAppAudioPlayerModal> {
         await _audioPlayer.pause();
       } else {
         final state = _audioPlayer.state;
+        final isUrl = widget.filePath.startsWith('http://') || widget.filePath.startsWith('https://');
         if (state == PlayerState.completed || state == PlayerState.stopped || _position == Duration.zero) {
-          await _audioPlayer.play(DeviceFileSource(widget.filePath));
+          if (isUrl) {
+            await _audioPlayer.play(UrlSource(widget.filePath));
+          } else {
+            await _audioPlayer.play(DeviceFileSource(widget.filePath));
+          }
         } else {
           await _audioPlayer.resume();
         }

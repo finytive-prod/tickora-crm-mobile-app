@@ -83,12 +83,17 @@ class StaffCard extends StatelessWidget {
                       Icon(Icons.email_outlined, size: 13, color: AppColors.textHint),
                       const SizedBox(width: 4),
                       Expanded(
-                        child: Text(
-                          staff.email.isNotEmpty
-                              ? staff.email
-                              : (staff.username.contains('@') ? staff.username : 'N/A'),
-                          style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-                          overflow: TextOverflow.ellipsis,
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            staff.email.isNotEmpty
+                                ? staff.email
+                                : (staff.username.contains('@') ? staff.username : 'N/A'),
+                            maxLines: 1,
+                            softWrap: false,
+                            style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                          ),
                         ),
                       ),
                     ],

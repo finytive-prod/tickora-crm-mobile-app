@@ -18,6 +18,7 @@ class LeadCard extends StatelessWidget {
   final Color priorityColor;
   final String assignee;
   final String phone;
+  final String? createdByName;
 
   const LeadCard({
     super.key,
@@ -30,20 +31,22 @@ class LeadCard extends StatelessWidget {
     required this.status,
     required this.statusBgColor,
     required this.statusTextColor,
-    required this.description,
+    this.description = '',
     required this.priority,
     required this.priorityColor,
     required this.assignee,
     required this.phone,
+    this.createdByName,
   });
 
   @override
   Widget build(BuildContext context) {
     final hasCompany = company.trim().isNotEmpty && company.trim() != '-';
     final hasPhone = phone.trim().isNotEmpty && phone.trim() != '-';
-    final hasDescription = description.trim().isNotEmpty &&
-        description.trim() != '-' &&
-        description.trim() != 'No description available.';
+
+    final hasCreator = createdByName != null && createdByName!.trim().isNotEmpty;
+    final creatorNameStr = hasCreator ? createdByName!.trim() : (priority.trim().isNotEmpty ? priority : '-');
+    final assigneeNameStr = assignee.trim().isNotEmpty ? assignee.trim() : 'Unassigned';
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -152,37 +155,85 @@ class LeadCard extends StatelessWidget {
               ),
             ],
           ),
-          if (hasDescription) ...[
-            const SizedBox(height: 8),
-            Text(
-              description,
-              style: const TextStyle(color: AppColors.textLabel, fontSize: 13),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
           const SizedBox(height: 8),
           const Divider(height: 1, color: AppColors.borderEnabled),
           const SizedBox(height: 6),
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Container(
-                width: 6,
-                height: 6,
-                decoration: BoxDecoration(
-                  color: priorityColor,
-                  shape: BoxShape.circle,
+              Flexible(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: priorityColor,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    Flexible(
+                      child: Text.rich(
+                        TextSpan(
+                          text: hasCreator ? 'Created by: ' : '',
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          children: [
+                            TextSpan(
+                              text: creatorNameStr,
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 5),
-              Text(
-                priority,
-                style: const TextStyle(color: AppColors.textHint, fontSize: 11),
-              ),
-              const Spacer(),
-              Text(
-                'Assignee: $assignee',
-                style: const TextStyle(color: AppColors.textHint, fontSize: 11),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Flexible(
+                      child: Text.rich(
+                        TextSpan(
+                          text: 'Owner: ',
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          children: [
+                            TextSpan(
+                              text: assigneeNameStr,
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.end,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),

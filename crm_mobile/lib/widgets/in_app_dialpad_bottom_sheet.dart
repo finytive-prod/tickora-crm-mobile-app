@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:crm_mobile/blocs/leads_bloc.dart';
+import 'package:crm_mobile/screens/leads/quick_invite_screen.dart';
 import 'package:crm_mobile/core/services/auto_call_recording_uploader.dart';
 import 'package:crm_mobile/core/services/direct_call_helper.dart';
 import 'package:crm_mobile/core/theme/app_colors.dart';
@@ -56,17 +59,28 @@ class _InAppDialpadBottomSheetState extends State<InAppDialpadBottomSheet> {
   String _cleanDisplayPhoneNumber(String input) {
     if (input.isEmpty) return '';
 
-    // Strip all non-digit characters
-    String digits = input.replaceAll(RegExp(r'[^\d]'), '');
+    String cleaned = input.trim();
 
-    // Automatically strip country code (+91, 91, 0) if length > 10
+    // Strip country code (+91, +)
+    if (cleaned.startsWith('+91')) {
+      cleaned = cleaned.substring(3).trim();
+    } else if (cleaned.startsWith('+')) {
+      String digitsOnly = cleaned.replaceAll(RegExp(r'[^\d]'), '');
+      if (digitsOnly.length > 10) {
+        digitsOnly = digitsOnly.substring(digitsOnly.length - 10);
+      }
+      return digitsOnly;
+    }
+
+    // Strip all non-digit characters
+    String digits = cleaned.replaceAll(RegExp(r'[^\d]'), '');
+
+    // Automatically strip country code (91, 0) if length > 10
     if (digits.length > 10) {
-      if (digits.startsWith('91') && digits.length >= 12) {
+      if (digits.startsWith('91')) {
         digits = digits.substring(2);
-      } else if (digits.startsWith('0') && digits.length >= 11) {
+      } else if (digits.startsWith('0')) {
         digits = digits.substring(1);
-      } else if (digits.startsWith('91') && digits.length > 10) {
-        digits = digits.substring(2);
       } else {
         // Extract last 10 digits to preserve the real mobile number
         digits = digits.substring(digits.length - 10);
@@ -169,6 +183,19 @@ class _InAppDialpadBottomSheetState extends State<InAppDialpadBottomSheet> {
   void _updateLeadInfo() {
     _searchDebounce?.cancel();
     final cleanQuery = _cleanDisplayPhoneNumber(_phoneNumber);
+
+    if (_phoneNumber != cleanQuery &&
+        (_phoneNumber.contains('+') ||
+         _phoneNumber.startsWith('91') ||
+         _phoneNumber.startsWith('0') ||
+         _phoneNumber.length > 10 ||
+         RegExp(r'[^\d]').hasMatch(_phoneNumber))) {
+      _phoneController.value = TextEditingValue(
+        text: cleanQuery,
+        selection: TextSelection.collapsed(offset: cleanQuery.length),
+      );
+    }
+
     if (cleanQuery.isEmpty) {
       setState(() {
         _matchedLeadId = '';
@@ -237,12 +264,12 @@ class _InAppDialpadBottomSheetState extends State<InAppDialpadBottomSheet> {
                 final initialStr = (result.initial != null && result.initial!.isNotEmpty)
                     ? result.initial!
                     : (leadNameStr.isNotEmpty ? leadNameStr[0].toUpperCase() : 'L');
-                final assigneeStr = result.assignedToInfo ??
-                    (result.assignedToName != null && result.assignedToName!.isNotEmpty
-                        ? (result.assignedToRole != null && result.assignedToRole!.isNotEmpty
-                            ? '${result.assignedToName} - ${result.assignedToRole}'
-                            : result.assignedToName!)
+                final rawAssignee = (result.assignedToName != null && result.assignedToName!.isNotEmpty)
+                    ? result.assignedToName!
+                    : (result.assignedToInfo != null && result.assignedToInfo!.isNotEmpty
+                        ? result.assignedToInfo!
                         : 'Unassigned');
+                final assigneeStr = rawAssignee.contains(' - ') ? rawAssignee.split(' - ').first.trim() : rawAssignee;
 
                 setState(() {
                   _matchedLeadId = result.leadId ?? '';
@@ -511,14 +538,27 @@ class _InAppDialpadBottomSheetState extends State<InAppDialpadBottomSheet> {
                                 ),
                                 if (_leadAssignee.isNotEmpty && _leadAssignee != '--') ...[
                                   const SizedBox(height: 2),
-                                  Text(
-                                    'Assigned to: $_leadAssignee',
+                                  RichText(
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
-                                      color: Colors.grey[700],
+                                    text: TextSpan(
+                                      style: const TextStyle(fontSize: 12),
+                                      children: [
+                                        const TextSpan(
+                                          text: 'Assigned to: ',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            color: AppColors.textPrimary,
+                                          ),
+                                        ),
+                                        TextSpan(
+                                          text: _leadAssignee.contains(' - ') ? _leadAssignee.split(' - ').first.trim() : _leadAssignee,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            color: AppColors.primary,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ],
@@ -554,20 +594,99 @@ class _InAppDialpadBottomSheetState extends State<InAppDialpadBottomSheet> {
                         ],
                       ),
                     ] else ...[
-                      Row(
-                        children: [
-                          const Icon(Icons.person_outline, size: 18, color: AppColors.textHint),
-                          const SizedBox(width: 8),
-                          Text(
-                            _phoneNumber.length >= 3 ? 'Unmapped Number (Not in CRM)' : 'Enter phone number to search lead',
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: AppColors.textHint,
-                              fontWeight: FontWeight.w500,
+                      if (_phoneNumber.length >= 3) ...[
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(6),
+                                    decoration: BoxDecoration(
+                                      color: Colors.orange.withOpacity(0.12),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(
+                                      Icons.person_add_alt_1_rounded,
+                                      size: 18,
+                                      color: Colors.orange,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  const Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Number not found in CRM',
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.bold,
+                                            color: AppColors.textPrimary,
+                                          ),
+                                        ),
+                                        SizedBox(height: 2),
+                                        
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
+                            ElevatedButton.icon(
+                              onPressed: () {
+                                final cleanNumber = _cleanDisplayPhoneNumber(_phoneNumber);
+                                final bloc = context.read<LeadsBloc>();
+                                final nav = Navigator.of(context);
+                                nav.pop();
+                                nav.push(
+                                  MaterialPageRoute(
+                                    builder: (_) => BlocProvider<LeadsBloc>.value(
+                                      value: bloc,
+                                      child: QuickInviteScreen(
+                                        initialPhoneNumber: cleanNumber,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.flash_on, size: 14, color: Colors.white),
+                              label: const Text(
+                                'Quick Invite',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.orange,
+                                elevation: 0,
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ] else ...[
+                        Row(
+                          children: [
+                            const Icon(Icons.person_outline, size: 18, color: AppColors.textHint),
+                            const SizedBox(width: 8),
+                            const Text(
+                              'Enter phone number to search lead',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: AppColors.textHint,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ],
                   ],
                 ),
@@ -740,18 +859,18 @@ class MappedLeadDialog extends StatelessWidget {
     required this.onCallAnyway,
   });
 
-  Color _parseColor(String? hexString, Color defaultColor) {
-    if (hexString == null || hexString.isEmpty) return defaultColor;
-    try {
-      String hex = hexString.replaceAll('#', '');
-      if (hex.length == 6) {
-        hex = 'FF$hex';
-      }
-      return Color(int.parse(hex, radix: 16));
-    } catch (_) {
-      return defaultColor;
-    }
-  }
+  // Color _parseColor(String? hexString, Color defaultColor) {
+  //   if (hexString == null || hexString.isEmpty) return defaultColor;
+  //   try {
+  //     String hex = hexString.replaceAll('#', '');
+  //     if (hex.length == 6) {
+  //       hex = 'FF$hex';
+  //     }
+  //     return Color(int.parse(hex, radix: 16));
+  //   } catch (_) {
+  //     return defaultColor;
+  //   }
+  // }
 
   @override
   Widget build(BuildContext context) {
@@ -759,12 +878,12 @@ class MappedLeadDialog extends StatelessWidget {
         ? leadInitial
         : (leadName.isNotEmpty ? leadName[0].toUpperCase() : 'L');
 
-    final statusBgColor = statusColorHex != null
-        ? _parseColor(statusColorHex, const Color(0xFFE8F5E9)).withOpacity(0.15)
-        : const Color(0xFFE8F5E9);
-    final statusTextColor = statusColorHex != null
-        ? _parseColor(statusColorHex, const Color(0xFF2E7D32))
-        : const Color(0xFF2E7D32);
+    // final statusBgColor = statusColorHex != null
+    //     ? _parseColor(statusColorHex, const Color(0xFFE8F5E9)).withOpacity(0.15)
+    //     : const Color(0xFFE8F5E9);
+    // final statusTextColor = statusColorHex != null
+    //     ? _parseColor(statusColorHex, const Color(0xFF2E7D32))
+    //     : const Color(0xFF2E7D32);
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -905,55 +1024,70 @@ class MappedLeadDialog extends StatelessWidget {
                       const SizedBox(height: 12),
 
                       // Source & Status Badge Row
-                      Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              sourceName,
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Colors.grey[600],
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 6),
-                            child: Text(
-                              '•',
-                              style: TextStyle(color: Colors.grey[600]),
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: statusBgColor,
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              statusName,
-                              style: TextStyle(
-                                color: statusTextColor,
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
+                      // Row(
+                      //   children: [
+                      //     Flexible(
+                      //       child: Text(
+                      //         sourceName,
+                      //         style: TextStyle(
+                      //           fontSize: 13,
+                      //           color: Colors.grey[600],
+                      //         ),
+                      //         maxLines: 1,
+                      //         overflow: TextOverflow.ellipsis,
+                      //       ),
+                      //     ),
+                      //     Padding(
+                      //       padding: const EdgeInsets.symmetric(horizontal: 6),
+                      //       child: Text(
+                      //         '•',
+                      //         style: TextStyle(color: Colors.grey[600]),
+                      //       ),
+                      //     ),
+                      //     Container(
+                      //       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      //       decoration: BoxDecoration(
+                      //         color: statusBgColor,
+                      //         borderRadius: BorderRadius.circular(6),
+                      //       ),
+                      //       child: Text(
+                      //         statusName,
+                      //         style: TextStyle(
+                      //           color: statusTextColor,
+                      //           fontSize: 11,
+                      //           fontWeight: FontWeight.bold,
+                      //         ),
+                      //       ),
+                      //     ),
+                      //   ],
+                      // ),
+                      // const SizedBox(height: 8),
 
                       // Assigned To Line
-                      Text(
-                        'Assigned to: $assigneeName',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey[700],
+                      if (assigneeName.isNotEmpty && assigneeName != '--')
+                        RichText(
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          text: TextSpan(
+                            style: const TextStyle(fontSize: 13),
+                            children: [
+                              const TextSpan(
+                                text: 'Assigned to: ',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                              TextSpan(
+                                text: assigneeName.contains(' - ') ? assigneeName.split(' - ').first.trim() : assigneeName,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
                     ],
                   ),
                 ),

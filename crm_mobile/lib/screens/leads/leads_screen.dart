@@ -14,6 +14,7 @@ import 'package:crm_mobile/widgets/expandable_fab.dart';
 import 'package:crm_mobile/widgets/spinning_logo.dart';
 import 'package:crm_mobile/models/lead.dart';
 import 'package:crm_mobile/models/staff_user.dart';
+import 'package:crm_mobile/core/utils/text_selection_utils.dart';
 
 class LeadsScreen extends StatelessWidget {
   const LeadsScreen({super.key});
@@ -41,11 +42,48 @@ class LeadsScreenView extends StatefulWidget {
 
 class _LeadsScreenViewState extends State<LeadsScreenView> {
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+  }
 
   @override
   void dispose() {
+    _scrollController.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    final currentScroll = _scrollController.position.pixels;
+    if (maxScroll - currentScroll <= 200) {
+      final bloc = context.read<LeadsBloc>();
+      final state = bloc.state;
+      if (state is LeadsLoaded && state.hasMoreLeads && !state.isLoadingMore) {
+        final searchQuery = state.searchQuery;
+        if (searchQuery != null && searchQuery.isNotEmpty) {
+          bloc.add(SearchLeads(
+            query: searchQuery,
+            page: state.currentPage + 1,
+            size: 15,
+            isLoadMore: true,
+          ));
+        } else {
+          bloc.add(FetchLeads(
+            page: state.currentPage + 1,
+            size: 15,
+            statusId: state.selectedStatusId,
+            isActive: state.selectedIsActive,
+            isLoadMore: true,
+          ));
+        }
+      }
+    }
   }
 
   String _sanitizeSearchQuery(String query) {
@@ -232,6 +270,9 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
                     ),
                     child: TextField(
                       controller: _searchController,
+                      enableInteractiveSelection: true,
+                      selectionControls: MaterialTextSelectionControls(),
+                      contextMenuBuilder: buildAdaptiveContextMenu,
                       onChanged: (query) => _onSearchChanged(query, selectedStatusId, selectedIsActive),
                       decoration: InputDecoration(
                         hintText: 'Search leads, assignees...',
@@ -329,9 +370,11 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
         );
       }
       final selectedIsActive = state.selectedIsActive;
-      final totalItemCount = state.leads.length + (state.hasMoreLeads ? 1 : 0) + 1; // +1 for view more, +1 for FAB
+      final bool showLoader = state.hasMoreLeads || state.isLoadingMore;
+      final totalItemCount = state.leads.length + (showLoader ? 1 : 0) + 1; // +1 for loader, +1 for FAB
 
       return ListView.separated(
+        controller: _scrollController,
         padding: const EdgeInsets.symmetric(horizontal: 16.0),
         itemCount: totalItemCount,
         separatorBuilder: (context, index) => const SizedBox(height: 8),
@@ -380,44 +423,20 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
                 status: lead.status?.statusName ?? 'Unknown',
                 statusBgColor: statusColor.withValues(alpha: 0.2),
                 statusTextColor: statusColor,
-                description: lead.source?.description ?? '',
                 priority: lead.priority != null ? '${lead.priority} Priority' : 'No Priority',
                 priorityColor: priorityColor,
+                createdByName: lead.createdByName,
                 assignee: _resolveAssigneeName(lead, state.owners),
                 phone: lead.phone,
               ),
             );
           }
 
-          if (index == state.leads.length && state.hasMoreLeads) {
-            return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 12.0),
+          if (showLoader && index == state.leads.length) {
+            return const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16.0),
               child: Center(
-                child: state.isLoadingMore
-                    ? const SpinningLogo(size: 40)
-                    : OutlinedButton.icon(
-                        onPressed: () {
-                          context.read<LeadsBloc>().add(
-                            FetchLeads(
-                              page: state.currentPage + 1,
-                              size: 15,
-                              statusId: state.selectedStatusId,
-                              isActive: state.selectedIsActive,
-                              isLoadMore: true,
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.expand_more, color: AppColors.primary),
-                        label: const Text(
-                          'View More',
-                          style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary, fontSize: 14),
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: AppColors.primary, width: 1.5),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                        ),
-                      ),
+                child: SpinningLogo(size: 36),
               ),
             );
           }

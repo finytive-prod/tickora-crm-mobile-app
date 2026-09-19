@@ -10,6 +10,7 @@ class CustomDropdownField<T> extends StatelessWidget {
   final void Function(T?)? onChanged;
   final String? Function(T?)? validator;
   final AutovalidateMode? autovalidateMode;
+  final bool enabled;
 
   const CustomDropdownField({
     super.key,
@@ -21,6 +22,7 @@ class CustomDropdownField<T> extends StatelessWidget {
     this.onChanged,
     this.validator,
     this.autovalidateMode,
+    this.enabled = true,
   });
 
   @override
@@ -56,7 +58,7 @@ class CustomDropdownField<T> extends StatelessWidget {
           icon: const Icon(Icons.keyboard_arrow_down, color: AppColors.textHint),
           decoration: InputDecoration(
             filled: true,
-            fillColor: Colors.white,
+            fillColor: enabled ? Colors.white : const Color(0xFFF3F4F6),
             contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
@@ -66,19 +68,26 @@ class CustomDropdownField<T> extends StatelessWidget {
               borderRadius: BorderRadius.circular(8),
               borderSide: const BorderSide(color: AppColors.borderEnabled),
             ),
+            disabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: Colors.grey.shade300),
+            ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
               borderSide: const BorderSide(color: AppColors.primary),
             ),
           ),
           items: items,
-          onChanged: onChanged,
-          validator: validator ?? (val) {
-            if (isRequired && val == null) {
-              return 'Required';
-            }
-            return null;
-          },
+          onChanged: enabled ? onChanged : null,
+          validator: enabled
+              ? (validator ??
+                  (val) {
+                    if (isRequired && val == null) {
+                      return 'Required';
+                    }
+                    return null;
+                  })
+              : (_) => null,
         ),
       ],
     );

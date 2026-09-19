@@ -150,10 +150,19 @@ class MainActivity: FlutterActivity() {
                     val details = callRecordingManager.getLatestCallDetails(phoneNumber, callTimestamp)
                     result.success(details)
                 }
+                "getSystemCallLogs" -> {
+                    val phoneNumber = call.argument<String>("phoneNumber") ?: ""
+                    val logs = callRecordingManager.getSystemCallLogs(phoneNumber)
+                    result.success(logs)
+                }
                 "makeDirectCall" -> {
                     val phoneNumber = call.argument<String>("phoneNumber") ?: ""
                     val success = makeDirectCall(phoneNumber)
                     result.success(success)
+                }
+                "getDevicePhoneNumber" -> {
+                    val phone = callRecordingManager.getDevicePhoneNumber()
+                    result.success(phone)
                 }
                 else -> {
                     result.notImplemented()

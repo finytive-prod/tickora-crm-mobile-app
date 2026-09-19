@@ -6,6 +6,7 @@ import 'injection/injection.dart' as di;
 import 'core/theme/app_colors.dart';
 import 'core/services/fcm_service.dart';
 
+import 'package:crm_mobile/core/utils/navigation_service.dart';
 import 'package:crm_mobile/screens/splash_screen.dart';
 
 void main() async {
@@ -32,6 +33,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: NavigationService.navigatorKey,
       title: 'Tickora CRM',
       theme: ThemeData(
         primaryColor: AppColors.primary,

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http_parser/http_parser.dart';
@@ -10,15 +11,10 @@ import 'package:crm_mobile/core/network/api_exception.dart';
 import 'package:crm_mobile/core/network/error_handler.dart';
 import 'package:crm_mobile/models/lead.dart';
 import 'package:crm_mobile/models/staff_user.dart';
-import 'package:crm_mobile/models/lead_model.dart';
 import 'package:crm_mobile/models/lead_detail.dart';
-import 'package:crm_mobile/models/lead_detail_model.dart';
 import 'package:crm_mobile/models/activity_lead.dart';
-import 'package:crm_mobile/models/activity_lead_model.dart';
 import 'package:crm_mobile/models/attachment.dart';
-import 'package:crm_mobile/models/attachment_model.dart';
 import 'package:crm_mobile/models/lead_audio.dart';
-import 'package:crm_mobile/models/lead_audio_model.dart';
 import 'package:crm_mobile/models/pipeline_model.dart';
 import 'package:crm_mobile/models/dialpad_lead_search_result.dart';
 import 'package:crm_mobile/core/network/api_constants.dart';
@@ -35,7 +31,18 @@ abstract class LeadsRepository {
   Future<Either<Failure, List<Attachment>>> getLeadAttachments(String id);
   Future<Either<Failure, void>> uploadLeadAttachment(String leadId, String filePath);
   Future<Either<Failure, List<LeadAudio>>> getLeadAudios(String leadId);
-  Future<Either<Failure, LeadAudio>> uploadLeadAudio(String leadId, String filePath);
+  Future<Either<Failure, LeadAudio>> uploadLeadAudio(
+    String leadId,
+    String? filePath, {
+    String? bound,
+    String? startTime,
+    String? endTime,
+    String? from,
+    String? to,
+    String? duration,
+    String? callDate,
+    String? callStatus,
+  });
   Future<Either<Failure, void>> updateLeadActiveStatus(String leadId, bool isActive);
   Future<Either<Failure, String>> exportLeadReport(Map<String, dynamic> payload);
   Future<Either<Failure, List<PipelineColumnData>>> getLeadPipeline({int page = 0, int size = 50});
@@ -439,45 +446,112 @@ class LeadsRepositoryImpl implements LeadsRepository {
   }
 
   @override
-  Future<Either<Failure, LeadAudio>> uploadLeadAudio(String leadId, String filePath) async {
+  Future<Either<Failure, LeadAudio>> uploadLeadAudio(
+    String leadId,
+    String? filePath, {
+    String? bound,
+    String? startTime,
+    String? endTime,
+    String? from,
+    String? to,
+    String? duration,
+    String? callDate,
+    String? callStatus,
+  }) async {
     try {
       final leadsBaseUrl = _leadsBaseUrl;
       final formData = FormData();
-      final filename = filePath.split('/').last.split('\\').last;
 
-      String mimeType = 'audio/mpeg';
-      final lowerName = filename.toLowerCase();
-      if (lowerName.endsWith('.wav')) {
-        mimeType = 'audio/wav';
-      } else if (lowerName.endsWith('.m4a') || lowerName.endsWith('.aac')) {
-        mimeType = 'audio/mp4';
-      } else if (lowerName.endsWith('.3gp')) {
-        mimeType = 'audio/3gpp';
-      } else if (lowerName.endsWith('.amr')) {
-        mimeType = 'audio/amr';
-      } else if (lowerName.endsWith('.ogg') || lowerName.endsWith('.opus')) {
-        mimeType = 'audio/ogg';
+      if (filePath != null && filePath.isNotEmpty && await File(filePath).exists()) {
+        final filename = filePath.split('/').last.split('\\').last;
+
+        String mimeType = 'audio/mpeg';
+        final lowerName = filename.toLowerCase();
+        if (lowerName.endsWith('.wav')) {
+          mimeType = 'audio/wav';
+        } else if (lowerName.endsWith('.m4a') || lowerName.endsWith('.aac')) {
+          mimeType = 'audio/mp4';
+        } else if (lowerName.endsWith('.3gp')) {
+          mimeType = 'audio/3gpp';
+        } else if (lowerName.endsWith('.amr')) {
+          mimeType = 'audio/amr';
+        } else if (lowerName.endsWith('.ogg') || lowerName.endsWith('.opus')) {
+          mimeType = 'audio/ogg';
+        }
+
+        final ext = mimeType.split('/').last;
+
+        final multipartFile1 = await MultipartFile.fromFile(
+          filePath,
+          filename: filename,
+          contentType: MediaType('audio', ext),
+        );
+        final multipartFile2 = await MultipartFile.fromFile(
+          filePath,
+          filename: filename,
+          contentType: MediaType('audio', ext),
+        );
+
+        formData.files.add(MapEntry('files', multipartFile1));
+        formData.files.add(MapEntry('file', multipartFile2));
+      } else {
+        // For missed and unanswered calls without audio recording,
+        // attach a 0-byte dummy audio file so multipart endpoint validations pass cleanly.
+        final dummyFile1 = MultipartFile.fromBytes(
+          [],
+          filename: 'missed_call.mp3',
+          contentType: MediaType('audio', 'mpeg'),
+        );
+        final dummyFile2 = MultipartFile.fromBytes(
+          [],
+          filename: 'missed_call.mp3',
+          contentType: MediaType('audio', 'mpeg'),
+        );
+        formData.files.add(MapEntry('files', dummyFile1));
+        formData.files.add(MapEntry('file', dummyFile2));
       }
 
-      final ext = mimeType.split('/').last;
+      final Map<String, dynamic> queryParams = {};
 
-      final multipartFile1 = await MultipartFile.fromFile(
-        filePath,
-        filename: filename,
-        contentType: MediaType('audio', ext),
-      );
-      final multipartFile2 = await MultipartFile.fromFile(
-        filePath,
-        filename: filename,
-        contentType: MediaType('audio', ext),
-      );
-
-      formData.files.add(MapEntry('files', multipartFile1));
-      formData.files.add(MapEntry('file', multipartFile2));
+      if (bound != null && bound.isNotEmpty) {
+        formData.fields.add(MapEntry('bound', bound));
+        queryParams['bound'] = bound;
+      }
+      if (startTime != null && startTime.isNotEmpty) {
+        formData.fields.add(MapEntry('startTime', startTime));
+        queryParams['startTime'] = startTime;
+      }
+      if (endTime != null && endTime.isNotEmpty) {
+        formData.fields.add(MapEntry('endTime', endTime));
+        queryParams['endTime'] = endTime;
+      }
+      if (from != null && from.isNotEmpty) {
+        formData.fields.add(MapEntry('from', from));
+        queryParams['from'] = from;
+      }
+      if (to != null && to.isNotEmpty) {
+        formData.fields.add(MapEntry('to', to));
+        queryParams['to'] = to;
+      }
+      if (duration != null && duration.isNotEmpty) {
+        formData.fields.add(MapEntry('duration', duration));
+        queryParams['duration'] = duration;
+      }
+      if (callDate != null && callDate.isNotEmpty) {
+        formData.fields.add(MapEntry('callDate', callDate));
+        queryParams['callDate'] = callDate;
+      }
+      if (callStatus != null && callStatus.isNotEmpty) {
+        formData.fields.add(MapEntry('callStatus', callStatus));
+        formData.fields.add(MapEntry('status', callStatus));
+        queryParams['callStatus'] = callStatus;
+        queryParams['status'] = callStatus;
+      }
 
       final response = await apiClient.post(
         '$leadsBaseUrl/leads/$leadId/audios',
         data: formData,
+        queryParameters: queryParams.isNotEmpty ? queryParams : null,
         options: Options(
           sendTimeout: const Duration(minutes: 15),
           receiveTimeout: const Duration(minutes: 15),

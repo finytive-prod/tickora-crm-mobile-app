@@ -12,10 +12,13 @@ import 'package:crm_mobile/core/utils/form_validator_utils.dart';
 import 'package:file_picker/file_picker.dart' as fp;
 import 'package:crm_mobile/models/lead_detail.dart';
 import 'package:crm_mobile/models/lead_form_layout.dart';
+import 'package:crm_mobile/models/lead.dart';
+import 'package:crm_mobile/models/staff_user.dart';
 
 class AddLeadScreen extends StatefulWidget {
   final LeadDetail? leadToEdit;
-  const AddLeadScreen({super.key, this.leadToEdit});
+  final String? targetFieldKey;
+  const AddLeadScreen({super.key, this.leadToEdit, this.targetFieldKey});
 
   @override
   State<AddLeadScreen> createState() => _AddLeadScreenState();
@@ -32,7 +35,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
   final Map<String, TextEditingController> _customFieldControllers = {};
   
   // Wizard State
-  final PageController _pageController = PageController();
+  late final PageController _pageController;
   int _currentPage = 0;
   bool _hasCompletedOptionalSteps = false;
 
@@ -83,9 +86,73 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
   // Custom Fields Dynamic Values
   final Map<String, dynamic> _customFieldValues = {};
 
+  bool _isFieldEditable(String key) {
+    if (widget.targetFieldKey == null || widget.targetFieldKey!.isEmpty) {
+      return true; // General edit -> ALL fields editable
+    }
+    final target = widget.targetFieldKey!.toLowerCase().trim();
+    final current = key.toLowerCase().trim();
+
+    if (target == current) return true;
+
+    if (target == 'name' && (current == 'firstname' || current == 'lastname')) {
+      return true;
+    }
+    if (target == 'address' &&
+        (current == 'address' ||
+         current == 'city' ||
+         current == 'state' ||
+         current == 'country' ||
+         current == 'postalcode')) {
+      return true;
+    }
+    if ((target == 'company' || target == 'companyname') && current == 'companyname') {
+      return true;
+    }
+    if ((target == 'owner' || target == 'owneruserid') && (current == 'owner' || current == 'owneruserid')) {
+      return true;
+    }
+    if ((target == 'status' || target == 'statusid') && (current == 'status' || current == 'statusid')) return true;
+    if ((target == 'source' || target == 'sourceid') && (current == 'source' || current == 'sourceid')) return true;
+    if ((target == 'alternatephone' || target == 'altphone') && current == 'alternatephone') return true;
+
+    if (target.startsWith('customfield_') && current.startsWith('customfield_')) {
+      return target == current;
+    }
+
+    return false;
+  }
+
+  String _getFieldDisplayName(String key) {
+    final k = key.toLowerCase();
+    if (k == 'email') return 'Email';
+    if (k == 'phone') return 'Phone';
+    if (k == 'alternatephone' || k == 'altphone') return 'Alternate Phone';
+    if (k == 'website') return 'Website';
+    if (k == 'address') return 'Address';
+    if (k == 'owneruserid' || k == 'owner') return 'Owner';
+    if (k == 'priority') return 'Priority';
+    if (k == 'sourceid' || k == 'source') return 'Source';
+    if (k == 'description') return 'Description';
+    if (k == 'companyname' || k == 'company') return 'Company';
+    if (k == 'name' || k == 'firstname' || k == 'lastname') return 'Name';
+    if (k.startsWith('customfield_')) return 'Custom Field';
+    return 'Field';
+  }
+
   @override
   void initState() {
     super.initState();
+    int initialPage = 0;
+    if (widget.targetFieldKey != null && widget.targetFieldKey!.isNotEmpty) {
+      final key = widget.targetFieldKey!.toLowerCase();
+      if (key.startsWith('customfield') || key.startsWith('cf_')) {
+        initialPage = 2;
+      }
+    }
+    _currentPage = initialPage;
+    _pageController = PageController(initialPage: initialPage);
+
     // Fetch dropdown data just in case they aren't loaded yet
     context.read<LeadsBloc>().add(FetchLeadStatuses());
     context.read<LeadsBloc>().add(FetchLeadSources());
@@ -402,6 +469,9 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
   }
 
   String _getAppBarTitle() {
+    if (widget.targetFieldKey != null && widget.targetFieldKey!.isNotEmpty) {
+      return 'Edit ${_getFieldDisplayName(widget.targetFieldKey!)}';
+    }
     switch (_currentPage) {
       case 0: return widget.leadToEdit != null ? 'Edit Lead' : 'New Lead';
       case 1: return 'Follow-up & Notes';
@@ -443,7 +513,26 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         body: SafeArea(
           child: Column(
             children: [
-              _buildStepProgressHeader(),
+              if (widget.targetFieldKey == null || widget.targetFieldKey!.isEmpty)
+                _buildStepProgressHeader(),
+              if (widget.targetFieldKey != null && widget.targetFieldKey!.isNotEmpty)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  color: AppColors.primary.withValues(alpha: 0.1),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.info_outline, size: 18, color: AppColors.primary),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Editing only "${_getFieldDisplayName(widget.targetFieldKey!)}". Other fields are locked.',
+                          style: const TextStyle(fontSize: 13, color: AppColors.primary, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               Expanded(
                 child: BlocBuilder<LeadsBloc, LeadsState>(
                   buildWhen: (prev, current) => current is LeadsLoaded,
@@ -536,6 +625,35 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
   }
 
   Widget _getBottomButtons() {
+    if (widget.targetFieldKey != null && widget.targetFieldKey!.isNotEmpty) {
+      return BlocBuilder<LeadsBloc, LeadsState>(
+        builder: (context, state) {
+          final isLoading = state is LeadActionLoading;
+          return SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: ElevatedButton(
+              onPressed: isLoading ? null : _onSaveLead,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              child: isLoading
+                  ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  : Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text('Update ${_getFieldDisplayName(widget.targetFieldKey!)}', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                        const SizedBox(width: 8),
+                        const Icon(Icons.check_circle, color: Colors.white, size: 20),
+                      ],
+                    ),
+            ),
+          );
+        },
+      );
+    }
+
     if (_currentPage == 0) {
       if (_hasCompletedOptionalSteps) {
         return BlocBuilder<LeadsBloc, LeadsState>(
@@ -624,6 +742,11 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
     }
   }
 
+  List<StaffUser> _cachedOwners = [];
+  List<LeadStatus> _cachedStatuses = [];
+  List<LeadSource> _cachedSources = [];
+  List<String> _cachedPriorities = [];
+
   Widget _buildLeadDetailsForm(LeadsState state) {
     List<DropdownMenuItem<String>> statusItems = [];
     List<DropdownMenuItem<String>> sourceItems = [];
@@ -631,46 +754,58 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
     List<DropdownMenuItem<String>> ownerItems = [];
 
     if (state is LeadsLoaded) {
-      statusItems = state.statuses
-          .map((s) => DropdownMenuItem(value: s.id, child: Text(s.statusName, overflow: TextOverflow.ellipsis)))
-          .toList();
-      sourceItems = state.sources
-          .map((s) => DropdownMenuItem(value: s.id, child: Text(s.name, overflow: TextOverflow.ellipsis)))
-          .toList();
-      priorityItems = state.priorities
-          .map((p) => DropdownMenuItem(value: p, child: Text(p, overflow: TextOverflow.ellipsis)))
-          .toList();
-      ownerItems = state.owners
-          .map((o) => DropdownMenuItem(value: o.userId, child: Text(o.name, overflow: TextOverflow.ellipsis)))
-          .toList();
+      if (state.statuses.isNotEmpty) _cachedStatuses = state.statuses;
+      if (state.sources.isNotEmpty) _cachedSources = state.sources;
+      if (state.priorities.isNotEmpty) _cachedPriorities = state.priorities;
+      if (state.owners.isNotEmpty) _cachedOwners = state.owners;
+    }
 
-      if (_selectedStatus == null && state.statuses.isNotEmpty) {
-        try {
-          _selectedStatus = state.statuses.firstWhere((s) => s.isDefault).id;
-        } catch (_) {
-          _selectedStatus = state.statuses.first.id;
-        }
+    final statusesToUse = (state is LeadsLoaded && state.statuses.isNotEmpty) ? state.statuses : _cachedStatuses;
+    final sourcesToUse = (state is LeadsLoaded && state.sources.isNotEmpty) ? state.sources : _cachedSources;
+    final prioritiesToUse = (state is LeadsLoaded && state.priorities.isNotEmpty) ? state.priorities : _cachedPriorities;
+    final ownersToUse = (state is LeadsLoaded && state.owners.isNotEmpty) ? state.owners : _cachedOwners;
+
+    statusItems = statusesToUse
+        .map((s) => DropdownMenuItem(value: s.id, child: Text(s.statusName, overflow: TextOverflow.ellipsis)))
+        .toList();
+    sourceItems = sourcesToUse
+        .map((s) => DropdownMenuItem(value: s.id, child: Text(s.name, overflow: TextOverflow.ellipsis)))
+        .toList();
+    priorityItems = prioritiesToUse
+        .map((p) => DropdownMenuItem(value: p, child: Text(p, overflow: TextOverflow.ellipsis)))
+        .toList();
+    ownerItems = ownersToUse
+        .map((o) => DropdownMenuItem(value: o.userId, child: Text(o.name, overflow: TextOverflow.ellipsis)))
+        .toList();
+
+    if (_selectedStatus == null && statusesToUse.isNotEmpty) {
+      try {
+        _selectedStatus = statusesToUse.firstWhere((s) => s.isDefault == true).id;
+      } catch (_) {
+        _selectedStatus = statusesToUse.first.id;
       }
-      if (_selectedSource == null && state.sources.isNotEmpty) {
-        _selectedSource = state.sources.first.id;
-      }
-      if (_selectedPriority == null && state.priorities.isNotEmpty) {
-        _selectedPriority = state.priorities.first;
-      }
-      if (_selectedOwner == null && state.owners.isNotEmpty) {
-        _selectedOwner = state.owners.first.userId;
-      }
+    }
+    if (_selectedSource == null && sourcesToUse.isNotEmpty) {
+      _selectedSource = sourcesToUse.first.id;
+    }
+    if (_selectedPriority == null && prioritiesToUse.isNotEmpty) {
+      _selectedPriority = prioritiesToUse.first;
+    }
+    if (_selectedOwner == null && ownersToUse.isNotEmpty) {
+      _selectedOwner = ownersToUse.first.userId;
     }
 
     Widget? buildFixedWidget(FixedField ff) {
       final k = ff.fieldName.trim().toLowerCase();
       final label = ff.fieldLabel.trim().isNotEmpty ? ff.fieldLabel.trim() : ff.fieldName;
-      final req = ff.isRequired;
+      final isEditable = _isFieldEditable(k);
+      final req = ff.isRequired && isEditable;
 
       if (k == 'firstname' || k == 'first_name') {
         return CustomTextField(
           label: label,
           isRequired: req,
+          enabled: isEditable,
           controller: _firstNameController,
           inputFormatters: AppInputFormatters.nameFormatters,
           validator: (val) => (req && (val == null || val.trim().isEmpty)) ? 'Required' : null,
@@ -679,6 +814,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         return CustomTextField(
           label: label,
           isRequired: req,
+          enabled: isEditable,
           controller: _lastNameController,
           inputFormatters: AppInputFormatters.nameFormatters,
           validator: (val) => (req && (val == null || val.trim().isEmpty)) ? 'Required' : null,
@@ -687,6 +823,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         return CustomTextField(
           label: label,
           isRequired: req,
+          enabled: isEditable,
           controller: _companyController,
           validator: (val) => (req && (val == null || val.trim().isEmpty)) ? 'Required' : null,
         );
@@ -694,6 +831,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         return CustomTextField(
           label: label,
           isRequired: req,
+          enabled: isEditable,
           controller: _jobTitleController,
           validator: (val) => (req && (val == null || val.trim().isEmpty)) ? 'Required' : null,
         );
@@ -701,29 +839,32 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         return CustomTextField(
           label: label,
           isRequired: req,
+          enabled: isEditable,
           keyboardType: TextInputType.emailAddress,
           controller: _emailController,
-          validator: (val) => AppValidators.validateEmail(val, isRequired: req),
+          validator: (val) => isEditable ? AppValidators.validateEmail(val, isRequired: ff.isRequired) : null,
         );
       } else if (k == 'phone' || k == 'mobile') {
         return CustomTextField(
           label: label,
           isRequired: req,
+          enabled: isEditable,
           keyboardType: TextInputType.phone,
           controller: _phoneController,
           inputFormatters: AppInputFormatters.phoneFormatters,
-          validator: (val) => AppValidators.validateMobile(val, isRequired: req),
+          validator: (val) => isEditable ? AppValidators.validateMobile(val, isRequired: ff.isRequired) : null,
         );
       } else if (k == 'alternatephone' || k == 'alternate_phone' || k == 'alt_phone') {
         return CustomTextField(
           label: label,
           isRequired: req,
+          enabled: isEditable,
           keyboardType: TextInputType.phone,
           controller: _altPhoneController,
           inputFormatters: AppInputFormatters.phoneFormatters,
           validator: (val) {
-            if (req || (val != null && val.isNotEmpty)) {
-              return AppValidators.validateMobile(val, isRequired: req);
+            if (isEditable && (ff.isRequired || (val != null && val.isNotEmpty))) {
+              return AppValidators.validateMobile(val, isRequired: ff.isRequired);
             }
             return null;
           },
@@ -732,6 +873,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         return CustomDropdownField<String>(
           label: label,
           isRequired: req,
+          enabled: isEditable,
           items: sourceItems,
           value: _selectedSource,
           onChanged: (val) => setState(() => _selectedSource = val),
@@ -741,6 +883,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         return CustomDropdownField<String>(
           label: label,
           isRequired: req,
+          enabled: isEditable,
           items: statusItems,
           value: _selectedStatus,
           onChanged: (val) => setState(() => _selectedStatus = val),
@@ -750,6 +893,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         return CustomTextField(
           label: label,
           isRequired: req,
+          enabled: isEditable,
           keyboardType: TextInputType.number,
           controller: _scoreController,
           validator: (val) => (req && (val == null || val.trim().isEmpty)) ? 'Required' : null,
@@ -758,6 +902,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         return CustomDropdownField<String>(
           label: label,
           isRequired: req,
+          enabled: isEditable,
           items: priorityItems,
           value: _selectedPriority,
           onChanged: (val) => setState(() => _selectedPriority = val),
@@ -766,6 +911,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         return CustomTextField(
           label: label,
           isRequired: req,
+          enabled: isEditable,
           controller: _industryController,
           validator: (val) => (req && (val == null || val.trim().isEmpty)) ? 'Required' : null,
         );
@@ -773,6 +919,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         return CustomTextField(
           label: label,
           isRequired: req,
+          enabled: isEditable,
           keyboardType: TextInputType.number,
           controller: _revenueController,
         );
@@ -780,6 +927,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         return CustomTextField(
           label: label,
           isRequired: req,
+          enabled: isEditable,
           keyboardType: TextInputType.number,
           controller: _employeeSizeController,
         );
@@ -787,6 +935,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         return CustomTextField(
           label: label,
           isRequired: req,
+          enabled: isEditable,
           keyboardType: TextInputType.url,
           controller: _websiteController,
         );
@@ -794,30 +943,35 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         return CustomTextField(
           label: label,
           isRequired: req,
+          enabled: isEditable,
           controller: _countryController,
         );
       } else if (k == 'state') {
         return CustomTextField(
           label: label,
           isRequired: req,
+          enabled: isEditable,
           controller: _stateController,
         );
       } else if (k == 'city') {
         return CustomTextField(
           label: label,
           isRequired: req,
+          enabled: isEditable,
           controller: _cityController,
         );
       } else if (k == 'postalcode' || k == 'postal_code' || k == 'zip' || k == 'pincode') {
         return CustomTextField(
           label: label,
           isRequired: req,
+          enabled: isEditable,
           controller: _postalController,
         );
       } else if (k == 'address') {
         return CustomTextField(
           label: label,
           isRequired: req,
+          enabled: isEditable,
           maxLines: 3,
           controller: _addressController,
         );
@@ -825,6 +979,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         return CustomTextField(
           label: label,
           isRequired: req,
+          enabled: isEditable,
           maxLines: 3,
           controller: _descriptionController,
         );
@@ -832,6 +987,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         return CustomDropdownField<String>(
           label: label,
           isRequired: req,
+          enabled: isEditable,
           items: ownerItems,
           value: _selectedOwner,
           onChanged: (val) => setState(() => _selectedOwner = val),

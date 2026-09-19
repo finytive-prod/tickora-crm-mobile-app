@@ -13,6 +13,7 @@ import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import android.telephony.TelephonyManager
+import android.telephony.SubscriptionManager
 import java.io.File
 import java.util.Calendar
 import kotlin.math.abs
@@ -59,11 +60,13 @@ class CallRecordingManager(private val context: Context) {
 
         // Date patterns to strip before checking for conflicting phone numbers
         private val DATE_STRIP_PATTERNS = listOf(
-            Regex("20\\d{2}[-_./]?\\d{2}[-_./]?\\d{2}"),  // 2026-08-18, 20260818, 2026_08_18
-            Regex("\\d{2}[-_./]\\d{2}[-_./]\\d{2,4}"),     // 18-08-2026, 18_08_26
-            Regex("\\d{2}[-_./]?\\d{2}[-_./]?\\d{2}"),     // 180818, 18-08-18
-            Regex("\\d{1,2}[-_.]\\d{1,2}[-_.]\\d{1,2}"),   // Time patterns: 18-55-30
-            Regex("\\b1\\d{12}\\b"),                         // Epoch timestamps
+            Regex("(?:^|[^0-9])20[2-3]\\d[-_./]?(?:0[1-9]|1[0-2])[-_./]?(?:0[1-9]|[12]\\d|3[01])(?:$|[^0-9])"),  // 2026-08-18, 20260818
+            Regex("(?:^|[^0-9])20[2-3]\\d(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\\d|3[01])(?:[01]\\d|2[0-3])[0-5]\\d[0-5]\\d(?:$|[^0-9])"), // 20260918150726 (14 digits)
+            Regex("(?:^|[^0-9])20[2-3]\\d{10}(?:$|[^0-9])"),                     // 14-digit YYYYMMDD... timestamps
+            Regex("(?:^|[^0-9])(?:0[1-9]|[12]\\d|3[01])[-_./](?:0[1-9]|1[0-2])[-_./](?:20[2-3]\\d|\\d{2})(?:$|[^0-9])"), // 18-08-2026, 18_08_26
+            Regex("(?:^|[^0-9])(?:[01]\\d|2[0-3])[-_./][0-5]\\d[-_./][0-5]\\d(?:$|[^0-9])"),   // Time patterns: 18-55-30
+            Regex("(?:^|[^0-9])1\\d{12}(?:$|[^0-9])"),                         // Epoch ms timestamps
+            Regex("(?:^|[^0-9])1[5-9]\\d{8}(?:$|[^0-9])"),                       // 10-digit Epoch seconds timestamps
         )
     }
 
@@ -170,6 +173,19 @@ class CallRecordingManager(private val context: Context) {
         val last10 = if (cleanDigits.length >= 10) cleanDigits.takeLast(10) else cleanDigits
         if (last10.length < 7) return false
 
+        val chunks = Regex("\\d{7,15}").findAll(fileName).map { it.value }.toList()
+        for (chunk in chunks) {
+            // Skip 14-digit date timestamps like 20260918163153
+            if (chunk.length == 14 && chunk.startsWith("202")) continue
+            // Skip 13-digit epoch ms timestamps
+            if (chunk.length == 13 && chunk.startsWith("1")) continue
+
+            val chunkLast10 = if (chunk.length >= 10) chunk.takeLast(10) else chunk
+            if (chunkLast10 == last10 || chunk.contains(last10) || last10.contains(chunkLast10)) {
+                return true
+            }
+        }
+
         val digitsInFileName = fileName.replace("[^0-9]".toRegex(), "")
         if (digitsInFileName.contains(cleanDigits) || digitsInFileName.contains(last10)) return true
 
@@ -231,13 +247,13 @@ class CallRecordingManager(private val context: Context) {
         val last10 = if (cleanDigits.length >= 10) cleanDigits.takeLast(10) else cleanDigits
         if (last10.length < 7) return false
 
-        // Reject if filename contains digits for a different phone number
-        if (containsConflictingPhone(file.name, cleanDigits)) return false
-
-        // 1. Direct filename match with lead phone number
+        // 1. Direct filename match with lead phone number (highest confidence)
         if (fileNameContainsPhone(file.name, cleanDigits)) {
             return true
         }
+
+        // Reject if filename contains digits for a different phone number
+        if (containsConflictingPhone(file.name, cleanDigits)) return false
 
         // 2. CallLog match for this lead's phone number
         val timestamp = parseTimestampFromFileName(file.name) ?: file.lastModified()
@@ -285,6 +301,11 @@ class CallRecordingManager(private val context: Context) {
         val targetLast10 = if (targetCleanPhone.length >= 10) targetCleanPhone.takeLast(10) else targetCleanPhone
         if (targetLast10.length < 7) return false
 
+        // If the filename already explicitly contains the target phone, it cannot be a conflict!
+        if (fileNameContainsPhone(fileName, targetCleanPhone)) {
+            return false
+        }
+
         // Extract all digit sequences attached to pending prefix so they aren't treated as conflicting numbers
         val pendingDigits = Regex("\\.?pending[-_]?(\\d+)", RegexOption.IGNORE_CASE)
             .findAll(fileName)
@@ -293,21 +314,24 @@ class CallRecordingManager(private val context: Context) {
 
         var sanitizedName = extractCleanOriginalName(fileName)
             .replace(Regex("\\.?pending[-_]?[a-zA-Z0-9]*[-_]?", RegexOption.IGNORE_CASE), "")
-            .replace(Regex("\\d{14}"), "") // YYYYMMDDHHMMSS
-            .replace(Regex("\\d{12}"), "") // YYMMDDHHMMSS
-            .replace(Regex("\\d{8}_\\d{6}"), "")
-            .replace(Regex("\\d{6}_\\d{6}"), "")
-            .replace(Regex("1\\d{12}"), "") // Epoch ms timestamp
-            .replace(Regex("\\b1[5-9]\\d{8}\\b"), "") // 10-digit Epoch seconds timestamp (e.g. 1789811464)
 
         for (pattern in DATE_STRIP_PATTERNS) {
             sanitizedName = sanitizedName.replace(pattern, "")
         }
 
-        // Find remaining phone-length digit sequences (10 to 13 digits)
-        val digitChunks = Regex("\\d{10,13}").findAll(sanitizedName).map { it.value }.toList()
+        // Additional date timestamp removals (14-digit YYYYMMDDHHMMSS, 13-digit epoch ms)
+        sanitizedName = sanitizedName.replace(Regex("(?:^|[^0-9])20[2-3]\\d{10}(?:$|[^0-9])"), "")
+        sanitizedName = sanitizedName.replace(Regex("(?:^|[^0-9])1[6-9]\\d{11,12}(?:$|[^0-9])"), "")
+
+        // Find remaining phone-length digit sequences (7 to 15 digits)
+        val digitChunks = Regex("\\d{7,15}").findAll(sanitizedName).map { it.value }.toList()
         for (chunk in digitChunks) {
             if (pendingDigits.contains(chunk)) continue
+            // Skip 14-digit date timestamps starting with 202x/203x (e.g. 20260918163153)
+            if (chunk.length == 14 && chunk.startsWith("202")) continue
+            // Skip 13-digit epoch ms timestamps starting with 1
+            if (chunk.length == 13 && chunk.startsWith("1")) continue
+
             val chunkLast10 = if (chunk.length >= 10) chunk.takeLast(10) else chunk
             val matchesTarget = targetLast10 == chunkLast10 || targetLast10.contains(chunkLast10) || chunkLast10.contains(targetLast10)
             if (!matchesTarget) {
@@ -524,7 +548,6 @@ class CallRecordingManager(private val context: Context) {
                 .replace(Regex("^OUTBOUND_", RegexOption.IGNORE_CASE), "")
                 .replace(Regex("^INCOMING_", RegexOption.IGNORE_CASE), "")
                 .replace(Regex("^OUTGOING_", RegexOption.IGNORE_CASE), "")
-                .replace(Regex("^\\d{7,15}_"), "")
             if (clean == old) break
         }
         if (clean.isBlank()) return fileName
@@ -691,7 +714,8 @@ class CallRecordingManager(private val context: Context) {
                     "path" to path,
                     "timestamp" to timestamp,
                     "durationMs" to durationMs,
-                    "callType" to callType
+                    "callType" to callType,
+                    "fileSize" to file.length()
                 )
             }
     }
@@ -844,7 +868,7 @@ class CallRecordingManager(private val context: Context) {
             val cleanName = extractCleanOriginalName(fileName)
 
             // Pattern 1: YYYYMMDD_HHMMSS or YYYYMMDDHHMMSS (e.g. 20260911_110844, 20260911110844)
-            Regex("\\b(20\\d{2})[-_]?(\\d{2})[-_]?(\\d{2})[-_._]?(\\d{2})[-_.]?(\\d{2})[-_.]?(\\d{2})\\b").find(cleanName)?.let { match ->
+            Regex("(?:^|[^0-9])(20[2-3]\\d)[-_]?(\\d{2})[-_]?(\\d{2})[-_._]?(\\d{2})[-_.]?(\\d{2})[-_.]?(\\d{2})(?:$|[^0-9])").find(cleanName)?.let { match ->
                 val (yyyy, mm, dd, hh, min, ss) = match.destructured
                 val m = mm.toInt()
                 val d = dd.toInt()
@@ -860,16 +884,16 @@ class CallRecordingManager(private val context: Context) {
             }
 
             // Pattern 2: Epoch timestamp (ms or 10-digit seconds)
-            Regex("\\b(1\\d{12})\\b").find(cleanName)?.value?.toLongOrNull()?.let {
+            Regex("(?:^|[^0-9])(1\\d{12})(?:$|[^0-9])").find(cleanName)?.groupValues?.get(1)?.toLongOrNull()?.let {
                 if (it > 1500000000000L && it < 2500000000000L) return it
             }
-            Regex("\\b(1[5-9]\\d{8})\\b").find(cleanName)?.value?.toLongOrNull()?.let {
+            Regex("(?:^|[^0-9])(1[5-9]\\d{8})(?:$|[^0-9])").find(cleanName)?.groupValues?.get(1)?.toLongOrNull()?.let {
                 val ms = it * 1000L
                 if (ms > 1500000000000L && ms < 2500000000000L) return ms
             }
 
             // Pattern 3: YYMMDD_HHMMSS (e.g. 260911_110844) - Strict boundary & component validation
-            Regex("(?:^|[^0-9])(\\d{2})(\\d{2})(\\d{2})_(\\d{2})(\\d{2})(\\d{2})(?:$|[^0-9])").find(cleanName)?.let { match ->
+            Regex("(?:^|[^0-9])(\\d{2})(\\d{2})(\\d{2})[-_]?(\\d{2})(\\d{2})(\\d{2})(?:$|[^0-9])").find(cleanName)?.let { match ->
                 val (yy, mm, dd, hh, min, ss) = match.destructured
                 val y = 2000 + yy.toInt()
                 val m = mm.toInt()
@@ -919,7 +943,13 @@ class CallRecordingManager(private val context: Context) {
         try {
             val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
             audioManager.mode = android.media.AudioManager.MODE_NORMAL
+            @Suppress("DEPRECATION")
             audioManager.isSpeakerphoneOn = true
+            val maxVol = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+            val currentVol = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+            if (currentVol < maxVol / 2) {
+                audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, (maxVol * 0.85).toInt(), 0)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error forcing loudspeaker", e)
         }
@@ -930,15 +960,7 @@ class CallRecordingManager(private val context: Context) {
     fun startNativeAudio(context: Context, path: String): Map<String, Any> {
         stopNativeAudio()
         try {
-            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-            audioManager.mode = android.media.AudioManager.MODE_NORMAL
-            audioManager.isSpeakerphoneOn = true
-
-            val currentVol = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
-            val maxVol = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
-            if (currentVol == 0) {
-                audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, maxVol / 2, 0)
-            }
+            forceLoudspeaker(context)
 
             val player = android.media.MediaPlayer().apply {
                 setAudioAttributes(
@@ -947,14 +969,15 @@ class CallRecordingManager(private val context: Context) {
                         .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
                         .build()
                 )
-                if (path.startsWith("content://")) {
+                setVolume(1.0f, 1.0f)
+                if (path.startsWith("content://") || path.startsWith("http://") || path.startsWith("https://")) {
                     setDataSource(context, Uri.parse(path))
                 } else {
                     val file = File(path)
                     if (file.exists()) {
                         setDataSource(file.absolutePath)
                     } else {
-                        setDataSource(context, Uri.parse(path))
+                        setDataSource(path)
                     }
                 }
                 prepare()
@@ -984,6 +1007,7 @@ class CallRecordingManager(private val context: Context) {
     fun resumeNativeAudio(context: Context) {
         try {
             forceLoudspeaker(context)
+            nativeMediaPlayer?.setVolume(1.0f, 1.0f)
             nativeMediaPlayer?.start()
         } catch (_: Exception) {}
     }
@@ -1048,8 +1072,13 @@ class CallRecordingManager(private val context: Context) {
                         val durationSec = if (durIdx >= 0) c.getLong(durIdx) else 0L
                         val endTime = startTime + (durationSec * 1000L)
                         val rawType = if (typeIdx >= 0) c.getInt(typeIdx) else CallLog.Calls.OUTGOING_TYPE
-                        val typeStr = if (rawType == CallLog.Calls.INCOMING_TYPE) "INCOMING" else "OUTGOING"
+                        val typeStr = if (rawType == CallLog.Calls.INCOMING_TYPE || rawType == CallLog.Calls.MISSED_TYPE) "INCOMING" else "OUTGOING"
                         val contactName = if (nameIdx >= 0) c.getString(nameIdx) ?: "" else ""
+                        val callStatusStr = when (rawType) {
+                            CallLog.Calls.MISSED_TYPE -> "MISSED"
+                            CallLog.Calls.REJECTED_TYPE -> "REJECTED"
+                            else -> if (durationSec > 0) "ANSWERED" else "UNANSWERED"
+                        }
 
                         val diff = abs(startTime - searchTime)
                         if (diff <= 30 * 60 * 1000L || searchTime == 0L) {
@@ -1059,7 +1088,8 @@ class CallRecordingManager(private val context: Context) {
                                 "startTime" to startTime,
                                 "endTime" to endTime,
                                 "durationSeconds" to durationSec,
-                                "callType" to typeStr
+                                "callType" to typeStr,
+                                "callStatus" to callStatusStr
                             )
                         }
                     }
@@ -1069,5 +1099,145 @@ class CallRecordingManager(private val context: Context) {
             Log.e(TAG, "Error querying system CallLog details", e)
         }
         return null
+    }
+
+    fun getSystemCallLogs(phoneNumber: String): List<Map<String, Any>> {
+        val cleanDigits = cleanPhone(phoneNumber)
+        val last10 = if (cleanDigits.length >= 10) cleanDigits.takeLast(10) else cleanDigits
+        val result = mutableListOf<Map<String, Any>>()
+
+        try {
+            val projection = arrayOf(
+                CallLog.Calls._ID,
+                CallLog.Calls.NUMBER,
+                CallLog.Calls.CACHED_NAME,
+                CallLog.Calls.TYPE,
+                CallLog.Calls.DATE,
+                CallLog.Calls.DURATION
+            )
+            context.contentResolver.query(
+                CallLog.Calls.CONTENT_URI, projection, null, null, "${CallLog.Calls.DATE} DESC"
+            )?.use { c ->
+                val numIdx = c.getColumnIndex(CallLog.Calls.NUMBER)
+                val nameIdx = c.getColumnIndex(CallLog.Calls.CACHED_NAME)
+                val typeIdx = c.getColumnIndex(CallLog.Calls.TYPE)
+                val dateIdx = c.getColumnIndex(CallLog.Calls.DATE)
+                val durIdx = c.getColumnIndex(CallLog.Calls.DURATION)
+
+                while (c.moveToNext()) {
+                    val num = if (numIdx >= 0) c.getString(numIdx) ?: "" else ""
+                    val cleanNum = cleanPhone(num)
+                    val callLast10 = if (cleanNum.length >= 10) cleanNum.takeLast(10) else cleanNum
+
+                    if (last10.isEmpty() || callLast10 == last10 || cleanNum.contains(last10) || last10.contains(callLast10)) {
+                        val startTime = if (dateIdx >= 0) c.getLong(dateIdx) else 0L
+                        val durationSec = if (durIdx >= 0) c.getLong(durIdx) else 0L
+                        val endTime = startTime + (durationSec * 1000L)
+                        val rawType = if (typeIdx >= 0) c.getInt(typeIdx) else CallLog.Calls.OUTGOING_TYPE
+                        val typeStr = if (rawType == CallLog.Calls.INCOMING_TYPE || rawType == CallLog.Calls.MISSED_TYPE) "INCOMING" else "OUTGOING"
+                        val contactName = if (nameIdx >= 0) c.getString(nameIdx) ?: "" else ""
+                        val callStatusStr = when (rawType) {
+                            CallLog.Calls.MISSED_TYPE -> "MISSED"
+                            CallLog.Calls.REJECTED_TYPE -> "REJECTED"
+                            else -> if (durationSec > 0) "ANSWERED" else "UNANSWERED"
+                        }
+
+                        result.add(mapOf(
+                            "id" to (if (dateIdx >= 0) c.getLong(dateIdx).toString() else System.currentTimeMillis().toString()),
+                            "phoneNumber" to num,
+                            "contactName" to contactName,
+                            "startTime" to startTime,
+                            "endTime" to endTime,
+                            "durationSeconds" to durationSec,
+                            "callType" to typeStr,
+                            "callStatus" to callStatusStr
+                        ))
+                        if (result.size >= 50) break
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error querying system CallLogs", e)
+        }
+        return result
+    }
+
+    /**
+     * Tries to get the device's own phone number from SIM / call log.
+     * Returns the phone number string, or empty string if unavailable.
+     */
+    @Suppress("DEPRECATION", "MissingPermission")
+    fun getDevicePhoneNumber(): String {
+        try {
+            // 1. Try TelephonyManager.getLine1Number()
+            val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+            if (tm != null) {
+                try {
+                    val line1 = tm.line1Number
+                    if (!line1.isNullOrBlank() && line1.length >= 10) {
+                        Log.d(TAG, "Got device phone from TelephonyManager: $line1")
+                        return cleanPhone(line1)
+                    }
+                } catch (e: SecurityException) {
+                    Log.w(TAG, "SecurityException getting line1Number", e)
+                }
+            }
+
+            // 2. Try SubscriptionManager (API 22+)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+                try {
+                    val sm = context.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) as? SubscriptionManager
+                    if (sm != null) {
+                        val subList = sm.activeSubscriptionInfoList
+                        if (subList != null && subList.isNotEmpty()) {
+                            for (sub in subList) {
+                                val num = sub.number
+                                if (!num.isNullOrBlank() && num.length >= 10) {
+                                    Log.d(TAG, "Got device phone from SubscriptionManager: $num")
+                                    return cleanPhone(num)
+                                }
+                            }
+                        }
+                    }
+                } catch (e: SecurityException) {
+                    Log.w(TAG, "SecurityException getting subscription info", e)
+                }
+            }
+
+            // 3. Try PHONE_ACCOUNT_ID from recent call logs (often contains SIM phone number)
+            try {
+                val projection = arrayOf(
+                    "PHONE_ACCOUNT_ID"
+                )
+                context.contentResolver.query(
+                    CallLog.Calls.CONTENT_URI, projection, null, null, "${CallLog.Calls.DATE} DESC"
+                )?.use { c ->
+                    val accountIdx = c.getColumnIndex("PHONE_ACCOUNT_ID")
+                    if (accountIdx >= 0) {
+                        val seen = mutableSetOf<String>()
+                        var count = 0
+                        while (c.moveToNext() && count < 20) {
+                            val accountId = c.getString(accountIdx) ?: ""
+                            val cleaned = cleanPhone(accountId)
+                            if (cleaned.length >= 10 && !seen.contains(cleaned)) {
+                                seen.add(cleaned)
+                                // Check this looks like a phone number (starts with digit, not a UUID/hash)
+                                if (cleaned.all { it.isDigit() }) {
+                                    Log.d(TAG, "Got device phone from PHONE_ACCOUNT_ID: $cleaned")
+                                    return cleaned
+                                }
+                            }
+                            count++
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error reading PHONE_ACCOUNT_ID from call log", e)
+            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting device phone number", e)
+        }
+        return ""
     }
 }

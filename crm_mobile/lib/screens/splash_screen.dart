@@ -10,7 +10,7 @@ import 'package:crm_mobile/screens/auth/login_screen.dart';
 import 'package:crm_mobile/core/services/call_recording_service.dart';
 import 'package:crm_mobile/core/services/app_update_service.dart';
 import 'package:crm_mobile/core/config/app_update_config.dart';
-import 'package:crm_mobile/screens/force_update_screen.dart';
+import '../../error_handling_img/force_update_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -54,8 +54,15 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   Future<void> _navigateNext() async {
     final startTime = DateTime.now();
 
-    // Check minimum supported app version
     final updateService = sl<AppUpdateService>();
+
+    // 1. Check Google Play Store In-App Updates (Native Android prompt)
+    final playStoreUpdateHandled = await updateService.performPlayStoreUpdateCheck();
+    if (playStoreUpdateHandled) {
+      return;
+    }
+
+    // 2. Fallback: Check minimum supported app version
     final updateRequired = await updateService.isUpdateRequired();
 
     if (updateRequired) {

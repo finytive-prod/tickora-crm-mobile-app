@@ -10,9 +10,14 @@ import 'package:crm_mobile/widgets/custom_text_field.dart';
 import 'package:crm_mobile/widgets/custom_dropdown_field.dart';
 import 'package:crm_mobile/core/utils/validators.dart';
 import 'package:crm_mobile/core/utils/form_validator_utils.dart';
+import 'package:crm_mobile/models/lead.dart';
+import 'package:crm_mobile/models/staff_user.dart';
+import 'package:crm_mobile/usecases/get_staff_users_usecase.dart';
 
 class QuickInviteScreen extends StatefulWidget {
-  const QuickInviteScreen({super.key});
+  final String? initialPhoneNumber;
+
+  const QuickInviteScreen({super.key, this.initialPhoneNumber});
 
   @override
   State<QuickInviteScreen> createState() => _QuickInviteScreenState();
@@ -32,10 +37,16 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
   bool _submitted = false;
 
   String? _currentUserId;
+  List<StaffUser> _cachedOwners = [];
+  List<LeadStatus> _cachedStatuses = [];
+  List<LeadSource> _cachedSources = [];
 
   @override
   void initState() {
     super.initState();
+    if (widget.initialPhoneNumber != null && widget.initialPhoneNumber!.isNotEmpty) {
+      _phoneController.text = widget.initialPhoneNumber!;
+    }
     _loadCurrentUser();
     context.read<LeadsBloc>().add(const FetchStaffUsers());
     context.read<LeadsBloc>().add(FetchLeadStatuses());
@@ -45,6 +56,39 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
   void _loadCurrentUser() async {
     final prefs = sl<SharedPreferences>();
     _currentUserId = prefs.getString('userId');
+    _fetchStaffDirectly();
+  }
+
+  void _fetchStaffDirectly() async {
+    try {
+      final useCase = sl<GetStaffUsersUseCase>();
+      final result = await useCase();
+      result.fold(
+        (_) {},
+        (users) {
+          if (mounted && users.isNotEmpty) {
+            setState(() {
+              _cachedOwners = users;
+              if (_selectedAssignedUser == null) {
+                final regularStaffOwners = users.where((s) {
+                  final isCurrentUser = (_currentUserId != null && s.userId == _currentUserId);
+                  final lower = s.name.toLowerCase().replaceAll(' ', '').replaceAll('_', '');
+                  final isSuperAdmin = lower.contains('superadmin') || lower == 'admin';
+                  return !isCurrentUser && !isSuperAdmin;
+                }).toList();
+                final otherOwners = users.where((s) => !regularStaffOwners.contains(s)).toList();
+                final orderedOwners = [...regularStaffOwners, ...otherOwners];
+                if (orderedOwners.isNotEmpty) {
+                  _selectedAssignedUser = regularStaffOwners.isNotEmpty
+                      ? regularStaffOwners.first.userId
+                      : orderedOwners.first.userId;
+                }
+              }
+            });
+          }
+        },
+      );
+    } catch (_) {}
   }
 
   @override
@@ -136,17 +180,26 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
                 ),
                 child: BlocBuilder<LeadsBloc, LeadsState>(
                   builder: (context, state) {
-                    List<DropdownMenuItem<String>> assignedItems = [];
-
                     if (state is LeadsLoaded) {
-                      final regularStaffOwners = state.owners.where((s) {
+                      if (state.owners.isNotEmpty) _cachedOwners = state.owners;
+                      if (state.statuses.isNotEmpty) _cachedStatuses = state.statuses;
+                      if (state.sources.isNotEmpty) _cachedSources = state.sources;
+                    }
+
+                    List<DropdownMenuItem<String>> assignedItems = [];
+                    final ownersToUse = (state is LeadsLoaded && state.owners.isNotEmpty)
+                        ? state.owners
+                        : _cachedOwners;
+
+                    if (ownersToUse.isNotEmpty) {
+                      final regularStaffOwners = ownersToUse.where((s) {
                         final isCurrentUser = (_currentUserId != null && s.userId == _currentUserId);
                         final lower = s.name.toLowerCase().replaceAll(' ', '').replaceAll('_', '');
                         final isSuperAdmin = lower.contains('superadmin') || lower == 'admin';
                         return !isCurrentUser && !isSuperAdmin;
                       }).toList();
 
-                      final otherOwners = state.owners.where((s) => !regularStaffOwners.contains(s)).toList();
+                      final otherOwners = ownersToUse.where((s) => !regularStaffOwners.contains(s)).toList();
                       final orderedOwners = [...regularStaffOwners, ...otherOwners];
 
                       assignedItems = orderedOwners
@@ -166,16 +219,24 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
                             ? regularStaffOwners.first.userId
                             : orderedOwners.first.userId;
                       }
-                      if (_selectedStatus == null && state.statuses.isNotEmpty) {
-                        try {
-                          _selectedStatus = state.statuses.firstWhere((s) => s.isDefault).id;
-                        } catch (_) {
-                          _selectedStatus = state.statuses.first.id;
-                        }
+                    }
+
+                    final statusesToUse = (state is LeadsLoaded && state.statuses.isNotEmpty)
+                        ? state.statuses
+                        : _cachedStatuses;
+                    if (_selectedStatus == null && statusesToUse.isNotEmpty) {
+                      try {
+                        _selectedStatus = statusesToUse.firstWhere((s) => s.isDefault == true).id;
+                      } catch (_) {
+                        _selectedStatus = statusesToUse.first.id;
                       }
-                      if (_selectedSource == null && state.sources.isNotEmpty) {
-                        _selectedSource = state.sources.first.id;
-                      }
+                    }
+
+                    final sourcesToUse = (state is LeadsLoaded && state.sources.isNotEmpty)
+                        ? state.sources
+                        : _cachedSources;
+                    if (_selectedSource == null && sourcesToUse.isNotEmpty) {
+                      _selectedSource = sourcesToUse.first.id;
                     }
 
                     return Form(

@@ -1,6 +1,5 @@
 import 'package:equatable/equatable.dart';
 import 'package:crm_mobile/models/custom_field.dart';
-import 'package:crm_mobile/models/custom_field_model.dart';
 
 class FixedField extends Equatable {
   final String fieldName;

@@ -524,34 +524,6 @@ class _StaffDetailViewState extends State<_StaffDetailView> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: isVerified
-                            ? const Color(0xFF10B981).withOpacity(0.12)
-                            : const Color(0xFFF59E0B).withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            isVerified ? Icons.check_circle : Icons.warning_amber_rounded,
-                            size: 12,
-                            color: isVerified ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            isVerified ? 'Verified' : 'Unverified',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: isVerified ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
                   ],
                 ),
               ],

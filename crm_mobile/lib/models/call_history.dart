@@ -15,6 +15,7 @@ class CallHistory {
   final String? appUserPhone; // Caller (From) number
   final String? recordingUrl;
   final bool isSynced;
+  final String callStatus; // ANSWERED, UNANSWERED, MISSED, REJECTED
 
   CallHistory({
     required this.id,
@@ -30,10 +31,23 @@ class CallHistory {
     this.appUserPhone,
     this.recordingUrl,
     this.isSynced = false,
+    this.callStatus = 'ANSWERED',
   });
 
   String get fromNumber => appUserPhone ?? 'Unknown';
   String get toNumber => phoneNumber;
+
+  bool get isUnanswered =>
+      callStatus == 'UNANSWERED' ||
+      callStatus == 'MISSED' ||
+      callStatus == 'REJECTED' ||
+      callStatus == 'NO_ANSWER' ||
+      (durationSeconds <= 0 && (recordingUrl == null || recordingUrl!.isEmpty));
+
+  String get formattedStatus {
+    if (isUnanswered) return 'UNANSWERED';
+    return callStatus.toUpperCase();
+  }
 
   String get formattedStartTime {
     if (startTime <= 0) return '';
@@ -61,9 +75,18 @@ class CallHistory {
         'appUserPhone': appUserPhone,
         'recordingUrl': recordingUrl,
         'isSynced': isSynced,
+        'callStatus': callStatus,
       };
 
   factory CallHistory.fromJson(Map<String, dynamic> json) {
+    final duration = json['durationSeconds'] is int
+        ? json['durationSeconds']
+        : (int.tryParse(json['durationSeconds']?.toString() ?? '0') ?? 0);
+    final rawStatus = json['callStatus']?.toString();
+    final defaultStatus = (rawStatus != null && rawStatus.isNotEmpty)
+        ? rawStatus
+        : (duration <= 0 ? 'UNANSWERED' : 'ANSWERED');
+
     return CallHistory(
       id: (json['id'] ?? '').toString(),
       phoneNumber: (json['phoneNumber'] ?? json['toNumber'] ?? '').toString(),
@@ -72,9 +95,7 @@ class CallHistory {
       timestamp: json['timestamp'] is int
           ? json['timestamp']
           : (int.tryParse(json['timestamp']?.toString() ?? '0') ?? 0),
-      durationSeconds: json['durationSeconds'] is int
-          ? json['durationSeconds']
-          : (int.tryParse(json['durationSeconds']?.toString() ?? '0') ?? 0),
+      durationSeconds: duration,
       startTime: json['startTime'] is int
           ? json['startTime']
           : (int.tryParse(json['startTime']?.toString() ?? '0') ?? 0),
@@ -86,6 +107,7 @@ class CallHistory {
       appUserPhone: json['appUserPhone']?.toString(),
       recordingUrl: json['recordingUrl']?.toString(),
       isSynced: json['isSynced'] == true,
+      callStatus: defaultStatus,
     );
   }
 
@@ -103,6 +125,7 @@ class CallHistory {
     String? appUserPhone,
     String? recordingUrl,
     bool? isSynced,
+    String? callStatus,
   }) {
     return CallHistory(
       id: id ?? this.id,
@@ -118,6 +141,7 @@ class CallHistory {
       appUserPhone: appUserPhone ?? this.appUserPhone,
       recordingUrl: recordingUrl ?? this.recordingUrl,
       isSynced: isSynced ?? this.isSynced,
+      callStatus: callStatus ?? this.callStatus,
     );
   }
 }
