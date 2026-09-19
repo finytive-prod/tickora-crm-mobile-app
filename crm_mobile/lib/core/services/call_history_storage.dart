@@ -48,4 +48,13 @@ class CallHistoryStorage {
       debugPrint('Error adding call history entry: $e');
     }
   }
+
+  static Future<void> clearHistory() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_storageKey);
+    } catch (e) {
+      debugPrint('Error clearing call history: $e');
+    }
+  }
 }

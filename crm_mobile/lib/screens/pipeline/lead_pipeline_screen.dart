@@ -7,6 +7,7 @@ import 'package:crm_mobile/models/pipeline_model.dart';
 import 'package:crm_mobile/screens/pipeline/widgets/pipeline_column_widget.dart';
 import 'package:crm_mobile/screens/pipeline/widgets/pipeline_lead_card.dart';
 import 'package:crm_mobile/widgets/spinning_logo.dart';
+import 'package:crm_mobile/core/utils/text_selection_utils.dart';
 
 class LeadPipelineScreen extends StatefulWidget {
   const LeadPipelineScreen({super.key});
@@ -443,6 +444,9 @@ class _LeadPipelineScreenState extends State<LeadPipelineScreen> {
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
       child: TextField(
         controller: _searchController,
+        enableInteractiveSelection: true,
+        selectionControls: MaterialTextSelectionControls(),
+        contextMenuBuilder: buildAdaptiveContextMenu,
         onChanged: (val) {
           setState(() {
             _searchQuery = val.trim().toLowerCase();

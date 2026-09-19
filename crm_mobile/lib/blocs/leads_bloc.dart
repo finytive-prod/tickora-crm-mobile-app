@@ -440,7 +440,17 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
     final currentState = state;
     if (currentState is LeadDetailsLoaded) {
       emit(currentState.copyWith(isAudiosLoading: true, audiosError: null));
-      final result = await uploadLeadAudioUseCase(event.leadId, event.filePath);
+      final result = await uploadLeadAudioUseCase(
+        event.leadId,
+        event.filePath,
+        bound: event.bound,
+        startTime: event.startTime,
+        endTime: event.endTime,
+        from: event.from,
+        to: event.to,
+        duration: event.duration,
+        callDate: event.callDate,
+      );
       result.fold(
         (failure) => emit(currentState.copyWith(isAudiosLoading: false, audiosError: failure.message)),
         (_) {

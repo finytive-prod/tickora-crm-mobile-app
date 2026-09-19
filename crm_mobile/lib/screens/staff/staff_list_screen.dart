@@ -14,6 +14,7 @@ import 'package:crm_mobile/widgets/empty_state_widget.dart';
 import 'package:crm_mobile/widgets/poor_internet_widget.dart';
 import 'package:crm_mobile/widgets/server_error_503_widget.dart';
 import 'package:crm_mobile/repositories/settings_repository.dart';
+import 'package:crm_mobile/core/utils/text_selection_utils.dart';
 
 class StaffListScreen extends StatelessWidget {
   const StaffListScreen({super.key});
@@ -38,13 +39,40 @@ class _StaffListView extends StatefulWidget {
 class _StaffListViewState extends State<_StaffListView> {
   String _selectedStatus = 'ACTIVE';
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
   Timer? _debounce;
 
   @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
   void dispose() {
+    _scrollController.dispose();
     _searchController.dispose();
     _debounce?.cancel();
     super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    final currentScroll = _scrollController.position.pixels;
+    if (maxScroll - currentScroll <= 200) {
+      final bloc = context.read<StaffBloc>();
+      final state = bloc.state;
+      if (state is StaffLoaded && state.hasMore && !state.isLoadingMore) {
+        bloc.add(
+          LoadMoreStaffMembers(
+            page: state.currentPage + 1,
+            status: _selectedStatus,
+            searchQuery: state.searchQuery,
+          ),
+        );
+      }
+    }
   }
 
   void _onSearchChanged(String query) {
@@ -233,6 +261,9 @@ class _StaffListViewState extends State<_StaffListView> {
               ),
               child: TextField(
                 controller: _searchController,
+                enableInteractiveSelection: true,
+                selectionControls: MaterialTextSelectionControls(),
+                contextMenuBuilder: buildAdaptiveContextMenu,
                 onChanged: _onSearchChanged,
                 decoration: const InputDecoration(
                   hintText: 'Search by name...',
@@ -285,7 +316,8 @@ class _StaffListViewState extends State<_StaffListView> {
                     );
                   }
 
-                  final itemCount = staffMembers.length + (state.hasMore ? 1 : 0);
+                  final bool showLoader = state.hasMore || state.isLoadingMore;
+                  final itemCount = staffMembers.length + (showLoader ? 1 : 0);
 
                   return RefreshIndicator(
                     color: AppColors.primary,
@@ -293,6 +325,7 @@ class _StaffListViewState extends State<_StaffListView> {
                       context.read<StaffBloc>().add(FetchStaffMembers(status: _selectedStatus, searchQuery: _searchController.text));
                     },
                     child: ListView.separated(
+                      controller: _scrollController,
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       itemCount: itemCount,
                       separatorBuilder: (_, __) => const SizedBox(height: 10),
@@ -304,39 +337,11 @@ class _StaffListViewState extends State<_StaffListView> {
                           );
                         }
 
-                        // Load more button
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        // Bottom loader indicator for infinite scroll
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 16),
                           child: Center(
-                            child: state.isLoadingMore
-                                ? const SpinningLogo(size: 40)
-                                : OutlinedButton.icon(
-                                    onPressed: () {
-                                      context.read<StaffBloc>().add(
-                                        LoadMoreStaffMembers(
-                                          page: state.currentPage + 1,
-                                          status: _selectedStatus,
-                                          searchQuery: state.searchQuery,
-                                        ),
-                                      );
-                                    },
-                                    icon: const Icon(Icons.expand_more, color: AppColors.primary),
-                                    label: const Text(
-                                      'View More',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color: AppColors.primary,
-                                        fontSize: 14,
-                                      ),
-                                    ),
-                                    style: OutlinedButton.styleFrom(
-                                      side: const BorderSide(color: AppColors.primary, width: 1.5),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                                    ),
-                                  ),
+                            child: SpinningLogo(size: 36),
                           ),
                         );
                       },

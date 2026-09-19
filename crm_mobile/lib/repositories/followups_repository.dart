@@ -1,13 +1,10 @@
 import 'package:dartz/dartz.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:crm_mobile/core/error/failure.dart';
 import 'package:crm_mobile/core/network/api_client.dart';
 import 'package:crm_mobile/core/network/api_exception.dart';
 import 'package:crm_mobile/core/network/error_handler.dart';
 import 'package:crm_mobile/models/follow_up.dart';
 import 'package:crm_mobile/models/lead_followups.dart';
-import 'package:crm_mobile/models/follow_up_model.dart';
-import 'package:crm_mobile/models/lead_followups_model.dart';
 
 import 'package:crm_mobile/core/network/api_constants.dart';
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:crm_mobile/core/theme/app_colors.dart';
 import 'package:crm_mobile/core/utils/validators.dart';
+import 'package:crm_mobile/core/utils/text_selection_utils.dart';
 
 class CustomTextField extends StatefulWidget {
   final String label;
@@ -111,6 +112,9 @@ class _CustomTextFieldState extends State<CustomTextField> {
           maxLines: widget.maxLines,
           enabled: widget.enabled,
           readOnly: widget.readOnly,
+          enableInteractiveSelection: true,
+          selectionControls: MaterialTextSelectionControls(),
+          contextMenuBuilder: buildAdaptiveContextMenu,
           style: TextStyle(
             fontSize: 14,
             color: isInteractive ? AppColors.textPrimary : AppColors.textSecondary,

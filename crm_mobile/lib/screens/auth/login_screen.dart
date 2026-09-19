@@ -10,19 +10,23 @@ import 'package:crm_mobile/screens/auth/forgot_password_screen.dart';
 import 'package:crm_mobile/core/services/call_recording_service.dart';
 
 class LoginScreen extends StatelessWidget {
-  const LoginScreen({super.key});
+  final bool sessionExpired;
+
+  const LoginScreen({super.key, this.sessionExpired = false});
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
       create: (_) => sl<LoginBloc>(),
-      child: const LoginScreenView(),
+      child: LoginScreenView(sessionExpired: sessionExpired),
     );
   }
 }
 
 class LoginScreenView extends StatefulWidget {
-  const LoginScreenView({super.key});
+  final bool sessionExpired;
+
+  const LoginScreenView({super.key, this.sessionExpired = false});
 
   @override
   State<LoginScreenView> createState() => _LoginScreenViewState();
@@ -32,6 +36,24 @@ class _LoginScreenViewState extends State<LoginScreenView> {
   bool _obscurePassword = true;
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.sessionExpired) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Your session has expired. Please log in again.'),
+              backgroundColor: AppColors.primary,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
+      });
+    }
+  }
 
   @override
   void dispose() {

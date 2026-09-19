@@ -1,5 +1,6 @@
 import 'dart:developer' as developer;
 import 'package:flutter/foundation.dart';
+import 'package:in_app_update/in_app_update.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../config/app_update_config.dart';
@@ -82,6 +83,31 @@ class AppVersion implements Comparable<AppVersion> {
 
 /// Service responsible for checking app version updates and directing users to store.
 class AppUpdateService {
+  /// Checks Google Play Store for an update on Android devices.
+  /// Triggers Google Play's native immediate force update flow if available.
+  /// Returns [true] if a Play Store update flow was initiated/handled.
+  Future<bool> performPlayStoreUpdateCheck() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      return false;
+    }
+
+    try {
+      final updateInfo = await InAppUpdate.checkForUpdate();
+      if (updateInfo.updateAvailability == UpdateAvailability.updateAvailable) {
+        if (updateInfo.immediateUpdateAllowed) {
+          final result = await InAppUpdate.performImmediateUpdate();
+          return result == AppUpdateResult.success;
+        }
+      }
+    } catch (e, stack) {
+      if (kDebugMode) {
+        developer.log('Play Store in-app update check skipped/failed: $e',
+            error: e, stackTrace: stack);
+      }
+    }
+    return false;
+  }
+
   /// Fetches installed app version string including build number (e.g. "1.2.0+7")
   Future<String> getInstalledVersion() async {
     try {

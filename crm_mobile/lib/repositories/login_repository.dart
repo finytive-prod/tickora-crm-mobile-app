@@ -1,15 +1,14 @@
 import 'dart:convert';
 import 'package:dartz/dartz.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crm_mobile/core/error/failure.dart';
 import 'package:crm_mobile/core/network/api_client.dart';
 import 'package:crm_mobile/core/network/api_exception.dart';
 import 'package:crm_mobile/core/network/error_handler.dart';
 import 'package:crm_mobile/models/user.dart';
-import 'package:crm_mobile/models/user_model.dart';
-
 import 'package:crm_mobile/core/network/api_constants.dart';
+import 'package:crm_mobile/core/utils/staff_phone_resolver.dart';
 
 abstract class LoginRepository {
   Future<Either<Failure, User>> login(String email, String password);
@@ -75,7 +74,10 @@ class LoginRepositoryImpl implements LoginRepository {
           userEmail = email.trim();
         }
 
-        final userPhone = (decoded['phone'] ?? decoded['phoneNumber'] ?? decoded['mobile'] ?? '').toString();
+        String userPhone = (decoded['phone'] ?? decoded['phoneNumber'] ?? decoded['mobile'] ?? '').toString();
+        if (userPhone.isEmpty) {
+          userPhone = (body['data']['phone'] ?? body['data']['phoneNumber'] ?? body['data']['mobile'] ?? body['data']['contactNumber'] ?? '').toString();
+        }
 
         await sharedPreferences.setString('userName', name);
         await sharedPreferences.setString('userEmail', userEmail);
@@ -86,12 +88,30 @@ class LoginRepositoryImpl implements LoginRepository {
           await sharedPreferences.setString('userPhone', userPhone);
         }
 
+        // If phone is still not found, fetch the staff profile to get the phone number
+        if (userPhone.isEmpty && userModel.userId.isNotEmpty) {
+          _fetchAndSaveStaffPhone(userModel.userId);
+        }
+
         return Right(userModel);
       } else {
         throw ApiException(message: body?['message'] ?? 'Login failed');
       }
     } catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));
+    }
+  }
+
+  /// Fetches the current staff member's profile to get their phone number.
+  /// This is a fire-and-forget call that runs after login.
+  void _fetchAndSaveStaffPhone(String userId) async {
+    try {
+      await StaffPhoneResolver.getOrFetchStaffPhone(
+        apiClient: apiClient,
+        prefs: sharedPreferences,
+      );
+    } catch (e) {
+      debugPrint('Failed to fetch staff phone: $e');
     }
   }
 

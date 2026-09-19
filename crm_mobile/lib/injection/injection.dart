@@ -9,6 +9,7 @@ import 'package:crm_mobile/core/network/interceptors/logger_interceptor.dart';
 import 'package:crm_mobile/core/services/privilege_service.dart';
 import 'package:crm_mobile/core/services/fcm_service.dart';
 import 'package:crm_mobile/core/services/app_update_service.dart';
+import 'package:crm_mobile/core/utils/navigation_service.dart';
 
 // BLoC Imports
 import 'package:crm_mobile/blocs/login_bloc.dart';
@@ -93,7 +94,7 @@ Future<void> init() async {
   sl.registerLazySingleton(() => Logger());
 
   // Interceptors
-  sl.registerLazySingleton(() => AuthInterceptor(sl(), onSessionExpired: () {}));
+  sl.registerLazySingleton(() => AuthInterceptor(sl(), onSessionExpired: NavigationService.handleSessionExpired));
   sl.registerLazySingleton(() => LoggerInterceptor(sl()));
   sl.registerLazySingleton(() => ErrorInterceptor());
 

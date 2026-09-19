@@ -28,7 +28,7 @@ class _AnimatedBellIconState extends State<AnimatedBellIcon>
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1400),
-    )..repeat(reverse: true);
+    );
 
     // Zoom in / zoom out scale pulse (1.0 to 1.25)
     _scaleAnimation = TweenSequence<double>([
@@ -66,6 +66,25 @@ class _AnimatedBellIconState extends State<AnimatedBellIcon>
     _pulseAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeOut),
     );
+
+    if (widget.unreadCount > 0) {
+      _controller.repeat(reverse: true);
+    }
+  }
+
+  @override
+  void didUpdateWidget(AnimatedBellIcon oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.unreadCount > 0) {
+      if (!_controller.isAnimating) {
+        _controller.repeat(reverse: true);
+      }
+    } else {
+      if (_controller.isAnimating) {
+        _controller.stop();
+        _controller.reset();
+      }
+    }
   }
 
   @override
@@ -86,40 +105,48 @@ class _AnimatedBellIconState extends State<AnimatedBellIcon>
         child: Stack(
           alignment: Alignment.center,
           children: [
-            // 1. Continuous expanding vibration wave pulse ring
-            AnimatedBuilder(
-              animation: _pulseAnimation,
-              builder: (context, child) {
-                final size = 28.0 + (22.0 * _pulseAnimation.value);
-                final opacity = (1.0 - _pulseAnimation.value).clamp(0.0, 1.0) * (hasUnread ? 0.45 : 0.25);
-                return Container(
-                  width: size,
-                  height: size,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: AppColors.primary.withValues(alpha: opacity),
-                  ),
-                );
-              },
-            ),
-
-            // 2. Animated swinging bell icon with zoom in / out motion
-            AnimatedBuilder(
-              animation: _controller,
-              builder: (context, child) {
-                return Transform.scale(
-                  scale: _scaleAnimation.value,
-                  child: Transform.rotate(
-                    angle: _rotationAnimation.value,
-                    child: const Icon(
-                      Icons.notifications_active_rounded,
-                      color: AppColors.primary,
-                      size: 24,
+            // 1. Continuous expanding vibration wave pulse ring (only when unread)
+            if (hasUnread)
+              AnimatedBuilder(
+                animation: _pulseAnimation,
+                builder: (context, child) {
+                  final size = 28.0 + (22.0 * _pulseAnimation.value);
+                  final opacity = (1.0 - _pulseAnimation.value).clamp(0.0, 1.0) * 0.45;
+                  return Container(
+                    width: size,
+                    height: size,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: AppColors.primary.withValues(alpha: opacity),
                     ),
-                  ),
-                );
-              },
-            ),
+                  );
+                },
+              ),
+
+            // 2. Bell icon: swinging animation when unread, static when no unread
+            if (hasUnread)
+              AnimatedBuilder(
+                animation: _controller,
+                builder: (context, child) {
+                  return Transform.scale(
+                    scale: _scaleAnimation.value,
+                    child: Transform.rotate(
+                      angle: _rotationAnimation.value,
+                      child: const Icon(
+                        Icons.notifications_active_rounded,
+                        color: AppColors.primary,
+                        size: 24,
+                      ),
+                    ),
+                  );
+                },
+              )
+            else
+              const Icon(
+                Icons.notifications_none_rounded,
+                color: AppColors.textPrimary,
+                size: 24,
+              ),
 
             // 3. Unread count badge
             if (hasUnread)

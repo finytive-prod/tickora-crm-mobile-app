@@ -144,12 +144,39 @@ class FetchLeadAudios extends LeadsEvent {
 
 class UploadLeadAudio extends LeadsEvent {
   final String leadId;
-  final String filePath;
+  final String? filePath;
+  final String? bound;
+  final String? startTime;
+  final String? endTime;
+  final String? from;
+  final String? to;
+  final String? duration;
+  final String? callDate;
 
-  const UploadLeadAudio({required this.leadId, required this.filePath});
+  const UploadLeadAudio({
+    required this.leadId,
+    this.filePath,
+    this.bound,
+    this.startTime,
+    this.endTime,
+    this.from,
+    this.to,
+    this.duration,
+    this.callDate,
+  });
 
   @override
-  List<Object?> get props => [leadId, filePath];
+  List<Object?> get props => [
+        leadId,
+        filePath,
+        bound,
+        startTime,
+        endTime,
+        from,
+        to,
+        duration,
+        callDate,
+      ];
 }
 
 class UpdateLeadActiveStatus extends LeadsEvent {

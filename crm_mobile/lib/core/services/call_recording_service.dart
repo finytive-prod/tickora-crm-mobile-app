@@ -97,6 +97,33 @@ class CallRecordingService {
     }
   }
 
+  Future<List<Map<String, dynamic>>> getSystemCallLogs(String phoneNumber) async {
+    try {
+      final List<dynamic>? res = await _channel.invokeMethod('getSystemCallLogs', {
+        'phoneNumber': phoneNumber,
+      });
+      if (res != null) {
+        return res.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      }
+      return [];
+    } on PlatformException catch (e) {
+      print("Failed to get system call logs: '${e.message}'.");
+      return [];
+    }
+  }
+
+  /// Gets the device's own phone number from SIM / call log.
+  /// Returns the phone number string, or empty string if unavailable.
+  Future<String> getDevicePhoneNumber() async {
+    try {
+      final String? result = await _channel.invokeMethod('getDevicePhoneNumber');
+      return result ?? '';
+    } on PlatformException catch (e) {
+      print("Failed to get device phone number: '${e.message}'.");
+      return '';
+    }
+  }
+
   Future<void> playRecording(String path, {BuildContext? context, String? title}) async {
     if (context != null && context.mounted) {
       InAppAudioPlayerModal.show(context, filePath: path, title: title ?? 'Recording');

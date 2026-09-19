@@ -13,6 +13,7 @@ import 'package:crm_mobile/widgets/empty_state_widget.dart';
 import 'package:crm_mobile/widgets/poor_internet_widget.dart';
 import 'package:crm_mobile/widgets/server_error_503_widget.dart';
 import 'package:crm_mobile/screens/customers/add_edit_customer_screen.dart';
+import 'package:crm_mobile/core/utils/text_selection_utils.dart';
 
 class CustomerScreen extends StatelessWidget {
   const CustomerScreen({super.key});
@@ -143,6 +144,9 @@ class _CustomersViewState extends State<_CustomersView> {
               ),
               child: TextField(
                 controller: _searchController,
+                enableInteractiveSelection: true,
+                selectionControls: MaterialTextSelectionControls(),
+                contextMenuBuilder: buildAdaptiveContextMenu,
                 onChanged: _onSearchChanged,
                 decoration: const InputDecoration(
                   hintText: 'Search contacts...',

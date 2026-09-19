@@ -10,6 +10,7 @@ import 'package:crm_mobile/blocs/followups_state.dart';
 import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/widgets/spinning_logo.dart';
 import 'package:crm_mobile/core/services/privilege_service.dart';
+import 'package:crm_mobile/screens/leads/lead_details_screen.dart';
 import 'edit_followup_screen.dart';
 import 'add_followup_screen.dart';
 
@@ -224,52 +225,92 @@ class _LeadFollowUpDetailsViewState extends State<LeadFollowUpDetailsView> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // 1. Lead Header Card
-                  Card(
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      side: const BorderSide(color: AppColors.borderEnabled),
-                    ),
-                    color: Colors.white,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        children: [
-                          Row(
-                            children: [
-                              CircleAvatar(
-                                radius: 28,
-                                backgroundColor: statusColor.withOpacity(0.15),
-                                child: Text(
-                                  displayInitials,
-                                  style: TextStyle(color: statusColor, fontWeight: FontWeight.bold, fontSize: 20),
-                                ),
-                              ),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      displayName,
-                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.textPrimary),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      leadDetails.companyName.isNotEmpty ? leadDetails.companyName : 'No Company Details',
-                                      style: const TextStyle(color: AppColors.textHint, fontSize: 14),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      leadDetails.leadNumber,
-                                      style: const TextStyle(color: AppColors.textSecondary, fontSize: 12, fontFamily: 'monospace'),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
+                  // 1. Lead Header Card (Tapping navigates to Lead Details Screen)
+                  GestureDetector(
+                    onTap: () {
+                      final String targetLeadId = leadDetails.id.isNotEmpty ? leadDetails.id : widget.leadId;
+                      if (targetLeadId.isNotEmpty) {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => LeadDetailsScreen(
+                              leadId: targetLeadId,
+                              isActive: true,
+                            ),
                           ),
+                        );
+                      }
+                    },
+                    child: Card(
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        side: const BorderSide(color: AppColors.borderEnabled),
+                      ),
+                      color: Colors.white,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          children: [
+                            Row(
+                              children: [
+                                CircleAvatar(
+                                  radius: 28,
+                                  backgroundColor: statusColor.withOpacity(0.15),
+                                  child: Text(
+                                    displayInitials,
+                                    style: TextStyle(color: statusColor, fontWeight: FontWeight.bold, fontSize: 20),
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              displayName,
+                                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.textPrimary),
+                                            ),
+                                          ),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            decoration: BoxDecoration(
+                                              color: AppColors.primary.withOpacity(0.08),
+                                              borderRadius: BorderRadius.circular(12),
+                                            ),
+                                            child: const Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Text(
+                                                  'View Lead',
+                                                  style: TextStyle(color: AppColors.primary, fontSize: 11, fontWeight: FontWeight.bold),
+                                                ),
+                                                SizedBox(width: 2),
+                                                Icon(Icons.arrow_forward_ios, size: 10, color: AppColors.primary),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        leadDetails.companyName.isNotEmpty ? leadDetails.companyName : 'No Company Details',
+                                        style: const TextStyle(color: AppColors.textHint, fontSize: 14),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        leadDetails.leadNumber,
+                                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 12, fontFamily: 'monospace'),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
                           const SizedBox(height: 16),
                           const Divider(height: 1, color: AppColors.borderEnabled),
                           const SizedBox(height: 12),
@@ -326,7 +367,8 @@ class _LeadFollowUpDetailsViewState extends State<LeadFollowUpDetailsView> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 16),
+                ),
+                const SizedBox(height: 16),
 
                   // 2. Action Buttons (Call, Email, Details)
                   // Row(
