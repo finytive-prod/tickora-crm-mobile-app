@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:crm_mobile/core/network/api_constants.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http_parser/http_parser.dart';
@@ -17,11 +18,24 @@ import 'package:crm_mobile/models/attachment.dart';
 import 'package:crm_mobile/models/lead_audio.dart';
 import 'package:crm_mobile/models/pipeline_model.dart';
 import 'package:crm_mobile/models/dialpad_lead_search_result.dart';
-import 'package:crm_mobile/core/network/api_constants.dart';
+import 'package:crm_mobile/models/lead_filter_params.dart';
+import 'package:crm_mobile/core/utils/phone_number_utils.dart';
 
 abstract class LeadsRepository {
-  Future<Either<Failure, List<Lead>>> getLeads(int page, int size, {String? statusId, bool? isActive});
-  Future<Either<Failure, List<Lead>>> searchLeads(String query, {int page = 0, int size = 10});
+  Future<Either<Failure, List<Lead>>> getLeads(
+    int page,
+    int size, {
+    String? statusId,
+    bool? isActive,
+    LeadFilterParams? filterParams,
+    String? searchQuery,
+  });
+  Future<Either<Failure, List<Lead>>> searchLeads(
+    String query, {
+    int page = 0,
+    int size = 10,
+    LeadFilterParams? filterParams,
+  });
   Future<Either<Failure, List<String>>> getLeadPriorities();
   Future<Either<Failure, List<StaffUser>>> getStaffUsers({String? search});
   Future<Either<Failure, void>> createLead(Map<String, dynamic> leadData, List<String> filePaths, {String? leadFileName});
@@ -60,7 +74,14 @@ class LeadsRepositoryImpl implements LeadsRepository {
   String get _identityBaseUrl => ApiUrl.identityService;
 
   @override
-  Future<Either<Failure, List<Lead>>> getLeads(int page, int size, {String? statusId, bool? isActive}) async {
+  Future<Either<Failure, List<Lead>>> getLeads(
+    int page,
+    int size, {
+    String? statusId,
+    bool? isActive,
+    LeadFilterParams? filterParams,
+    String? searchQuery,
+  }) async {
     try {
       final leadsBaseUrl = _leadsBaseUrl;
 
@@ -69,16 +90,35 @@ class LeadsRepositoryImpl implements LeadsRepository {
         'size': size,
         'sort': 'createdAt,desc',
       };
-      if (statusId != null) queryParameters['statusId'] = statusId;
-      if (isActive != null) queryParameters['isActive'] = isActive;
 
-      final response = await apiClient.get(
-        '$leadsBaseUrl/leads',
+      final bodyPayload = <String, dynamic>{};
+      if (filterParams != null) {
+        bodyPayload.addAll(filterParams.toJson());
+      }
+
+      if (statusId != null && statusId.isNotEmpty) {
+        final existingStatuses = List<String>.from(bodyPayload['statusIds'] ?? []);
+        if (!existingStatuses.contains(statusId)) {
+          existingStatuses.add(statusId);
+        }
+        bodyPayload['statusIds'] = existingStatuses;
+      }
+
+      if (searchQuery != null && searchQuery.trim().isNotEmpty) {
+        final cleanedSearch = sanitizeLeadSearchQuery(searchQuery);
+        if (cleanedSearch.isNotEmpty) {
+          bodyPayload['search'] = cleanedSearch;
+        }
+      }
+
+      final response = await apiClient.post(
+        '$leadsBaseUrl/leads/filter',
         queryParameters: queryParameters,
+        data: bodyPayload,
       );
 
       final body = response.data;
-      if (body != null && body['success'] == true && body['data'] != null) {
+      if (body != null && (body['success'] == true || body['statusCode'] == 200) && body['data'] != null) {
         final List<dynamic> content;
         if (body['data'] is List) {
           content = body['data'];
@@ -98,55 +138,15 @@ class LeadsRepositoryImpl implements LeadsRepository {
   }
 
   @override
-  Future<Either<Failure, List<Lead>>> searchLeads(String query, {int page = 0, int size = 10}) async {
-    try {
-      final leadsBaseUrl = _leadsBaseUrl;
-      final response = await apiClient.post(
-        '$leadsBaseUrl/leads/search/global',
-        queryParameters: {
-          'page': page,
-          'size': size,
-        },
-        data: {
-          'query': query.trim().isEmpty ? null : query.trim(),
-          'isLead': true,
-          'isCustomer': false,
-          'isUser': false,
-          'isFollowup': false,
-        },
-      );
-
-      final body = response.data;
-      if (body != null && body['success'] == true && body['data'] != null) {
-        final List<dynamic> content;
-        if (body['data'] is List) {
-          content = body['data'];
-        } else if (body['data'] is Map && body['data']['content'] is List) {
-          content = body['data']['content'];
-        } else {
-          content = [];
-        }
-
-        final q = query.trim().toLowerCase();
-        final leads = content
-            .map((json) => LeadModel.fromJson(json))
-            .where((lead) {
-              if (q.isEmpty) return true;
-              final fullName = '${lead.firstName} ${lead.lastName}'.toLowerCase();
-              final phone = lead.phone.toLowerCase();
-              final email = lead.email.toLowerCase();
-              final company = lead.companyName.toLowerCase();
-              return fullName.contains(q) || phone.contains(q) || email.contains(q) || company.contains(q);
-            })
-            .toList();
-        return Right(leads);
-      } else {
-        throw ApiException(message: body?['message'] ?? 'Failed to search leads');
-      }
-    } on Exception catch (e) {
-      return Left(ErrorHandler.mapExceptionToFailure(e));
-    }
+  Future<Either<Failure, List<Lead>>> searchLeads(
+    String query, {
+    int page = 0,
+    int size = 10,
+    LeadFilterParams? filterParams,
+  }) async {
+    return getLeads(page, size, filterParams: filterParams, searchQuery: query);
   }
+
 
   @override
   Future<Either<Failure, List<String>>> getLeadPriorities() async {
@@ -749,7 +749,7 @@ class LeadsRepositoryImpl implements LeadsRepository {
       );
 
       final body = response.data;
-      if (body != null && (body['success'] == true || body['statusCode'] == 200 || body['statusCode'] == 201)) {
+      if (response.statusCode == 200 || response.statusCode == 201 || (body != null && (body['success'] == true || body['statusCode'] == 200 || body['statusCode'] == 201))) {
         return const Right(null);
       } else {
         return Left(ServerFailure(body?['message'] ?? 'Failed to send quick invite'));

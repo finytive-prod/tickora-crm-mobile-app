@@ -10,11 +10,14 @@ import 'package:crm_mobile/blocs/leads_bloc.dart';
 import 'package:crm_mobile/blocs/leads_event.dart';
 import 'package:crm_mobile/blocs/leads_state.dart';
 import 'package:crm_mobile/screens/leads/lead_details_screen.dart';
+import 'package:crm_mobile/screens/leads/widgets/lead_filter_side_sheet.dart';
 import 'package:crm_mobile/widgets/expandable_fab.dart';
 import 'package:crm_mobile/widgets/spinning_logo.dart';
 import 'package:crm_mobile/models/lead.dart';
 import 'package:crm_mobile/models/staff_user.dart';
+import 'package:crm_mobile/models/lead_filter_params.dart';
 import 'package:crm_mobile/core/utils/text_selection_utils.dart';
+import 'package:crm_mobile/core/utils/phone_number_utils.dart';
 
 class LeadsScreen extends StatelessWidget {
   const LeadsScreen({super.key});
@@ -66,12 +69,14 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
       final state = bloc.state;
       if (state is LeadsLoaded && state.hasMoreLeads && !state.isLoadingMore) {
         final searchQuery = state.searchQuery;
+        final filterParams = state.filterParams;
         if (searchQuery != null && searchQuery.isNotEmpty) {
           bloc.add(SearchLeads(
             query: searchQuery,
             page: state.currentPage + 1,
             size: 15,
             isLoadMore: true,
+            filterParams: filterParams,
           ));
         } else {
           bloc.add(FetchLeads(
@@ -80,43 +85,15 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
             statusId: state.selectedStatusId,
             isActive: state.selectedIsActive,
             isLoadMore: true,
+            filterParams: filterParams,
           ));
         }
       }
     }
   }
 
-  String _sanitizeSearchQuery(String query) {
-    String cleaned = query.trim();
-    if (cleaned.isEmpty) return cleaned;
-
-    // If query starts with '+' (e.g. +91 7878788787, +917878788787, +1-800-555)
-    if (cleaned.startsWith('+')) {
-      final countryCodeRegExp = RegExp(r'^\+\d{1,3}[\s\-]*');
-      cleaned = cleaned.replaceFirst(countryCodeRegExp, '');
-    } else {
-      final digitsOnly = cleaned.replaceAll(RegExp(r'[^\d]'), '');
-      // Handle 91XXXXXXXXXX (12 digits starting with 91)
-      if (digitsOnly.length == 12 && digitsOnly.startsWith('91')) {
-        cleaned = digitsOnly.substring(2);
-      }
-      // Handle 0XXXXXXXXXX (11 digits starting with 0)
-      else if (digitsOnly.length == 11 && digitsOnly.startsWith('0')) {
-        cleaned = digitsOnly.substring(1);
-      }
-    }
-
-    // If after stripping prefix, query consists of digits and spaces/dashes (e.g., 98765 43210), format as clean digits
-    final digits = cleaned.replaceAll(RegExp(r'[^\d]'), '');
-    if (digits.length >= 7 && cleaned.replaceAll(RegExp(r'[\d\s\-]'), '').isEmpty) {
-      cleaned = digits;
-    }
-
-    return cleaned;
-  }
-
-  void _onSearchChanged(String input, String? selectedStatusId, bool? selectedIsActive) {
-    final sanitized = _sanitizeSearchQuery(input);
+  void _onSearchChanged(String input, String? selectedStatusId, bool? selectedIsActive, LeadFilterParams? filterParams) {
+    final sanitized = sanitizeLeadSearchQuery(input);
     if (sanitized != input) {
       _searchController.value = TextEditingValue(
         text: sanitized,
@@ -124,21 +101,24 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
       );
     }
 
-    if (sanitized.isEmpty) {
+    final query = sanitized.trim();
+    if (query.isEmpty) {
       context.read<LeadsBloc>().add(
         FetchLeads(
           page: 0,
           size: 15,
           statusId: selectedStatusId,
           isActive: selectedIsActive ?? true,
+          filterParams: filterParams,
         ),
       );
     } else {
       context.read<LeadsBloc>().add(
-        SearchLeads(query: sanitized, page: 0, size: 15),
+        SearchLeads(query: query, page: 0, size: 15, filterParams: filterParams),
       );
     }
   }
+
 
   String _resolveAssigneeName(Lead lead, List<dynamic> owners) {
     if (lead.ownerUserName != null && lead.ownerUserName!.trim().isNotEmpty) {
@@ -207,6 +187,7 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
             final statuses = state is LeadsLoaded ? state.statuses : [];
             final selectedStatusId = state is LeadsLoaded ? state.selectedStatusId : null;
             final selectedIsActive = state is LeadsLoaded ? state.selectedIsActive : null;
+            final activeFilter = state is LeadsLoaded ? state.filterParams : null;
 
             return Column(
               children: [
@@ -225,15 +206,85 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
                         tooltip: 'Refresh Leads',
                         onPressed: () {
                           context.read<LeadsBloc>().add(
-                            FetchLeads(page: 0, size: 15, statusId: selectedStatusId, isActive: selectedIsActive ?? true),
+                            FetchLeads(
+                              page: 0,
+                              size: 15,
+                              statusId: selectedStatusId,
+                              isActive: selectedIsActive ?? true,
+                              filterParams: activeFilter,
+                              searchQuery: _searchController.text.isNotEmpty ? sanitizeLeadSearchQuery(_searchController.text) : null,
+                            ),
                           );
+                        },
+                      ),
+                      IconButton(
+                        icon: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            Icon(
+                              Icons.tune_rounded,
+                              color: (activeFilter != null && activeFilter.hasActiveFilters)
+                                  ? AppColors.primary
+                                  : AppColors.textPrimary,
+                            ),
+                            if (activeFilter != null && activeFilter.hasActiveFilters)
+                              Positioned(
+                                right: -2,
+                                top: -2,
+                                child: Container(
+                                  padding: const EdgeInsets.all(3),
+                                  decoration: const BoxDecoration(
+                                    color: AppColors.primary,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  constraints: const BoxConstraints(minWidth: 8, minHeight: 8),
+                                ),
+                              ),
+                          ],
+                        ),
+                        tooltip: 'Filter Leads',
+                        onPressed: () async {
+                          final currentFilter = activeFilter ?? const LeadFilterParams();
+                          final currentStatuses = state is LeadsLoaded ? state.statuses : <LeadStatus>[];
+                          final currentSources = state is LeadsLoaded ? state.sources : <LeadSource>[];
+                          final currentPriorities = state is LeadsLoaded ? state.priorities : <String>[];
+                          final currentOwners = state is LeadsLoaded ? state.owners : <StaffUser>[];
+
+                          final newFilter = await LeadFilterSideSheet.show(
+                            context,
+                            currentFilter: currentFilter,
+                            statuses: currentStatuses,
+                            sources: currentSources,
+                            priorities: currentPriorities,
+                            owners: currentOwners,
+                          );
+
+                          if (newFilter != null && context.mounted) {
+                            context.read<LeadsBloc>().add(
+                              FetchLeads(
+                                page: 0,
+                                size: 15,
+                                statusId: selectedStatusId,
+                                isActive: selectedIsActive ?? true,
+                                filterParams: newFilter,
+                                searchQuery: _searchController.text.isNotEmpty ? sanitizeLeadSearchQuery(_searchController.text) : null,
+                              ),
+                            );
+                          }
                         },
                       ),
                       PopupMenuButton<bool>(
                         icon: const Icon(Icons.more_vert, color: AppColors.textPrimary),
                         onSelected: (bool showActive) {
                           context.read<LeadsBloc>().add(
-                            FetchLeads(page: 0, size: 15, statusId: selectedStatusId, isActive: showActive),
+                            FetchLeads(
+                              page: 0,
+                              size: 15,
+                              statusId: selectedStatusId,
+                              isActive: showActive,
+                              filterParams: activeFilter,
+                              searchQuery: _searchController.text.isNotEmpty ? sanitizeLeadSearchQuery(_searchController.text) : null,
+                            ),
                           );
                         },
                         itemBuilder: (BuildContext context) => <PopupMenuEntry<bool>>[
@@ -273,7 +324,7 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
                       enableInteractiveSelection: true,
                       selectionControls: MaterialTextSelectionControls(),
                       contextMenuBuilder: buildAdaptiveContextMenu,
-                      onChanged: (query) => _onSearchChanged(query, selectedStatusId, selectedIsActive),
+                      onChanged: (query) => _onSearchChanged(query, selectedStatusId, selectedIsActive, activeFilter),
                       decoration: InputDecoration(
                         hintText: 'Search leads, assignees...',
                         hintStyle: const TextStyle(color: AppColors.textHint, fontSize: 14),
@@ -283,7 +334,7 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
                                 icon: const Icon(Icons.clear, color: AppColors.textHint, size: 18),
                                 onPressed: () {
                                   _searchController.clear();
-                                  _onSearchChanged('', selectedStatusId, selectedIsActive);
+                                  _onSearchChanged('', selectedStatusId, selectedIsActive, activeFilter);
                                 },
                               )
                             : null,
@@ -293,6 +344,7 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
                     ),
                   ),
                 ),
+
                 const SizedBox(height: 16),
                 // Filter Chips
                 if (statuses.isNotEmpty)

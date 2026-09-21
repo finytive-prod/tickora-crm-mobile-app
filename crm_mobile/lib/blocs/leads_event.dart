@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:crm_mobile/models/lead_filter_params.dart';
 
 abstract class LeadsEvent extends Equatable {
   const LeadsEvent();
@@ -13,6 +14,8 @@ class FetchLeads extends LeadsEvent {
   final String? statusId;
   final bool isLoadMore;
   final bool? isActive;
+  final LeadFilterParams? filterParams;
+  final String? searchQuery;
 
   const FetchLeads({
     this.page = 0,
@@ -20,10 +23,12 @@ class FetchLeads extends LeadsEvent {
     this.statusId,
     this.isLoadMore = false,
     this.isActive,
+    this.filterParams,
+    this.searchQuery,
   });
 
   @override
-  List<Object?> get props => [page, size, statusId, isLoadMore, isActive];
+  List<Object?> get props => [page, size, statusId, isLoadMore, isActive, filterParams, searchQuery];
 }
 
 class SearchLeads extends LeadsEvent {
@@ -31,17 +36,20 @@ class SearchLeads extends LeadsEvent {
   final int page;
   final int size;
   final bool isLoadMore;
+  final LeadFilterParams? filterParams;
 
   const SearchLeads({
     required this.query,
     this.page = 0,
     this.size = 15,
     this.isLoadMore = false,
+    this.filterParams,
   });
 
   @override
-  List<Object> get props => [query, page, size, isLoadMore];
+  List<Object?> get props => [query, page, size, isLoadMore, filterParams];
 }
+
 
 class FetchLeadStatuses extends LeadsEvent {}
 

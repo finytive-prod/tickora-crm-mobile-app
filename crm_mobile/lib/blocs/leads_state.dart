@@ -7,7 +7,7 @@ import 'package:crm_mobile/models/lead_detail.dart';
 import 'package:crm_mobile/models/attachment.dart';
 import 'package:crm_mobile/models/lead_audio.dart';
 import 'package:crm_mobile/models/lead_form_layout.dart';
-
+import 'package:crm_mobile/models/lead_filter_params.dart';
 
 abstract class LeadsState extends Equatable {
   const LeadsState();
@@ -21,6 +21,7 @@ class LeadsInitial extends LeadsState {}
 class LeadsLoading extends LeadsState {}
 
 class LeadsLoaded extends LeadsState {
+
   final List<Lead> leads;
   final List<LeadStatus> statuses;
   final List<LeadSource> sources;
@@ -35,6 +36,7 @@ class LeadsLoaded extends LeadsState {
   final bool hasMoreLeads;
   final bool isLoadingMore;
   final String? searchQuery;
+  final LeadFilterParams? filterParams;
 
   const LeadsLoaded(
     this.leads, {
@@ -51,6 +53,7 @@ class LeadsLoaded extends LeadsState {
     this.hasMoreLeads = true,
     this.isLoadingMore = false,
     this.searchQuery,
+    this.filterParams,
   });
 
   LeadsLoaded copyWith({
@@ -70,6 +73,8 @@ class LeadsLoaded extends LeadsState {
     bool? hasMoreLeads,
     bool? isLoadingMore,
     String? searchQuery,
+    LeadFilterParams? filterParams,
+    bool clearFilterParams = false,
   }) {
     return LeadsLoaded(
       leads ?? this.leads,
@@ -86,6 +91,7 @@ class LeadsLoaded extends LeadsState {
       hasMoreLeads: hasMoreLeads ?? this.hasMoreLeads,
       isLoadingMore: isLoadingMore ?? this.isLoadingMore,
       searchQuery: searchQuery ?? this.searchQuery,
+      filterParams: clearFilterParams ? null : (filterParams ?? this.filterParams),
     );
   }
 
@@ -105,8 +111,10 @@ class LeadsLoaded extends LeadsState {
     hasMoreLeads,
     isLoadingMore,
     searchQuery,
+    filterParams,
   ];
 }
+
 
 class LeadsError extends LeadsState {
   final String message;

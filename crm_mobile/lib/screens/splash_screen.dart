@@ -56,16 +56,11 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
 
     final updateService = sl<AppUpdateService>();
 
-    // 1. Check Google Play Store In-App Updates (Native Android prompt)
-    final playStoreUpdateHandled = await updateService.performPlayStoreUpdateCheck();
-    if (playStoreUpdateHandled) {
-      return;
-    }
-
-    // 2. Fallback: Check minimum supported app version
+    // Enforce ForceUpdateScreen if installed version is below minimum OR Play Store reports an update
     final updateRequired = await updateService.isUpdateRequired();
+    final playStoreUpdateAvailable = await updateService.isPlayStoreUpdateAvailable();
 
-    if (updateRequired) {
+    if (updateRequired || playStoreUpdateAvailable) {
       final currentVersion = await updateService.getInstalledVersion();
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
