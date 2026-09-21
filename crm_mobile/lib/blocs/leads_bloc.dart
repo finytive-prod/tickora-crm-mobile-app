@@ -1,6 +1,7 @@
 import 'package:crm_mobile/models/lead.dart';
 import 'package:crm_mobile/models/custom_field.dart';
 import 'package:crm_mobile/models/lead_form_layout.dart';
+import 'package:crm_mobile/models/lead_filter_params.dart';
 import 'package:crm_mobile/usecases/update_lead_active_status_usecase.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:crm_mobile/usecases/get_leads_usecase.dart';
@@ -91,11 +92,16 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
       add(FetchCustomFieldsForm());
     }
 
+    LeadFilterParams? effectiveFilter = event.filterParams;
+    String? effectiveSearchQuery = event.searchQuery;
+
     if (currentState is LeadsLoaded) {
       currentStatuses = currentState.statuses;
       currentSources = currentState.sources;
       currentPriorities = currentState.priorities;
       currentOwners = currentState.owners;
+      effectiveFilter ??= currentState.filterParams;
+      effectiveSearchQuery ??= currentState.searchQuery;
 
       if (event.isLoadMore) {
         existingLeads = currentState.leads;
@@ -107,7 +113,14 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
       emit(LeadsLoading());
     }
 
-    final result = await getLeadsUseCase(event.page, event.size, statusId: event.statusId, isActive: event.isActive);
+    final result = await getLeadsUseCase(
+      event.page,
+      event.size,
+      statusId: event.statusId,
+      isActive: event.isActive,
+      filterParams: effectiveFilter,
+      searchQuery: effectiveSearchQuery,
+    );
 
     result.fold(
       (failure) {
@@ -154,7 +167,8 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
           currentPage: event.page,
           hasMoreLeads: hasMore,
           isLoadingMore: false,
-          searchQuery: null, // Clear search query when fetching normal leads
+          searchQuery: effectiveSearchQuery,
+          filterParams: effectiveFilter,
         ));
       },
     );
@@ -162,12 +176,18 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
 
   Future<void> _onSearchLeads(SearchLeads event, Emitter<LeadsState> emit) async {
     final query = event.query.trim();
+    final currentState = state;
+    LeadFilterParams? currentFilter = event.filterParams;
+
+    if (currentState is LeadsLoaded) {
+      currentFilter ??= currentState.filterParams;
+    }
+
     if (query.isEmpty) {
-      add(const FetchLeads(page: 0, size: 15));
+      add(FetchLeads(page: 0, size: 15, filterParams: currentFilter));
       return;
     }
 
-    final currentState = state;
     List<Lead> existingLeads = [];
     List<dynamic>? currentStatuses;
     List<LeadSource>? currentSources;
@@ -194,7 +214,7 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
       emit(LeadsLoading());
     }
 
-    final result = await searchLeadsUseCase(query, page: event.page, size: event.size);
+    final result = await searchLeadsUseCase(query, page: event.page, size: event.size, filterParams: currentFilter);
 
     result.fold(
       (failure) {
@@ -237,10 +257,12 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
           hasMoreLeads: hasMore,
           isLoadingMore: false,
           searchQuery: query,
+          filterParams: currentFilter,
         ));
       },
     );
   }
+
 
   Future<void> _onFetchLeadStatuses(FetchLeadStatuses event, Emitter<LeadsState> emit) async {
     final result = await getLeadStatusesUseCase();

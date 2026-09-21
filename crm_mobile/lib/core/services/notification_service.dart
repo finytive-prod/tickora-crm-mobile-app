@@ -55,9 +55,25 @@ class NotificationService extends ValueNotifier<List<AppNotification>> {
 
   int get unreadCount => value.where((n) => !n.isRead).length;
 
+  Future<SharedPreferences?> _getPrefs() async {
+    try {
+      if (sl.isRegistered<SharedPreferences>()) {
+        return sl<SharedPreferences>();
+      }
+      return await SharedPreferences.getInstance();
+    } catch (_) {
+      try {
+        return await SharedPreferences.getInstance();
+      } catch (_) {
+        return null;
+      }
+    }
+  }
+
   Future<void> _loadNotifications() async {
     try {
-      final prefs = sl<SharedPreferences>();
+      final prefs = await _getPrefs();
+      if (prefs == null) return;
       final rawJson = prefs.getString(_storageKey);
       if (rawJson != null && rawJson.isNotEmpty) {
         final List<dynamic> decoded = jsonDecode(rawJson);
@@ -68,7 +84,8 @@ class NotificationService extends ValueNotifier<List<AppNotification>> {
 
   Future<void> _saveNotifications() async {
     try {
-      final prefs = sl<SharedPreferences>();
+      final prefs = await _getPrefs();
+      if (prefs == null) return;
       final encoded = jsonEncode(value.map((n) => n.toJson()).toList());
       await prefs.setString(_storageKey, encoded);
     } catch (_) {}
@@ -80,7 +97,17 @@ class NotificationService extends ValueNotifier<List<AppNotification>> {
     String? type,
     Map<String, dynamic>? data,
   }) {
+    addNotificationAsync(title: title, body: body, type: type, data: data);
+  }
+
+  Future<void> addNotificationAsync({
+    required String title,
+    required String body,
+    String? type,
+    Map<String, dynamic>? data,
+  }) async {
     final notificationId = data?['notificationId']?.toString() ??
+        data?['id']?.toString() ??
         DateTime.now().millisecondsSinceEpoch.toString();
 
     // Avoid duplicate adding by notificationId
@@ -98,7 +125,7 @@ class NotificationService extends ValueNotifier<List<AppNotification>> {
     );
 
     value = [newNotification, ...value];
-    _saveNotifications();
+    await _saveNotifications();
   }
 
   void markAsRead(String id) {

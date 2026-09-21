@@ -138,7 +138,7 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
         payload['priority'] = _selectedPriority;
       }
 
-      context.read<LeadsBloc>().add(CreateLead(payload));
+      context.read<LeadsBloc>().add(QuickInviteLead(payload));
     }
   }
 
@@ -305,7 +305,20 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
                           ),
                           const SizedBox(height: 16),
 
-                          
+                          // 3. Lead Source Dropdown
+                          CustomDropdownField<String>(
+                            label: 'Lead Source',
+                            hintText: 'Select Lead Source',
+                            items: sourcesToUse
+                                .map((s) => DropdownMenuItem(
+                                      value: s.id,
+                                      child: Text(s.name, overflow: TextOverflow.ellipsis),
+                                    ))
+                                .toList(),
+                            value: _selectedSource,
+                            onChanged: (val) => setState(() => _selectedSource = val),
+                          ),
+                          const SizedBox(height: 16),
 
                           // 4. Assigned To Dropdown
                           CustomDropdownField<String>(
@@ -315,6 +328,7 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
                             value: _selectedAssignedUser,
                             onChanged: (val) => setState(() => _selectedAssignedUser = val),
                           ),
+
                           const SizedBox(height: 28),
 
                           // Action Buttons: Cancel & Invite

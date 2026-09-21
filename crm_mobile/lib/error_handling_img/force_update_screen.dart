@@ -140,8 +140,12 @@ class ForceUpdateScreen extends StatelessWidget {
                   width: double.infinity,
                   height: 52,
                   child: ElevatedButton(
-                    onPressed: () {
-                      sl<AppUpdateService>().launchAppStore();
+                    onPressed: () async {
+                      final updateService = sl<AppUpdateService>();
+                      final handled = await updateService.performPlayStoreUpdateCheck();
+                      if (!handled) {
+                        await updateService.launchAppStore();
+                      }
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,

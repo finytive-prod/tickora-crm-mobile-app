@@ -34,23 +34,6 @@ class ServerError503Widget extends StatelessWidget {
                 color: Colors.orangeAccent,
               ),
             ),
-            const SizedBox(height: 20),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.red.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
-              ),
-              child: const Text(
-                'HTTP 503 • Service Unavailable',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.red,
-                ),
-              ),
-            ),
             const SizedBox(height: 16),
             Text(
               title,

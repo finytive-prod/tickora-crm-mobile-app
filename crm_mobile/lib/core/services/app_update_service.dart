@@ -83,6 +83,24 @@ class AppVersion implements Comparable<AppVersion> {
 
 /// Service responsible for checking app version updates and directing users to store.
 class AppUpdateService {
+  /// Checks if Google Play Store has an update available for the app.
+  Future<bool> isPlayStoreUpdateAvailable() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      return false;
+    }
+
+    try {
+      final updateInfo = await InAppUpdate.checkForUpdate();
+      return updateInfo.updateAvailability == UpdateAvailability.updateAvailable;
+    } catch (e, stack) {
+      if (kDebugMode) {
+        developer.log('Play Store update availability check error: $e',
+            error: e, stackTrace: stack);
+      }
+    }
+    return false;
+  }
+
   /// Checks Google Play Store for an update on Android devices.
   /// Triggers Google Play's native immediate force update flow if available.
   /// Returns [true] if a Play Store update flow was initiated/handled.
