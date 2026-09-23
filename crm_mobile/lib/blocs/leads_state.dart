@@ -6,6 +6,7 @@ import 'package:crm_mobile/models/custom_field.dart';
 import 'package:crm_mobile/models/lead_detail.dart';
 import 'package:crm_mobile/models/attachment.dart';
 import 'package:crm_mobile/models/lead_audio.dart';
+import 'package:crm_mobile/models/lead_call_log.dart';
 import 'package:crm_mobile/models/lead_form_layout.dart';
 import 'package:crm_mobile/models/lead_filter_params.dart';
 
@@ -158,6 +159,9 @@ class LeadDetailsLoaded extends LeadsState {
   final List<LeadAudio>? audios;
   final bool isAudiosLoading;
   final String? audiosError;
+  final LeadCallLogResponse? callLogs;
+  final bool isCallLogsLoading;
+  final String? callLogsError;
 
   const LeadDetailsLoaded(
     this.leadDetail, {
@@ -170,6 +174,9 @@ class LeadDetailsLoaded extends LeadsState {
     this.audios,
     this.isAudiosLoading = false,
     this.audiosError,
+    this.callLogs,
+    this.isCallLogsLoading = false,
+    this.callLogsError,
   });
 
   LeadDetailsLoaded copyWith({
@@ -183,6 +190,9 @@ class LeadDetailsLoaded extends LeadsState {
     List<LeadAudio>? audios,
     bool? isAudiosLoading,
     String? audiosError,
+    LeadCallLogResponse? callLogs,
+    bool? isCallLogsLoading,
+    String? callLogsError,
   }) {
     return LeadDetailsLoaded(
       leadDetail ?? this.leadDetail,
@@ -195,6 +205,9 @@ class LeadDetailsLoaded extends LeadsState {
       audios: audios ?? this.audios,
       isAudiosLoading: isAudiosLoading ?? this.isAudiosLoading,
       audiosError: audiosError ?? this.audiosError,
+      callLogs: callLogs ?? this.callLogs,
+      isCallLogsLoading: isCallLogsLoading ?? this.isCallLogsLoading,
+      callLogsError: callLogsError ?? this.callLogsError,
     );
   }
 
@@ -210,6 +223,9 @@ class LeadDetailsLoaded extends LeadsState {
         audios,
         isAudiosLoading,
         audiosError,
+        callLogs,
+        isCallLogsLoading,
+        callLogsError,
       ];
 }
 

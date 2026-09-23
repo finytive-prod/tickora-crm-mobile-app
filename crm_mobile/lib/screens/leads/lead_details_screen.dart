@@ -16,6 +16,7 @@ import 'package:crm_mobile/models/lead.dart';
 import 'package:crm_mobile/models/lead_detail.dart';
 import 'package:crm_mobile/models/attachment.dart';
 import 'package:crm_mobile/models/lead_audio.dart';
+import 'package:crm_mobile/models/lead_call_log.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:crm_mobile/core/services/call_recording_service.dart';
 import 'package:crm_mobile/core/services/auto_call_recording_uploader.dart';
@@ -25,7 +26,9 @@ import 'package:crm_mobile/models/call_history.dart';
 import 'package:crm_mobile/core/services/call_history_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crm_mobile/repositories/settings_repository.dart';
+import 'package:crm_mobile/core/utils/staff_phone_resolver.dart';
 import 'package:crm_mobile/screens/leads/add_lead_screen.dart';
+import 'package:crm_mobile/repositories/leads_repository.dart';
 import 'package:crm_mobile/screens/followups/add_followup_screen.dart';
 
 class LeadDetailsScreen extends StatelessWidget {
@@ -52,7 +55,7 @@ class LeadDetailsView extends StatefulWidget {
 
 class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingObserver {
   int _activeTabIndex = 0;
-  final List<String> _tabs = ['Overview', 'Activities', 'Call Log(s)', 'Documents'];
+  final List<String> _tabs = ['Overview', 'Activities', 'Audio', 'Call Logs', 'Documents'];
   final TextEditingController _noteController = TextEditingController();
   
   List<Map<String, dynamic>> _localRecordings = [];
@@ -182,6 +185,9 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _fetchLeadStatuses();
+    StaffPhoneResolver.getOrFetchStaffPhone().then((phone) {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
@@ -304,38 +310,32 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
     final savedName = prefs?.getString('userName')?.trim();
     final savedPhone = prefs?.getString('userPhone')?.trim();
 
-    final staffUser = (savedName != null && savedName.isNotEmpty)
-        ? savedName
-        : ((savedPhone != null && savedPhone.isNotEmpty) ? savedPhone : 'Staff');
+    final staffUser = (savedPhone != null && savedPhone.isNotEmpty)
+        ? savedPhone
+        : ((savedName != null && savedName.isNotEmpty) ? savedName : 'Staff');
 
     final cleanLeadPhone = leadPhone.isNotEmpty ? leadPhone : 'Lead';
 
-    if (audio.fromNumber != null && audio.fromNumber!.isNotEmpty) {
+    if (audio.fromNumber != null && audio.fromNumber!.isNotEmpty && audio.fromNumber != 'null' && audio.fromNumber != 'Unknown') {
       fromPhone = audio.fromNumber!;
     }
-    if (audio.toNumber != null && audio.toNumber!.isNotEmpty) {
+    if (audio.toNumber != null && audio.toNumber!.isNotEmpty && audio.toNumber != 'null' && audio.toNumber != 'Unknown') {
       toPhone = audio.toNumber!;
     }
 
-    if (fromPhone.isEmpty || toPhone.isEmpty) {
-      final matches = RegExp(r'(\+?[6-9]\d{9}|\+?\d{10,12})').allMatches('${audio.displayName} ${audio.fileName}');
-      final validNumbers = <String>[];
-
-      for (final m in matches) {
-        final numStr = m.group(0)!;
-        if (!numStr.startsWith('202') && !numStr.startsWith('203')) {
-          if (!validNumbers.contains(numStr)) {
-            validNumbers.add(numStr);
-          }
-        }
-      }
-
+    if (fromPhone.isEmpty || fromPhone == 'Staff' || fromPhone == 'null' || fromPhone == 'Unknown') {
       if (isIncoming) {
-        if (fromPhone.isEmpty) fromPhone = validNumbers.isNotEmpty ? validNumbers[0] : cleanLeadPhone;
-        if (toPhone.isEmpty) toPhone = staffUser;
+        fromPhone = cleanLeadPhone;
       } else {
-        if (fromPhone.isEmpty) fromPhone = staffUser;
-        if (toPhone.isEmpty) toPhone = validNumbers.isNotEmpty ? validNumbers[0] : cleanLeadPhone;
+        fromPhone = staffUser;
+      }
+    }
+
+    if (toPhone.isEmpty || toPhone == 'Staff' || toPhone == 'null' || toPhone == 'Unknown') {
+      if (isIncoming) {
+        toPhone = staffUser;
+      } else {
+        toPhone = cleanLeadPhone;
       }
     }
 
@@ -346,48 +346,67 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
     final startDt = audio.createdAt ?? DateTime.now();
     startStr = DateFormat('hh:mm:ss a').format(startDt);
 
-    if (audio.startTimeStr != null && audio.startTimeStr!.isNotEmpty) {
+    DateTime baseStartDt = startDt;
+
+    if (audio.startTimeStr != null && audio.startTimeStr!.isNotEmpty && audio.startTimeStr != 'null') {
       final formattedStart = _formatTimeString(audio.startTimeStr);
       if (formattedStart != null) startStr = formattedStart;
+
+      final parts = audio.startTimeStr!.split(':');
+      if (parts.length >= 2) {
+        final hh = int.tryParse(parts[0]) ?? startDt.hour;
+        final mm = int.tryParse(parts[1]) ?? startDt.minute;
+        final ss = parts.length > 2 ? (int.tryParse(parts[2].split('.')[0]) ?? startDt.second) : 0;
+        baseStartDt = DateTime(startDt.year, startDt.month, startDt.day, hh, mm, ss);
+      }
     }
 
-    if (audio.endTimeStr != null && audio.endTimeStr!.isNotEmpty) {
+    if (audio.endTimeStr != null && audio.endTimeStr!.isNotEmpty && audio.endTimeStr != 'null') {
       final formattedEnd = _formatTimeString(audio.endTimeStr);
       if (formattedEnd != null) endStr = formattedEnd;
     }
 
-    int durationSec = audio.durationSeconds;
+    int durationSec = 0;
 
-    if (durationSec <= 0 && _resolvedAudioDurations.containsKey(audio.id)) {
+    if (audio.durationSeconds > 0) {
+      durationSec = audio.durationSeconds;
+    } else if (_resolvedAudioDurations.containsKey(audio.id)) {
       durationSec = _resolvedAudioDurations[audio.id]!;
-    }
+    } else {
+      final effectiveLocals = localRecordings ?? _localRecordings;
+      if (effectiveLocals.isNotEmpty) {
+        final cleanServerName = AutoCallRecordingUploader.cleanFileName(audio.displayName.toLowerCase());
+        
+        for (final local in effectiveLocals) {
+          final localPath = local['path']?.toString() ?? '';
+          final localName = AutoCallRecordingUploader.cleanFileName(localPath.split('/').last.split('\\').last.toLowerCase());
+          final localDurMs = (local['durationMs'] as num?)?.toInt() ?? 0;
+          final lowerPath = localPath.toLowerCase();
+          final rawFileName = audio.fileName.toLowerCase();
 
-    final effectiveLocals = localRecordings ?? _localRecordings;
-    if (durationSec <= 0 && effectiveLocals.isNotEmpty) {
-      final cleanServerName = AutoCallRecordingUploader.cleanFileName(audio.displayName.toLowerCase());
-      for (final local in effectiveLocals) {
-        final localPath = local['path']?.toString() ?? '';
-        final localName = AutoCallRecordingUploader.cleanFileName(localPath.split('/').last.split('\\').last.toLowerCase());
-        final localDurMs = (local['durationMs'] as num?)?.toInt() ?? 0;
+          final isNameMatch = localName == cleanServerName || 
+                              lowerPath.contains(cleanServerName) || 
+                              (rawFileName.isNotEmpty && lowerPath.contains(rawFileName)) ||
+                              cleanServerName.contains(localName);
 
-        if (localDurMs > 0 && (localName == cleanServerName || localPath.contains(cleanServerName) || cleanServerName.contains(localName))) {
-          durationSec = (localDurMs / 1000).round();
-          _resolvedAudioDurations[audio.id] = durationSec;
-          break;
+          if (localDurMs > 0 && isNameMatch) {
+            durationSec = (localDurMs / 1000).round();
+            _resolvedAudioDurations[audio.id] = durationSec;
+            break;
+          }
         }
       }
     }
 
     final effectiveTracked = trackedCalls ?? _trackedCallHistory;
     if (durationSec <= 0 && effectiveTracked.isNotEmpty) {
-      final audioMs = startDt.millisecondsSinceEpoch;
+      final audioMs = baseStartDt.millisecondsSinceEpoch;
       for (final c in effectiveTracked) {
         final diff1 = (c.timestamp - audioMs).abs();
         final diff2 = (c.startTime - audioMs).abs();
         if (diff1 < 900000 || diff2 < 900000) {
           if (c.durationSeconds > 0) {
             durationSec = c.durationSeconds;
-            _resolvedAudioDurations[audio.id] = durationSec;
           }
           if (c.appUserPhone != null && c.appUserPhone!.isNotEmpty) {
             if (isIncoming) {
@@ -408,17 +427,18 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
       }
     }
 
-    if (durationSec <= 0 && systemLogs != null && systemLogs.isNotEmpty) {
-      final audioMs = startDt.millisecondsSinceEpoch;
+    String sysStatus = '';
+    if (systemLogs != null && systemLogs.isNotEmpty) {
+      final audioMs = baseStartDt.millisecondsSinceEpoch;
       for (final sys in systemLogs) {
         final sysStart = sys['startTime'] as int? ?? 0;
         final sysDur = sys['durationSeconds'] as int? ?? 0;
         if (sysStart > 0 && (sysStart - audioMs).abs() < 900000) {
-          if (sysDur > 0) {
+          sysStatus = sys['callStatus'] as String? ?? '';
+          if (durationSec <= 0 && sysDur > 0) {
             durationSec = sysDur;
-            _resolvedAudioDurations[audio.id] = durationSec;
-            break;
           }
+          break;
         }
       }
     }
@@ -427,12 +447,11 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
     if (durationSec <= 0 && audio.size > 0) {
       durationSec = (audio.size / 2500).round();
       if (durationSec < 1) durationSec = 1;
-      _resolvedAudioDurations[audio.id] = durationSec;
     }
 
     if (durationSec > 0) {
       if (endStr == '--:--') {
-        final endDt = startDt.add(Duration(seconds: durationSec));
+        final endDt = baseStartDt.add(Duration(seconds: durationSec));
         endStr = DateFormat('hh:mm:ss a').format(endDt);
       }
       final mins = durationSec ~/ 60;
@@ -446,6 +465,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
       'startTime': startStr,
       'endTime': endStr,
       'duration': durationStr,
+      'sysStatus': sysStatus,
     };
   }
 
@@ -691,6 +711,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
                         _buildOverviewTab(lead),
                         _buildActivitiesTab(state),
                         _buildCallRecordingsTab(state),
+                        _buildServerCallLogTab(state),
                         _buildDocumentsTab(state),
                       ],
                     ),
@@ -882,7 +903,9 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
                       }
                     },
                   );
-                } else if (index == 3 && state.attachments == null) {
+                } else if (index == 3 && state.callLogs == null) {
+                  context.read<LeadsBloc>().add(FetchLeadCallLogs(state.leadDetail.id));
+                } else if (index == 4 && state.attachments == null) {
                   context.read<LeadsBloc>().add(FetchLeadAttachments(state.leadDetail.id));
                 }
               },
@@ -1232,8 +1255,8 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
           }
         }
 
-        // Auto-upload any unuploaded local recordings to backend server ONCE per lead visit
-        if (effectiveLocalRecordings.isNotEmpty && _autoUploadedLeadId != state.leadDetail.id) {
+        // Auto-upload any unuploaded local recordings or missed calls to backend server ONCE per lead visit
+        if (_autoUploadedLeadId != state.leadDetail.id) {
           _autoUploadedLeadId = state.leadDetail.id;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             AutoCallRecordingUploader.autoScanAndUploadLeadRecordings(
@@ -1293,7 +1316,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
             systemLogs: systemLogs,
           );
           final dateStr = audio.createdAt != null
-              ? DateFormat('MMM dd, yyyy - hh:mm a').format(audio.createdAt!)
+              ? DateFormat('MMM dd, yyyy').format(audio.createdAt!)
               : 'Unknown Date';
           final kb = audio.size / 1024;
           final mb = kb / 1024;
@@ -1303,9 +1326,12 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
           final isMissedName = lowerName.contains('missed') || lowerName.contains('unanswered');
           final isUnansweredBound = audio.bound?.toUpperCase() == 'MISSED' || audio.bound?.toUpperCase() == 'UNANSWERED';
           final isZeroSize = audio.size <= 0;
-          final isZeroDur = audio.durationSeconds <= 0;
+          
+          final sysStatus = callInfo['sysStatus']?.toUpperCase() ?? '';
+          final isMissedByStatus = sysStatus == 'MISSED' || sysStatus == 'REJECTED' || sysStatus == 'UNANSWERED';
 
-          final isUnanswered = isMissedName || isUnansweredBound || isZeroSize || isZeroDur;
+          // Mark as unanswered if it's a 0-byte dummy file OR if the actual system call log says it was missed
+          final isUnanswered = (isZeroSize && (isMissedName || isUnansweredBound || audio.durationSeconds <= 0)) || isMissedByStatus;
 
           allEntries.add(
             _CallCardData(
@@ -1325,81 +1351,37 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
           );
         }
 
-        // Merge local tracked calls & native system call logs for missed / unanswered / un-uploaded calls
-        final leadPhoneDigits = state.leadDetail.phone.replaceAll(RegExp(r'\D'), '');
-        final leadLast10 = leadPhoneDigits.length >= 10 ? leadPhoneDigits.substring(leadPhoneDigits.length - 10) : leadPhoneDigits;
-
-        final prefs = sl.isRegistered<SharedPreferences>() ? sl<SharedPreferences>() : null;
-        final savedName = prefs?.getString('userName')?.trim();
-        final savedPhone = prefs?.getString('userPhone')?.trim();
-        final staffUser = (savedName != null && savedName.isNotEmpty)
-            ? savedName
-            : ((savedPhone != null && savedPhone.isNotEmpty) ? savedPhone : 'Staff');
-
-        for (final tracked in trackedCalls) {
-          final tPhoneDigits = tracked.phoneNumber.replaceAll(RegExp(r'\D'), '');
-          final tLast10 = tPhoneDigits.length >= 10 ? tPhoneDigits.substring(tPhoneDigits.length - 10) : tPhoneDigits;
-
-          final isMatchLead = leadLast10.isEmpty || tLast10 == leadLast10 || tPhoneDigits.contains(leadLast10) || leadLast10.contains(tLast10);
-          if (!isMatchLead) continue;
-
-          final trackedStartTime = tracked.startTime > 0 ? tracked.startTime : tracked.timestamp;
-          if (trackedStartTime <= 0) continue;
-
-          // Check if already represented by an audio entry in serverAudios
-          final isAlreadyAdded = allEntries.any((entry) {
-            final entryMs = entry.timestamp.millisecondsSinceEpoch;
-            final timeDiff = (entryMs - trackedStartTime).abs();
-            if (timeDiff >= 30000) return false;
-            final trackedIsIncoming = tracked.callType.toUpperCase() == 'INCOMING' || tracked.callType.toUpperCase() == 'INBOUND';
-            return entry.isIncoming == trackedIsIncoming;
-          });
-
-          if (!isAlreadyAdded) {
-            final isIncoming = tracked.callType.toUpperCase() == 'INCOMING' || tracked.callType.toUpperCase() == 'INBOUND';
-            final isUnanswered = tracked.isUnanswered || tracked.durationSeconds <= 0;
-
-            final dt = DateTime.fromMillisecondsSinceEpoch(trackedStartTime);
-            final dateStr = DateFormat('MMM dd, yyyy - hh:mm a').format(dt);
-            final startStr = DateFormat('hh:mm:ss a').format(dt);
-            final endStr = tracked.endTime > 0 ? DateFormat('hh:mm:ss a').format(DateTime.fromMillisecondsSinceEpoch(tracked.endTime)) : '--:--';
-            final durSec = tracked.durationSeconds;
-            final durStr = durSec > 0 ? (durSec >= 60 ? '${durSec ~/ 60}m ${durSec % 60}s' : '${durSec}s') : '';
-
-            final fromPhone = isIncoming ? state.leadDetail.phone : (tracked.appUserPhone ?? staffUser);
-            final toPhone = isIncoming ? (tracked.appUserPhone ?? staffUser) : state.leadDetail.phone;
-
-            final defaultTitle = isIncoming
-                ? (isUnanswered ? 'Missed Call' : 'Incoming Call')
-                : (isUnanswered ? 'Unanswered Call' : 'Outgoing Call');
-
-            allEntries.add(
-              _CallCardData(
-                audio: null,
-                history: tracked,
-                timestamp: dt,
-                isIncoming: isIncoming,
-                isUnanswered: isUnanswered,
-                title: tracked.contactName ?? defaultTitle,
-                fromPhone: fromPhone,
-                toPhone: toPhone,
-                startTimeStr: startStr,
-                endTimeStr: endStr,
-                durationStr: durStr,
-                sizeStr: 'No Audio',
-                dateStr: dateStr,
-              ),
-            );
+        // Deduplicate: if an old buggy 'No Audio' dummy upload exists for the same call as a real answered recording, hide the dummy one.
+        final List<_CallCardData> deduplicatedEntries = [];
+        for (final entry in allEntries) {
+          bool isDuplicateDummy = false;
+          
+          if (entry.isUnanswered) {
+            // Check if there is another entry (real audio) around the same time (within 2 minutes)
+            for (final other in allEntries) {
+              if (other != entry && !other.isUnanswered && other.isIncoming == entry.isIncoming) {
+                final diff = other.timestamp.difference(entry.timestamp).inSeconds.abs();
+                if (diff < 120) {
+                  isDuplicateDummy = true;
+                  break;
+                }
+              }
+            }
+          }
+          
+          if (!isDuplicateDummy) {
+            deduplicatedEntries.add(entry);
           }
         }
 
-        allEntries.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+        // Display strictly data returned from backend API
+        deduplicatedEntries.sort((a, b) => b.timestamp.compareTo(a.timestamp));
 
-        final inboundEntries = allEntries.where((a) => a.isIncoming).toList();
-        final outboundEntries = allEntries.where((a) => !a.isIncoming).toList();
+        final inboundEntries = deduplicatedEntries.where((a) => a.isIncoming).toList();
+        final outboundEntries = deduplicatedEntries.where((a) => !a.isIncoming).toList();
 
         final currentEntries = _recordingFilter == 'all'
-            ? allEntries
+            ? deduplicatedEntries
             : _recordingFilter == 'inbound'
                 ? inboundEntries
                 : outboundEntries;
@@ -1414,7 +1396,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Call Recordings & Logs (${allEntries.length})',
+                    'Call Recordings & Logs (${deduplicatedEntries.length})',
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
@@ -1476,7 +1458,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
                   children: [
                     _buildSubTabItem(
                       filterKey: 'all',
-                      label: 'All (${allEntries.length})',
+                      label: 'All (${deduplicatedEntries.length})',
                       icon: Icons.phone_in_talk_rounded,
                       activeColor: AppColors.primary,
                     ),
@@ -1613,15 +1595,21 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
                                 ),
                                 const SizedBox(width: 8),
                                 Expanded(
-                                  child: Text(
-                                    item.title,
-                                    style: const TextStyle(
-                                      fontSize: 13.5,
-                                      fontWeight: FontWeight.bold,
-                                      color: AppColors.textPrimary,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
+                                  child: Row(
+                                    children: [
+                                      Flexible(
+                                        child: Text(
+                                          item.title,
+                                          style: const TextStyle(
+                                            fontSize: 13.5,
+                                            fontWeight: FontWeight.bold,
+                                            color: AppColors.textPrimary,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                                 const SizedBox(width: 6),
@@ -1672,27 +1660,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
                                       child: Icon(Icons.download_rounded, color: AppColors.primary, size: 20),
                                     ),
                                   ),
-                                ] else ...[
-                                  // Unanswered / No audio badge
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFF3F4F6),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: const Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(Icons.mic_off_rounded, size: 14, color: AppColors.textHint),
-                                        SizedBox(width: 4),
-                                        Text(
-                                          'No Audio',
-                                          style: TextStyle(fontSize: 10, color: AppColors.textHint, fontWeight: FontWeight.w600),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
+                                ]
                               ],
                             ),
                             const SizedBox(height: 8),
@@ -1764,7 +1732,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
                                           text: '${item.endTimeStr}   ',
                                           style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF374151), fontSize: 11.5),
                                         ),
-                                        if (item.durationStr.isNotEmpty)
+                                        if (item.durationStr.isNotEmpty && !item.isUnanswered)
                                           TextSpan(
                                             text: '(${item.durationStr})',
                                             style: TextStyle(
@@ -1807,6 +1775,279 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
       },
     );
   }
+
+  Widget _buildServerCallLogTab(LeadDetailsLoaded state) {
+    if (state.isCallLogsLoading) {
+      return const Center(child: SpinningLogo(size: 40));
+    }
+
+    if (state.callLogsError != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text('Failed to load call logs', style: TextStyle(color: AppColors.primary)),
+            TextButton(
+              onPressed: () {
+                context.read<LeadsBloc>().add(FetchLeadCallLogs(state.leadDetail.id));
+              },
+              child: const Text('Retry'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final callLogs = state.callLogs;
+    if (callLogs == null || callLogs.callHistory.isEmpty) {
+      return const Center(
+        child: Text(
+          'No call logs found for this lead.',
+          style: TextStyle(color: AppColors.textHint, fontSize: 16),
+        ),
+      );
+    }
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Summary Cards
+          Row(
+            children: [
+              Expanded(
+                child: _buildCallLogSummaryCard(
+                  'Total Calls',
+                  callLogs.totalCalls.toString(),
+                  Icons.phone,
+                  Colors.blue,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildCallLogSummaryCard(
+                  'Duration',
+                  _formatDuration(callLogs.totalDuration),
+                  Icons.timer,
+                  Colors.purple,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: _buildCallLogSummaryCard(
+                  'Inbound',
+                  callLogs.totalInboundCalls.toString(),
+                  Icons.call_received,
+                  Colors.green,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildCallLogSummaryCard(
+                  'Outbound',
+                  callLogs.totalOutboundCalls.toString(),
+                  Icons.call_made,
+                  Colors.orange,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildCallLogSummaryCard(
+                  'Missed',
+                  callLogs.totalMissedCalls.toString(),
+                  Icons.call_missed,
+                  Colors.red,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          const Text(
+            'Call History',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 12),
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: callLogs.callHistory.length,
+            separatorBuilder: (context, index) => const Divider(height: 1, color: AppColors.border),
+            itemBuilder: (context, index) {
+              final log = callLogs.callHistory[index];
+              return _buildCallLogListItem(log);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCallLogSummaryCard(String title, String value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCallLogListItem(LeadCallLog log) {
+    final isIncoming = log.bound.toUpperCase() == 'IN';
+    final isMissed = log.callStatus.toUpperCase() == 'MISSED';
+    final isNotConnected = log.callStatus.toUpperCase() == 'NOT_CONNECTED';
+    
+    IconData icon;
+    Color iconColor;
+    
+    if (isMissed) {
+      icon = Icons.call_missed;
+      iconColor = Colors.red;
+    } else if (isIncoming) {
+      icon = Icons.call_received;
+      iconColor = isNotConnected ? Colors.grey : Colors.green;
+    } else {
+      icon = Icons.call_made;
+      iconColor = isNotConnected ? Colors.grey : Colors.orange;
+    }
+
+    // Format date and time
+    String displayDateTime = '';
+    try {
+      if (log.startTime.isNotEmpty) {
+        final dt = DateTime.parse(log.startTime).toLocal();
+        displayDateTime = DateFormat('MMM dd, yyyy • hh:mm a').format(dt);
+      } else {
+        displayDateTime = log.callDate;
+      }
+    } catch (_) {
+      displayDateTime = log.callDate;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: iconColor.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: iconColor, size: 20),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      isIncoming ? log.fromNumber : log.toNumber,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    Text(
+                      log.duration,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      displayDateTime,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textHint,
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppColors.white,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Text(
+                        log.callStatus,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          color: AppColors.textSecondary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatDuration(int seconds) {
+    if (seconds == 0) return '0s';
+    final h = seconds ~/ 3600;
+    final m = (seconds % 3600) ~/ 60;
+    final s = seconds % 60;
+    
+    if (h > 0) {
+      return '${h}h ${m}m';
+    } else if (m > 0) {
+      return '${m}m ${s}s';
+    } else {
+      return '${s}s';
+    }
+  }
+
 
   Widget _buildSubTabItem({
     required String filterKey,
@@ -2114,7 +2355,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
       final sanitizedName = displayFileName.replaceAll(RegExp(r'[^\w.\- ]'), '_');
       final tempFile = File('${tempDir.path}/$sanitizedName');
 
-      final leadsBaseUrl = dotenv.env['BASE_URL'] ?? '';
+      final leadsBaseUrl = ApiUrl.leadService;
       String downloadUrl = '$leadsBaseUrl/leads/attachments/${doc.id}/download';
       if (doc.id.startsWith('cf_')) {
         downloadUrl = '$leadsBaseUrl/leads/attachments/${doc.fileName}/download';
@@ -2155,43 +2396,70 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
         final savedFile = (finalPath != null && !finalPath.startsWith('content://')) ? File(finalPath) : tempFile;
 
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Saved ${doc.fileName} to Downloads folder!'),
-              backgroundColor: Colors.green,
-              duration: const Duration(seconds: 5),
-              action: SnackBarAction(
-                label: 'OPEN',
-                textColor: Colors.white,
-                onPressed: () async {
-                  try {
-                    if (Platform.isAndroid) {
-                      await const MethodChannel('com.example.crm_mobile/call_recording').invokeMethod(
-                        'openFile',
-                        {
-                          'filePath': savedFile.path,
-                          'mimeType': doc.fileType,
-                        },
-                      );
-                    } else {
-                      final Uri uri = Uri.file(savedFile.path);
-                      await launchUrl(uri, mode: LaunchMode.externalApplication);
+          final String shortName = doc.fileName.length > 25 
+              ? '${doc.fileName.substring(0, 12)}...${doc.fileName.substring(doc.fileName.length - 10)}' 
+              : doc.fileName;
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Text('Download Complete', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              content: Text('Successfully saved "$shortName" to your Downloads folder.', style: const TextStyle(fontSize: 14)),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('CANCEL', style: TextStyle(color: AppColors.textHint)),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: () async {
+                    Navigator.pop(ctx);
+                    try {
+                      if (Platform.isAndroid) {
+                        await const MethodChannel('com.example.crm_mobile/call_recording').invokeMethod(
+                          'openFile',
+                          {
+                            'filePath': savedFile.path,
+                            'mimeType': doc.fileType,
+                          },
+                        );
+                      } else {
+                        final Uri uri = Uri.file(savedFile.path);
+                        await launchUrl(uri, mode: LaunchMode.externalApplication);
+                      }
+                    } catch (e) {
+                      debugPrint('Could not launch file: $e');
                     }
-                  } catch (e) {
-                    debugPrint('Could not launch file: $e');
-                  }
-                },
-              ),
+                  },
+                  child: const Text('OPEN FILE'),
+                ),
+              ],
             ),
           );
         }
       } else {
         if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Failed to download ${doc.fileName}'),
-              backgroundColor: AppColors.primary,
+          final String shortName = doc.fileName.length > 25 
+              ? '${doc.fileName.substring(0, 12)}...${doc.fileName.substring(doc.fileName.length - 10)}' 
+              : doc.fileName;
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Text('Download Failed', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              content: Text('Could not download "$shortName". Please check your connection and try again.', style: const TextStyle(fontSize: 14)),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('CANCEL', style: TextStyle(color: AppColors.textHint)),
+                ),
+              ],
             ),
           );
         }
@@ -2200,10 +2468,21 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
       if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
       debugPrint('Download error: $e');
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to download ${doc.fileName}'),
-            backgroundColor: AppColors.primary,
+        final String shortName = doc.fileName.length > 25 
+            ? '${doc.fileName.substring(0, 12)}...${doc.fileName.substring(doc.fileName.length - 10)}' 
+            : doc.fileName;
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Text('Download Error', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            content: Text('An error occurred while downloading "$shortName".', style: const TextStyle(fontSize: 14)),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('CANCEL', style: TextStyle(color: AppColors.textHint)),
+              ),
+            ],
           ),
         );
       }
@@ -2324,42 +2603,69 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
         final savedFile = (finalPath != null && !finalPath.startsWith('content://')) ? File(finalPath) : tempFile;
 
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Saved ${audio.displayName} to Downloads folder!'),
-              backgroundColor: Colors.green,
-              duration: const Duration(seconds: 5),
-              action: SnackBarAction(
-                label: 'OPEN',
-                textColor: Colors.white,
-                onPressed: () async {
-                  try {
-                    if (Platform.isAndroid) {
-                      await const MethodChannel('com.example.crm_mobile/call_recording').invokeMethod(
-                        'openFile',
-                        {
-                          'filePath': savedFile.path,
-                          'mimeType': audio.contentType,
-                        },
-                      );
-                    } else {
-                      final Uri uri = Uri.file(savedFile.path);
-                      await launchUrl(uri, mode: LaunchMode.externalApplication);
+          final String shortName = audio.displayName.length > 25 
+              ? '${audio.displayName.substring(0, 12)}...${audio.displayName.substring(audio.displayName.length - 10)}' 
+              : audio.displayName;
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Text('Download Complete', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              content: Text('Successfully saved "$shortName" to your Downloads folder.', style: const TextStyle(fontSize: 14)),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('CANCEL', style: TextStyle(color: AppColors.textHint)),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: () async {
+                    Navigator.pop(ctx);
+                    try {
+                      if (Platform.isAndroid) {
+                        await const MethodChannel('com.example.crm_mobile/call_recording').invokeMethod(
+                          'openFile',
+                          {
+                            'filePath': savedFile.path,
+                            'mimeType': audio.contentType,
+                          },
+                        );
+                      } else {
+                        final Uri uri = Uri.file(savedFile.path);
+                        await launchUrl(uri, mode: LaunchMode.externalApplication);
+                      }
+                    } catch (e) {
+                      debugPrint('Could not launch file: $e');
                     }
-                  } catch (e) {
-                    debugPrint('Could not launch file: $e');
-                  }
-                },
-              ),
+                  },
+                  child: const Text('OPEN FILE'),
+                ),
+              ],
             ),
           );
         }
       } else {
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Failed to download ${audio.displayName}'),
-              backgroundColor: AppColors.primary,
+          final String shortName = audio.displayName.length > 25 
+              ? '${audio.displayName.substring(0, 12)}...${audio.displayName.substring(audio.displayName.length - 10)}' 
+              : audio.displayName;
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Text('Download Failed', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              content: Text('Could not download "$shortName". Please check your connection and try again.', style: const TextStyle(fontSize: 14)),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('CANCEL', style: TextStyle(color: AppColors.textHint)),
+                ),
+              ],
             ),
           );
         }
@@ -2368,21 +2674,123 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
       if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
       debugPrint('Audio download error: $e');
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to download ${audio.displayName}'),
-            backgroundColor: AppColors.primary,
+        final String shortName = audio.displayName.length > 25 
+            ? '${audio.displayName.substring(0, 12)}...${audio.displayName.substring(audio.displayName.length - 10)}' 
+            : audio.displayName;
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Text('Download Error', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            content: Text('An error occurred while downloading "$shortName".', style: const TextStyle(fontSize: 14)),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('CANCEL', style: TextStyle(color: AppColors.textHint)),
+              ),
+            ],
           ),
         );
       }
     }
   }
 
+  void _renameAudio(BuildContext context, LeadAudio audio) {
+    final TextEditingController controller = TextEditingController(text: audio.displayName);
+    bool isLoading = false;
+    
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Text('Rename Audio', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            content: TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                hintText: 'Enter new name',
+                border: OutlineInputBorder(),
+                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              ),
+              enabled: !isLoading,
+            ),
+            actions: [
+              TextButton(
+                onPressed: isLoading ? null : () => Navigator.pop(ctx),
+                child: const Text('CANCEL', style: TextStyle(color: AppColors.textHint)),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                onPressed: isLoading
+                    ? null
+                    : () async {
+                        final newName = controller.text.trim();
+                        if (newName.isNotEmpty && newName != audio.displayName) {
+                          setState(() => isLoading = true);
+                          try {
+                            final result = await sl<LeadsRepository>().renameLeadAudio(audio.id, newName);
+                            result.fold(
+                              (failure) {
+                                setState(() => isLoading = false);
+                                if (!ctx.mounted) return;
+                                ScaffoldMessenger.of(ctx).showSnackBar(
+                                  SnackBar(content: Text(failure.message), backgroundColor: AppColors.primary),
+                                );
+                              },
+                              (_) {
+                                if (!ctx.mounted) return;
+                                Navigator.pop(ctx);
+                                ScaffoldMessenger.of(ctx).showSnackBar(
+                                  const SnackBar(content: Text('Audio renamed successfully'), backgroundColor: Colors.green),
+                                );
+                                // Refresh the lead details
+                                sl<LeadsBloc>().add(FetchLeadDetails(audio.leadId));
+                              },
+                            );
+                          } catch (e) {
+                            setState(() => isLoading = false);
+                            if (!ctx.mounted) return;
+                            ScaffoldMessenger.of(ctx).showSnackBar(
+                              SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.primary),
+                            );
+                          }
+                        } else {
+                          Navigator.pop(ctx);
+                        }
+                      },
+                child: isLoading
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                    : const Text('SAVE'),
+              ),
+            ],
+          );
+        }
+      ),
+    );
+  }
+
   void _playLeadAudio(BuildContext context, LeadAudio audio) async {
+    // Helper to update duration
+    void handleDurationFound(int seconds) {
+      if (mounted && seconds > 0) {
+        if (_resolvedAudioDurations[audio.id] != seconds) {
+          setState(() {
+            _resolvedAudioDurations[audio.id] = seconds;
+          });
+        }
+      }
+    }
+
     // 1. Check if audio.fileName is directly a local file path
     if (audio.fileName.isNotEmpty && File(audio.fileName).existsSync()) {
       debugPrint('Playing audio.fileName directly: ${audio.fileName}');
-      CallRecordingService().playRecording(audio.fileName, context: context, title: audio.displayName);
+      CallRecordingService().playRecording(audio.fileName, context: context, title: audio.displayName, onDurationFound: handleDurationFound);
       return;
     }
 
@@ -2396,7 +2804,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
         final lowerPath = localPath.toLowerCase();
         if (localName == cleanServerName || lowerPath.contains(cleanServerName) || (rawFileName.isNotEmpty && lowerPath.contains(rawFileName))) {
           debugPrint('Playing local phone recording directly: $localPath');
-          CallRecordingService().playRecording(localPath, context: context, title: audio.displayName);
+          CallRecordingService().playRecording(localPath, context: context, title: audio.displayName, onDurationFound: handleDurationFound);
           return;
         }
       }
@@ -2469,7 +2877,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView> with WidgetsBindingOb
       if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
 
       if (downloaded && await tempFile.exists() && (await tempFile.length()) > 0 && context.mounted) {
-        CallRecordingService().playRecording(tempFile.path, context: context, title: audio.displayName);
+        CallRecordingService().playRecording(tempFile.path, context: context, title: audio.displayName, onDurationFound: handleDurationFound);
       } else if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

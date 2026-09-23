@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crm_mobile/core/network/api_client.dart';
 import 'package:crm_mobile/core/network/api_constants.dart';
 import 'package:crm_mobile/injection/injection.dart';
+import 'package:crm_mobile/core/services/call_recording_service.dart';
 
 class StaffPhoneResolver {
   /// Ensures the logged-in staff member's phone number is retrieved and saved in SharedPreferences.
@@ -98,6 +99,16 @@ class StaffPhoneResolver {
       debugPrint('StaffPhoneResolver error: $e');
     }
 
+    try {
+      final devicePhone = await CallRecordingService().getDevicePhoneNumber();
+      if (devicePhone.isNotEmpty) {
+        final sharedPrefs = prefs ?? (sl.isRegistered<SharedPreferences>() ? sl<SharedPreferences>() : await SharedPreferences.getInstance());
+        await sharedPrefs.setString('userPhone', devicePhone);
+        debugPrint('StaffPhoneResolver: Found phone via device SIM -> $devicePhone');
+        return devicePhone;
+      }
+    } catch (_) {}
+
     return '';
   }
 
@@ -120,6 +131,7 @@ class StaffPhoneResolver {
       'contactNumber',
       'phoneNo',
       'mobileNumber',
+      'mobileNo',
       'contact',
       'userPhone',
       'officialPhone',

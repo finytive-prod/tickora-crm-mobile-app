@@ -17,6 +17,7 @@ import 'package:crm_mobile/usecases/get_lead_audit_logs_usecase.dart';
 import 'package:crm_mobile/usecases/get_lead_attachments_usecase.dart';
 import 'package:crm_mobile/usecases/upload_lead_attachment_usecase.dart';
 import 'package:crm_mobile/usecases/get_lead_audios_usecase.dart';
+import 'package:crm_mobile/usecases/get_lead_call_logs_usecase.dart';
 import 'package:crm_mobile/usecases/upload_lead_audio_usecase.dart';
 import 'package:crm_mobile/usecases/update_lead_usecase.dart';
 import 'package:crm_mobile/usecases/quick_invite_lead_usecase.dart';
@@ -36,6 +37,7 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
   final GetLeadAttachmentsUseCase getLeadAttachmentsUseCase;
   final UploadLeadAttachmentUseCase uploadLeadAttachmentUseCase;
   final GetLeadAudiosUseCase getLeadAudiosUseCase;
+  final GetLeadCallLogsUseCase getLeadCallLogsUseCase;
   final UploadLeadAudioUseCase uploadLeadAudioUseCase;
   final UpdateLeadUseCase updateLeadUseCase;
   final SearchLeadsUseCase searchLeadsUseCase;
@@ -55,6 +57,7 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
     required this.getLeadAttachmentsUseCase,
     required this.uploadLeadAttachmentUseCase,
     required this.getLeadAudiosUseCase,
+    required this.getLeadCallLogsUseCase,
     required this.uploadLeadAudioUseCase,
     required this.updateLeadUseCase,
     required this.searchLeadsUseCase,
@@ -76,6 +79,7 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
     on<FetchLeadAttachments>(_onFetchLeadAttachments);
     on<UploadLeadAttachment>(_onUploadLeadAttachment);
     on<FetchLeadAudios>(_onFetchLeadAudios);
+    on<FetchLeadCallLogs>(_onFetchLeadCallLogs);
     on<UploadLeadAudio>(_onUploadLeadAudio);
     on<UpdateLeadActiveStatus>(_onUpdateLeadActiveStatus);
   }
@@ -454,6 +458,18 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
       result.fold(
         (failure) => emit(currentState.copyWith(isAudiosLoading: false, audiosError: failure.message)),
         (audios) => emit(currentState.copyWith(isAudiosLoading: false, audios: audios)),
+      );
+    }
+  }
+
+  Future<void> _onFetchLeadCallLogs(FetchLeadCallLogs event, Emitter<LeadsState> emit) async {
+    final currentState = state;
+    if (currentState is LeadDetailsLoaded) {
+      emit(currentState.copyWith(isCallLogsLoading: true, callLogsError: null));
+      final result = await getLeadCallLogsUseCase(event.id);
+      result.fold(
+        (failure) => emit(currentState.copyWith(isCallLogsLoading: false, callLogsError: failure.message)),
+        (callLogs) => emit(currentState.copyWith(isCallLogsLoading: false, callLogs: callLogs)),
       );
     }
   }

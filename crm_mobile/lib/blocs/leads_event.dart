@@ -150,6 +150,15 @@ class FetchLeadAudios extends LeadsEvent {
   List<Object?> get props => [id];
 }
 
+class FetchLeadCallLogs extends LeadsEvent {
+  final String id;
+
+  const FetchLeadCallLogs(this.id);
+
+  @override
+  List<Object?> get props => [id];
+}
+
 class UploadLeadAudio extends LeadsEvent {
   final String leadId;
   final String? filePath;

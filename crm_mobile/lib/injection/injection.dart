@@ -50,6 +50,7 @@ import 'package:crm_mobile/usecases/get_lead_audit_logs_usecase.dart';
 import 'package:crm_mobile/usecases/get_lead_attachments_usecase.dart';
 import 'package:crm_mobile/usecases/upload_lead_attachment_usecase.dart';
 import 'package:crm_mobile/usecases/get_lead_audios_usecase.dart';
+import 'package:crm_mobile/usecases/get_lead_call_logs_usecase.dart';
 import 'package:crm_mobile/usecases/upload_lead_audio_usecase.dart';
 import 'package:crm_mobile/usecases/update_lead_active_status_usecase.dart';
 import 'package:crm_mobile/usecases/update_lead_usecase.dart';
@@ -134,6 +135,7 @@ Future<void> init() async {
       getLeadAttachmentsUseCase: sl(),
       uploadLeadAttachmentUseCase: sl(),
       getLeadAudiosUseCase: sl(),
+      getLeadCallLogsUseCase: sl(),
       uploadLeadAudioUseCase: sl(),
       updateLeadUseCase: sl(),
       updateLeadActiveStatusUseCase: sl(),
@@ -153,6 +155,7 @@ Future<void> init() async {
   sl.registerLazySingleton(() => GetLeadAttachmentsUseCase(sl()));
   sl.registerLazySingleton(() => UploadLeadAttachmentUseCase(sl()));
   sl.registerLazySingleton(() => GetLeadAudiosUseCase(sl()));
+  sl.registerLazySingleton(() => GetLeadCallLogsUseCase(sl()));
   sl.registerLazySingleton(() => UploadLeadAudioUseCase(sl()));
   sl.registerLazySingleton(() => UpdateLeadUseCase(sl()));
   sl.registerLazySingleton(() => UpdateLeadActiveStatusUseCase(sl()));

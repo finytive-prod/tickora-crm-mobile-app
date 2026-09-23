@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crm_mobile/core/services/call_recording_service.dart';
 import 'package:crm_mobile/core/services/call_history_storage.dart';
 import 'package:crm_mobile/core/services/direct_call_helper.dart';
+import 'package:crm_mobile/core/utils/staff_phone_resolver.dart';
 import 'package:crm_mobile/repositories/leads_repository.dart';
 import 'package:crm_mobile/models/lead_audio.dart';
 import 'package:crm_mobile/models/call_history.dart';
@@ -56,8 +57,15 @@ class AutoCallRecordingUploader {
           .replaceAll(RegExp(r'^INBOUND_', caseSensitive: false), '')
           .replaceAll(RegExp(r'^OUTBOUND_', caseSensitive: false), '')
           .replaceAll(RegExp(r'^INCOMING_', caseSensitive: false), '')
-          .replaceAll(RegExp(r'^OUTGOING_', caseSensitive: false), '')
-          .replaceAll(RegExp(r'^\d{7,15}(\(\d{7,15}\))?[-_]?', caseSensitive: false), '');
+          .replaceAll(RegExp(r'^OUTGOING_', caseSensitive: false), '');
+
+      // Strip leading phone number (7 to 15 digits, optionally with (digits)),
+      // BUT do NOT strip 14-digit date timestamps (starting with 202/203) or 13-digit epoch ms (16-19)
+      final phoneMatch = RegExp(r'^(?!(?:20[2-3]\d{11}|1[6-9]\d{11}))\d{7,15}(\(\d{7,15}\))?[-_]?', caseSensitive: false).firstMatch(clean);
+      if (phoneMatch != null) {
+        clean = clean.substring(phoneMatch.end);
+      }
+
       if (clean == old) break;
     }
     return clean;
@@ -102,31 +110,30 @@ class AutoCallRecordingUploader {
           final keyBound = parts[1].toUpperCase(); // 'IN' or 'OUT'
           if (ts > 0) {
             for (final sAudio in existingServerAudios) {
-              final audioMs = sAudio.createdAt?.millisecondsSinceEpoch ?? 0;
-              final isServerMissed = sAudio.size <= 0 ||
-                  sAudio.durationSeconds <= 0 ||
-                  sAudio.bound?.toUpperCase() == 'MISSED' ||
-                  sAudio.bound?.toUpperCase() == 'UNANSWERED' ||
-                  sAudio.displayName.toLowerCase().contains('missed') ||
-                  sAudio.displayName.toLowerCase().contains('unanswered');
+              final parsedTime = _parseTimestampFromFileName(sAudio.displayName);
+              final audioMs = parsedTime ?? (sAudio.createdAt?.millisecondsSinceEpoch ?? 0);
 
-              if (isServerMissed && audioMs > 0) {
+              if (audioMs > 0) {
                 final serverBound = sAudio.bound?.toUpperCase() ?? '';
                 final isBoundMatch = serverBound.isEmpty ||
                     (keyBound == 'IN' && (serverBound == 'IN' || serverBound == 'INBOUND' || serverBound.contains('IN'))) ||
                     (keyBound == 'OUT' && (serverBound == 'OUT' || serverBound == 'OUTGOING' || serverBound.contains('OUT')));
 
-                if (isBoundMatch && (audioMs - ts).abs() < 60000) {
-                  await _markAsUploaded(path, 0);
-                  return true;
+                if (isBoundMatch) {
+                  final int durationThreshold = (sAudio.durationSeconds > 0 ? sAudio.durationSeconds * 1000 : 0) + 120000;
+                  if ((audioMs - ts).abs() < durationThreshold) {
+                    await _markAsUploaded(path, 0);
+                    return true;
+                  }
                 }
               }
             }
           }
         }
-        return false;
+        // Fallback to checking local cache if not found on server (user might have deleted it from server)
+        return _uploadedPaths.contains(path) || _uploadedPaths.contains('${path}_0');
       }
-      return _uploadedPaths.contains(path);
+      return _uploadedPaths.contains(path) || _uploadedPaths.contains('${path}_0');
     }
 
     final fileName = path.split('/').last;
@@ -146,19 +153,14 @@ class AutoCallRecordingUploader {
         await _markAsUploaded(path, length);
         return true;
       }
-      // If not found on server, allow re-upload regardless of stale local cache
-      return false;
     }
 
+    // Fallback to checking local cache
     if (_uploadedPaths.contains('${path}_$length')) return true;
-    if (_uploadedPaths.contains(fileName) || _uploadedPaths.contains('${fileName}_$length')) return true;
-    if (_uploadedPaths.contains(clean) || _uploadedPaths.contains('${clean}_$length')) return true;
-
-    for (final key in _uploadedPaths) {
-      if (key.startsWith('${clean}_') || key.startsWith('${fileName}_') || key == clean || key == fileName) {
-        return true;
-      }
-    }
+    if (_uploadedPaths.contains('${fileName}_$length')) return true;
+    if (_uploadedPaths.contains(clean)) return true;
+    if (_uploadedPaths.contains(path)) return true;
+    if (clean.length >= 8 && _uploadedPaths.contains('${clean}_$length')) return true;
 
     return false;
   }
@@ -323,7 +325,7 @@ class AutoCallRecordingUploader {
             final prefs = await SharedPreferences.getInstance();
             final staffPhone = prefs.getString('userPhone')?.trim() ?? '';
 
-            final meta = await _buildAudioMetadata(
+        final meta = await buildAudioMetadata(
               filePath: recordingPath,
               phoneNumber: phoneNumber,
               callTimestamp: callTimestamp,
@@ -353,6 +355,7 @@ class AutoCallRecordingUploader {
               },
               (audio) async {
                 await _markAsUploaded(recordingPath!, length);
+                await CallHistoryStorage.markCallAsSynced(phoneNumber, callTimestamp);
                 debugPrint('Call recording auto-uploaded successfully! Audio ID: ${audio.id}');
                 if (onUploadSuccess != null) {
                   onUploadSuccess();
@@ -382,6 +385,8 @@ class AutoCallRecordingUploader {
     VoidCallback? onUploadSuccess,
   }) async {
     if (phoneNumber.isEmpty) return;
+
+    bool uploadedAny = false;
 
     try {
       final service = CallRecordingService();
@@ -427,17 +432,30 @@ class AutoCallRecordingUploader {
           callTimestamp: callTimestamp,
         );
 
-        final meta = await _buildAudioMetadata(
+        final localDurMs = (recording['durationMs'] as num?)?.toInt() ?? 0;
+        final localDurSec = (localDurMs / 1000).round();
+
+        final meta = await buildAudioMetadata(
           filePath: path,
           phoneNumber: phoneNumber,
           callTimestamp: callTimestamp,
           callDetails: callDetails,
           staffUserPhone: staffPhone,
+          duration: localDurSec > 0 ? localDurSec.toString() : null,
         );
 
         debugPrint('Auto-uploading call recording ($finalLength bytes): $path for leadId: $leadId with meta: $meta');
         _currentlyUploadingPaths.add(path);
         _currentlyUploadingPaths.add(cleanName);
+
+        var callStatusStrRaw = callDetails != null ? (callDetails['callStatus'] as String? ?? '') : '';
+        String callStatusFinal = 'CONNECTED';
+        
+        if (callStatusStrRaw.toUpperCase() == 'UNANSWERED' || callStatusStrRaw.toUpperCase() == 'REJECTED') {
+          callStatusFinal = 'NOT_CONNECTED';
+        } else if (callStatusStrRaw.toUpperCase() == 'MISSED') {
+          callStatusFinal = 'MISSED';
+        }
 
         final repo = sl<LeadsRepository>();
         final result = await repo.uploadLeadAudio(
@@ -450,6 +468,7 @@ class AutoCallRecordingUploader {
           to: meta['to'],
           duration: meta['duration'],
           callDate: meta['callDate'],
+          callStatus: callStatusFinal,
         );
 
         result.fold(
@@ -461,11 +480,18 @@ class AutoCallRecordingUploader {
           (audio) async {
             debugPrint('Successfully uploaded recording: ${audio.id}');
             await _markAsUploaded(path, finalLength);
+            
+            final actualStartMs = (callDetails != null && (callDetails['startTime'] as int? ?? 0) > 0) 
+                ? (callDetails['startTime'] as int) 
+                : (callTimestamp > 0 ? callTimestamp : (recording['timestamp'] as int? ?? 0));
+            await CallHistoryStorage.markCallAsSynced(phoneNumber, actualStartMs);
+            
             _currentlyUploadingPaths.remove(path);
             _currentlyUploadingPaths.remove(cleanName);
-            if (onUploadSuccess != null) {
-              onUploadSuccess();
+            if (existingServerAudios != null) {
+              existingServerAudios.add(audio);
             }
+            uploadedAny = true;
           },
         );
       }
@@ -477,39 +503,135 @@ class AutoCallRecordingUploader {
       final leadPhoneDigits = phoneNumber.replaceAll(RegExp(r'\D'), '');
       final leadLast10 = leadPhoneDigits.length >= 10 ? leadPhoneDigits.substring(leadPhoneDigits.length - 10) : leadPhoneDigits;
 
-      final List<Map<String, dynamic>> missedOrUnansweredCalls = [];
+      final List<Map<String, dynamic>> rawCalls = [];
 
       for (final log in systemCallLogs) {
-        final status = (log['callStatus'] as String? ?? '').toUpperCase();
-        final dur = log['durationSeconds'] as int? ?? 0;
-        if (status == 'MISSED' || status == 'REJECTED' || status == 'UNANSWERED' || dur <= 0) {
-          missedOrUnansweredCalls.add(log);
-        }
+        rawCalls.add(log);
       }
 
       for (final h in trackedCallHistory) {
         final hPhoneDigits = h.phoneNumber.replaceAll(RegExp(r'\D'), '');
         final hLast10 = hPhoneDigits.length >= 10 ? hPhoneDigits.substring(hPhoneDigits.length - 10) : hPhoneDigits;
         if (leadLast10.isNotEmpty && (hLast10 == leadLast10 || hPhoneDigits.contains(leadLast10))) {
-          if (h.isUnanswered || h.durationSeconds <= 0) {
-            missedOrUnansweredCalls.add({
-              'id': h.id,
-              'phoneNumber': h.phoneNumber,
-              'startTime': h.startTime > 0 ? h.startTime : h.timestamp,
-              'endTime': h.endTime > 0 ? h.endTime : h.timestamp,
-              'durationSeconds': 0,
-              'callType': h.callType,
-              'callStatus': h.callStatus,
-            });
-          }
+          rawCalls.add({
+            'id': h.id,
+            'phoneNumber': h.phoneNumber,
+            'startTime': h.startTime > 0 ? h.startTime : h.timestamp,
+            'endTime': h.endTime > 0 ? h.endTime : h.timestamp,
+            'durationSeconds': h.durationSeconds,
+            'callType': h.callType,
+            'callStatus': h.callStatus,
+          });
         }
       }
 
-      for (final callLog in missedOrUnansweredCalls) {
+      // Deduplicate raw calls by startTime (within 120 seconds of each other)
+      final List<Map<String, dynamic>> allUnuploadedCalls = [];
+      for (final call in rawCalls) {
+        final st = call['startTime'] as int? ?? 0;
+        if (st <= 0) continue;
+        final dur = call['durationSeconds'] as int? ?? 0;
+
+        bool isDuplicate = false;
+        for (int i = 0; i < allUnuploadedCalls.length; i++) {
+          final existingSt = allUnuploadedCalls[i]['startTime'] as int? ?? 0;
+          if ((st - existingSt).abs() < 120000) {
+            // Keep the entry with higher duration / richer call details
+            final existingDur = allUnuploadedCalls[i]['durationSeconds'] as int? ?? 0;
+            if (dur > existingDur) {
+              allUnuploadedCalls[i] = call;
+            }
+            isDuplicate = true;
+            break;
+          }
+        }
+        if (!isDuplicate) {
+          allUnuploadedCalls.add(call);
+        }
+      }
+
+      for (final callLog in allUnuploadedCalls) {
         final startTimeMs = callLog['startTime'] as int? ?? 0;
         if (startTimeMs <= 0) continue;
 
-        final isIncoming = (callLog['callType'] as String? ?? 'OUTGOING').toUpperCase() == 'INCOMING';
+        // Phase 2 is ONLY for calls without audio files (missed/unanswered).
+        // Skip calls that were actually answered (duration > 0) — Phase 1 handles those with real audio.
+        final callDuration = callLog['durationSeconds'] as int? ?? 0;
+        final callStatusRaw = (callLog['callStatus'] as String? ?? '').toUpperCase();
+        if (callDuration > 0 || callStatusRaw == 'ANSWERED') {
+          debugPrint('Phase 2: Skipping answered call at $startTimeMs (duration=${callDuration}s, status=$callStatusRaw)');
+          continue;
+        }
+
+        // Check if we ALREADY found a device audio recording for this exact call log
+        bool hasDeviceRecording = false;
+        final endTimeMs = callLog['endTime'] as int? ?? startTimeMs;
+        
+        for (final recording in allRecordings) {
+          final rPath = recording['path'] as String?;
+          if (rPath != null && rPath.isNotEmpty) {
+            final rTime = _parseTimestampFromFileName(rPath.split('/').last) ?? (recording['timestamp'] as int? ?? 0);
+            if (rTime > 0) {
+              // Recording timestamp can be the start of the call (from filename) or end of the call (last modified)
+              final diffStart = (rTime - startTimeMs).abs();
+              final diffEnd = (rTime - endTimeMs).abs();
+              if (diffStart < 900000 || diffEnd < 900000) { // 15 minute tolerance
+                hasDeviceRecording = true;
+                break;
+              }
+            }
+          }
+        }
+
+        // If an audio file exists on device for this call, let Phase 1 handle uploading it with audio!
+        if (hasDeviceRecording) {
+          debugPrint('Call at $startTimeMs has associated device audio recording. Skipping Phase 2 no-audio upload.');
+          continue;
+        }
+
+        bool alreadySyncedInHistory = false;
+        final cPhoneDigits = phoneNumber.replaceAll(RegExp(r'\D'), '');
+        final cLast10 = cPhoneDigits.length >= 10 ? cPhoneDigits.substring(cPhoneDigits.length - 10) : cPhoneDigits;
+
+        for (final history in trackedCallHistory) {
+          if (history.isSynced) {
+            final hPhoneDigits = history.phoneNumber.replaceAll(RegExp(r'\D'), '');
+            final hLast10 = hPhoneDigits.length >= 10 ? hPhoneDigits.substring(hPhoneDigits.length - 10) : hPhoneDigits;
+            
+            if (hLast10 == cLast10 || hPhoneDigits.contains(cLast10)) {
+              final diffStart = (history.startTime - startTimeMs).abs();
+              if (diffStart < 60000) { // 1 minute tolerance
+                alreadySyncedInHistory = true;
+                break;
+              }
+            }
+          }
+        }
+
+        if (!alreadySyncedInHistory) {
+          final allPathsToCheck = [..._uploadedPaths, ..._currentlyUploadingPaths];
+          for (final uploadedPath in allPathsToCheck) {
+            if (uploadedPath.startsWith('missed_')) continue;
+            final rTime = _parseTimestampFromFileName(uploadedPath.split('/').last.split('_').firstWhere((e) => e.contains(RegExp(r'\d')), orElse: () => '')) ?? _parseTimestampFromFileName(uploadedPath.split('/').last);
+            if (rTime != null && rTime > 0) {
+              final diffStart = (rTime - startTimeMs).abs();
+              if (diffStart < 60000) { // 1 min tolerance
+                if (cLast10.isNotEmpty && uploadedPath.replaceAll(RegExp(r'\D'), '').contains(cLast10)) {
+                  alreadySyncedInHistory = true;
+                  break;
+                }
+              }
+            }
+          }
+        }
+
+        if (alreadySyncedInHistory) {
+          debugPrint('Phase 2: Call at $startTimeMs was already synced in CallHistoryStorage. Skipping dummy upload.');
+          continue;
+        }
+
+        final callTypeRaw = (callLog['callType'] as String? ?? 'OUTGOING').toUpperCase();
+        final isIncoming = callTypeRaw == 'INCOMING' || callTypeRaw == 'MISSED' || callTypeRaw == 'REJECTED';
         final boundStr = isIncoming ? 'IN' : 'OUT';
         final uniqueKey = 'missed_${boundStr}_${startTimeMs}_$phoneNumber';
 
@@ -522,21 +644,27 @@ class AutoCallRecordingUploader {
         final dt = DateTime.fromMillisecondsSinceEpoch(startTimeMs);
         final dateStr = DateFormat('yyyy-MM-dd').format(dt);
         final startTimeStr = DateFormat('HH:mm:ss').format(dt);
-        final endTimeMs = callLog['endTime'] as int? ?? startTimeMs;
+        // endTimeMs is already declared above, just use it for endDt
         final endDt = DateTime.fromMillisecondsSinceEpoch(endTimeMs > 0 ? endTimeMs : startTimeMs);
         final endTimeStr = DateFormat('HH:mm:ss').format(endDt);
         // Try fresh read from SharedPreferences if staffPhone is empty
         String effectiveStaffPhone = staffPhone;
-        if (effectiveStaffPhone.isEmpty) {
-          try {
-            final freshPrefs = await SharedPreferences.getInstance();
+        try {
+          final freshPrefs = await SharedPreferences.getInstance();
+          if (effectiveStaffPhone.isEmpty) {
             effectiveStaffPhone = freshPrefs.getString('userPhone')?.trim() ?? '';
-          } catch (_) {}
-        }
+          }
+        } catch (_) {}
         // Last resort: get device SIM phone number
         if (effectiveStaffPhone.isEmpty) {
           try {
             effectiveStaffPhone = await CallRecordingService().getDevicePhoneNumber();
+          } catch (_) {}
+        }
+        
+        if (effectiveStaffPhone.isEmpty) {
+          try {
+            effectiveStaffPhone = await StaffPhoneResolver.getOrFetchStaffPhone();
           } catch (_) {}
         }
 
@@ -544,13 +672,20 @@ class AutoCallRecordingUploader {
         final String toNum;
         if (isIncoming) {
           fromNum = phoneNumber;
-          toNum = effectiveStaffPhone.isNotEmpty ? effectiveStaffPhone : 'Staff';
+          toNum = effectiveStaffPhone;
         } else {
-          fromNum = effectiveStaffPhone.isNotEmpty ? effectiveStaffPhone : 'Staff';
+          fromNum = effectiveStaffPhone;
           toNum = phoneNumber;
         }
 
-        final callStatusStr = callLog['callStatus'] as String? ?? (isIncoming ? 'MISSED' : 'UNANSWERED');
+        var callStatusStr = callLog['callStatus'] as String? ?? (isIncoming ? 'MISSED' : 'UNANSWERED');
+        if (callStatusStr.toUpperCase() == 'UNANSWERED' || callStatusStr.toUpperCase() == 'REJECTED') {
+          callStatusStr = 'NOT_CONNECTED';
+        } else if (callStatusStr.toUpperCase() == 'MISSED') {
+          callStatusStr = 'MISSED';
+        } else {
+          callStatusStr = 'NOT_CONNECTED'; // Fallback for phase 2 (no audio)
+        }
 
         debugPrint('Auto-uploading missed call metadata ($boundStr) for leadId: $leadId at $startTimeStr');
         _currentlyUploadingPaths.add(uniqueKey);
@@ -577,12 +712,14 @@ class AutoCallRecordingUploader {
           (audio) async {
             debugPrint('Successfully uploaded missed call metadata: ${audio.id}');
             await _markAsUploaded(uniqueKey, 0);
+            await CallHistoryStorage.markCallAsSynced(phoneNumber, startTimeMs);
             _currentlyUploadingPaths.remove(uniqueKey);
+            uploadedAny = true;
           },
         );
       }
 
-      if (onUploadSuccess != null) {
+      if (uploadedAny && onUploadSuccess != null) {
         onUploadSuccess();
       }
     } catch (e) {
@@ -593,7 +730,68 @@ class AutoCallRecordingUploader {
     }
   }
 
-  static Future<Map<String, String>> _buildAudioMetadata({
+
+  static int? _parseTimestampFromFileName(String fileName) {
+    try {
+      // 1. Try parsing directly from raw fileName FIRST (handles filenames like 8220021569(8220021569)_20260921131348.mp3)
+      final rawMatch1 = RegExp(r'(?:^|[^0-9])(20[2-3]\d)[-_]?(\d{2})[-_]?(\d{2})[-_._]?(\d{2})[-_.]?(\d{2})[-_.]?(\d{2})(?:$|[^0-9])').firstMatch(fileName);
+      if (rawMatch1 != null) {
+        final yyyy = int.parse(rawMatch1.group(1)!);
+        final mm = int.parse(rawMatch1.group(2)!);
+        final dd = int.parse(rawMatch1.group(3)!);
+        final hh = int.parse(rawMatch1.group(4)!);
+        final mi = int.parse(rawMatch1.group(5)!);
+        final ss = int.parse(rawMatch1.group(6)!);
+        if (mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31 && hh >= 0 && hh <= 23 && mi >= 0 && mi <= 59 && ss >= 0 && ss <= 59) {
+          return DateTime(yyyy, mm, dd, hh, mi, ss).millisecondsSinceEpoch;
+        }
+      }
+
+      final cleanName = cleanFileName(fileName);
+
+      // Pattern 1: YYYYMMDD_HHMMSS or YYYYMMDDHHMMSS (e.g. 20260911_110844, 20260911110844)
+      final p1 = RegExp(r'(?:^|[^0-9])(20[2-3]\d)[-_]?(\d{2})[-_]?(\d{2})[-_._]?(\d{2})[-_.]?(\d{2})[-_.]?(\d{2})(?:$|[^0-9])').firstMatch(cleanName);
+      if (p1 != null) {
+        final yyyy = int.parse(p1.group(1)!);
+        final mm = int.parse(p1.group(2)!);
+        final dd = int.parse(p1.group(3)!);
+        final hh = int.parse(p1.group(4)!);
+        final mi = int.parse(p1.group(5)!);
+        final ss = int.parse(p1.group(6)!);
+        if (mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31 && hh >= 0 && hh <= 23 && mi >= 0 && mi <= 59 && ss >= 0 && ss <= 59) {
+          return DateTime(yyyy, mm, dd, hh, mi, ss).millisecondsSinceEpoch;
+        }
+      }
+
+      // Pattern 2: Epoch timestamp in ms (13 digits)
+      final p2 = RegExp(r'(?:^|[^0-9])(1\d{12})(?:$|[^0-9])').firstMatch(cleanName);
+      if (p2 != null) {
+        final val = int.tryParse(p2.group(1)!);
+        if (val != null && val > 1500000000000 && val < 2500000000000) {
+          return val;
+        }
+      }
+
+      // Pattern 3: YYMMDD_HHMMSS (e.g. 260911_110844)
+      final p3 = RegExp(r'(?:^|[^0-9])(\d{2})(\d{2})(\d{2})[-_]?(\d{2})(\d{2})(\d{2})(?:$|[^0-9])').firstMatch(cleanName);
+      if (p3 != null) {
+        final yy = int.parse(p3.group(1)!);
+        final mm = int.parse(p3.group(2)!);
+        final dd = int.parse(p3.group(3)!);
+        final hh = int.parse(p3.group(4)!);
+        final mi = int.parse(p3.group(5)!);
+        final ss = int.parse(p3.group(6)!);
+        final yyyy = 2000 + yy;
+        if (yyyy >= 2020 && yyyy <= 2040 && mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31 && hh >= 0 && hh <= 23 && mi >= 0 && mi <= 59 && ss >= 0 && ss <= 59) {
+          return DateTime(yyyy, mm, dd, hh, mi, ss).millisecondsSinceEpoch;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+
+  static Future<Map<String, String>> buildAudioMetadata({
     required String filePath,
     required String phoneNumber,
     String? bound,
@@ -624,91 +822,126 @@ class AutoCallRecordingUploader {
         resBound = (ct == 'INCOMING' || ct == 'INBOUND') ? 'IN' : 'OUT';
       }
     }
-    if (resBound.isNotEmpty) {
-      resBound = (resBound == 'INBOUND' || resBound == 'INCOMING') ? 'IN' : ((resBound == 'OUTBOUND' || resBound == 'OUTGOING') ? 'OUT' : resBound);
-      meta['bound'] = resBound;
+    if (resBound.isEmpty) {
+      resBound = 'OUT';
     }
+    resBound = (resBound == 'INBOUND' || resBound == 'INCOMING') ? 'IN' : ((resBound == 'OUTBOUND' || resBound == 'OUTGOING') ? 'OUT' : resBound);
+    meta['bound'] = resBound;
 
-    // Determine timestamp
-    DateTime dt = DateTime.now();
-    if (callTimestamp > 0) {
-      dt = DateTime.fromMillisecondsSinceEpoch(callTimestamp);
-    } else if (callDetails != null && (callDetails['startTime'] as int? ?? 0) > 0) {
-      dt = DateTime.fromMillisecondsSinceEpoch(callDetails['startTime'] as int);
-    } else if (file.existsSync()) {
-      dt = file.lastModifiedSync();
-    }
-
-    // 2. callDate (YYYY-MM-DD)
-    meta['callDate'] = callDate ?? DateFormat('yyyy-MM-dd').format(dt);
-
-    // 3. startTime (HH:mm:ss)
-    meta['startTime'] = startTime ?? DateFormat('HH:mm:ss').format(dt);
-
-    // 4. duration
+    // 2. Duration calculation (in seconds)
+    int durSec = 0;
     if (duration != null && duration.isNotEmpty) {
-      meta['duration'] = duration;
-    } else if (callDetails != null && (callDetails['durationSeconds'] as int? ?? 0) > 0) {
-      meta['duration'] = callDetails['durationSeconds'].toString();
+      durSec = int.tryParse(duration) ?? 0;
+    }
+    if (durSec <= 0 && callDetails != null && (callDetails['durationSeconds'] as int? ?? 0) > 0) {
+      durSec = callDetails['durationSeconds'] as int;
     }
 
-    // 5. endTime (HH:mm:ss)
-    if (endTime != null && endTime.isNotEmpty) {
-      meta['endTime'] = endTime;
-    } else if (callDetails != null && (callDetails['endTime'] as int? ?? 0) > 0) {
-      final endDt = DateTime.fromMillisecondsSinceEpoch(callDetails['endTime'] as int);
-      meta['endTime'] = DateFormat('HH:mm:ss').format(endDt);
-    } else if (meta.containsKey('duration')) {
-      final durSec = int.tryParse(meta['duration']!) ?? 0;
+    // 3. Start time & End time calculation (exact timestamps in ms)
+    int? startMs;
+    int? endMs;
+
+    // Priority 1 for startMs & endMs: System CallLog details
+    if (callDetails != null) {
+      final s = callDetails['startTime'] as int? ?? 0;
+      final e = callDetails['endTime'] as int? ?? 0;
+      if (s > 0) startMs = s;
+      if (e > 0) endMs = e;
+    }
+
+    // Priority 2 for startMs: Parse timestamp from file name
+    if (startMs == null || startMs <= 0) {
+      final parsed = _parseTimestampFromFileName(fileName);
+      if (parsed != null && parsed > 0) {
+        startMs = parsed;
+      }
+    }
+
+    // Priority 3: If startMs still unknown, calculate from file lastModified & duration
+    if ((startMs == null || startMs <= 0) && file.existsSync()) {
+      final lastMod = file.lastModifiedSync().millisecondsSinceEpoch;
       if (durSec > 0) {
-        meta['endTime'] = DateFormat('HH:mm:ss').format(dt.add(Duration(seconds: durSec)));
+        startMs = lastMod - (durSec * 1000);
+        endMs ??= lastMod;
+      } else {
+        startMs = lastMod;
       }
     }
 
-    // 6. from & to numbers
-    final finalBound = meta['bound'] ?? 'OUT';
-    String userNum = (staffUserPhone != null && staffUserPhone.isNotEmpty) ? staffUserPhone : '';
-
-    // If staffUserPhone was not passed, try a fresh read from SharedPreferences
-    // (it may have been saved by _fetchAndSaveStaffPhone after login)
-    if (userNum.isEmpty) {
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        userNum = prefs.getString('userPhone')?.trim() ?? '';
-      } catch (_) {}
+    // Priority 4: Fallback to callTimestamp if passed
+    if ((startMs == null || startMs <= 0) && callTimestamp > 0) {
+      startMs = callTimestamp;
     }
 
-    // Last resort: get the device's own SIM phone number via native platform channel
-    if (userNum.isEmpty) {
-      try {
-        final devicePhone = await CallRecordingService().getDevicePhoneNumber();
-        if (devicePhone.isNotEmpty) {
-          userNum = devicePhone;
-          // Save it for future use
-          try {
-            final prefs = await SharedPreferences.getInstance();
-            await prefs.setString('userPhone', devicePhone);
-            debugPrint('Device SIM phone saved: $devicePhone');
-          } catch (_) {}
-        }
-      } catch (_) {}
-    }
+    // Final fallback to DateTime.now()
+    startMs ??= DateTime.now().millisecondsSinceEpoch;
 
-    if (finalBound == 'IN') {
-      meta['from'] = from ?? phoneNumber;
-      if (to != null && to.isNotEmpty) {
-        meta['to'] = to;
-      } else if (userNum.isNotEmpty) {
-        meta['to'] = userNum;
+    // Calculate endMs if not already resolved
+    if (endMs == null || endMs <= 0) {
+      if (durSec > 0) {
+        endMs = startMs + (durSec * 1000);
+      } else if (file.existsSync()) {
+        endMs = file.lastModifiedSync().millisecondsSinceEpoch;
+        if (endMs < startMs) endMs = startMs;
+      } else {
+        endMs = startMs;
       }
+    }
+
+    if (durSec <= 0 && endMs > startMs) {
+      durSec = (endMs - startMs) ~/ 1000;
+    }
+
+    final startDt = DateTime.fromMillisecondsSinceEpoch(startMs);
+    final endDt = DateTime.fromMillisecondsSinceEpoch(endMs);
+
+    meta['callDate'] = callDate ?? DateFormat('yyyy-MM-dd').format(startDt);
+    meta['startTime'] = startTime ?? DateFormat('HH:mm:ss').format(startDt);
+    meta['endTime'] = endTime ?? DateFormat('HH:mm:ss').format(endDt);
+    meta['duration'] = duration ?? durSec.toString();
+
+    // 4. from & to numbers calculation
+    String userPhone = (staffUserPhone != null && staffUserPhone.isNotEmpty) ? staffUserPhone : '';
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (userPhone.isEmpty) {
+        userPhone = prefs.getString('userPhone')?.trim() ?? '';
+      }
+      if (userPhone.isEmpty) {
+        userPhone = prefs.getString('userName')?.trim() ?? '';
+      }
+    } catch (_) {}
+
+    if (userPhone.isEmpty) {
+      try {
+        userPhone = await StaffPhoneResolver.getOrFetchStaffPhone();
+      } catch (_) {}
+    }
+
+    if (userPhone.isEmpty) {
+      try {
+        userPhone = await CallRecordingService().getDevicePhoneNumber();
+      } catch (_) {}
+    }
+
+    if (userPhone.isEmpty) {
+      userPhone = 'Staff';
+    }
+
+    final String finalFrom;
+    final String finalTo;
+
+    if (resBound == 'IN') {
+      finalFrom = (from != null && from.isNotEmpty) ? from : phoneNumber;
+      finalTo = (to != null && to.isNotEmpty) ? to : userPhone;
     } else {
-      if (from != null && from.isNotEmpty) {
-        meta['from'] = from;
-      } else if (userNum.isNotEmpty) {
-        meta['from'] = userNum;
-      }
-      meta['to'] = to ?? phoneNumber;
+      finalFrom = (from != null && from.isNotEmpty) ? from : userPhone;
+      finalTo = (to != null && to.isNotEmpty) ? to : phoneNumber;
     }
+
+    meta['from'] = finalFrom;
+    meta['to'] = finalTo;
 
     return meta;
   }
