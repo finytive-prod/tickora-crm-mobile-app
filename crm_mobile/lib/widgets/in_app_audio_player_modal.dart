@@ -9,18 +9,21 @@ class InAppAudioPlayerModal extends StatefulWidget {
   final String filePath;
   final String title;
 
+  final Function(int)? onDurationFound;
+
   const InAppAudioPlayerModal({
     super.key,
     required this.filePath,
     required this.title,
+    this.onDurationFound,
   });
 
-  static Future<void> show(BuildContext context, {required String filePath, required String title}) {
+  static Future<void> show(BuildContext context, {required String filePath, required String title, Function(int)? onDurationFound}) {
     return showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => InAppAudioPlayerModal(filePath: filePath, title: title),
+      builder: (context) => InAppAudioPlayerModal(filePath: filePath, title: title, onDurationFound: onDurationFound),
     );
   }
 
@@ -128,6 +131,9 @@ class _InAppAudioPlayerModalState extends State<InAppAudioPlayerModal> {
               _errorMessage = null;
               _duration = Duration(milliseconds: durationMs);
             });
+            if (durationMs > 0) {
+              widget.onDurationFound?.call((durationMs / 1000).round());
+            }
           }
           _startNativePoller();
           return true;
@@ -189,6 +195,9 @@ class _InAppAudioPlayerModalState extends State<InAppAudioPlayerModal> {
         setState(() {
           _duration = newDuration;
         });
+        if (newDuration.inSeconds > 0) {
+          widget.onDurationFound?.call(newDuration.inSeconds);
+        }
       }
     });
 

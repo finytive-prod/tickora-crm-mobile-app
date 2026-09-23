@@ -19,6 +19,9 @@ import 'package:crm_mobile/models/lead_audio.dart';
 import 'package:crm_mobile/models/pipeline_model.dart';
 import 'package:crm_mobile/models/dialpad_lead_search_result.dart';
 import 'package:crm_mobile/models/lead_filter_params.dart';
+import 'package:crm_mobile/models/lead_call_log.dart';
+import 'package:crm_mobile/core/services/auto_call_recording_uploader.dart';
+import 'package:crm_mobile/core/services/call_recording_service.dart';
 import 'package:crm_mobile/core/utils/phone_number_utils.dart';
 
 abstract class LeadsRepository {
@@ -45,6 +48,7 @@ abstract class LeadsRepository {
   Future<Either<Failure, List<Attachment>>> getLeadAttachments(String id);
   Future<Either<Failure, void>> uploadLeadAttachment(String leadId, String filePath);
   Future<Either<Failure, List<LeadAudio>>> getLeadAudios(String leadId);
+  Future<Either<Failure, LeadCallLogResponse>> getLeadCallLogs(String leadId);
   Future<Either<Failure, LeadAudio>> uploadLeadAudio(
     String leadId,
     String? filePath, {
@@ -63,6 +67,7 @@ abstract class LeadsRepository {
   Future<Either<Failure, void>> updateLeadStatusInPipeline(String leadId, String statusId);
   Future<Either<Failure, DialpadLeadSearchResult>> searchLeadByNumber(String phoneNumber);
   Future<Either<Failure, void>> quickInviteLead(Map<String, dynamic> data);
+  Future<Either<Failure, void>> renameLeadAudio(String audioId, String newName);
 }
 
 class LeadsRepositoryImpl implements LeadsRepository {
@@ -446,6 +451,29 @@ class LeadsRepositoryImpl implements LeadsRepository {
   }
 
   @override
+  Future<Either<Failure, LeadCallLogResponse>> getLeadCallLogs(String leadId) async {
+    try {
+      final leadsBaseUrl = _leadsBaseUrl;
+      final response = await apiClient.get('$leadsBaseUrl/leads/$leadId/call-logs');
+
+      final body = response.data;
+      if (body != null && body is Map<String, dynamic>) {
+        final callLogsResponse = LeadCallLogResponse.fromJson(body);
+        return Right(callLogsResponse);
+      }
+      return const Left(ServerFailure('Invalid response format'));
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 500 || e.response?.statusCode == 404) {
+        // Return empty response if not found or server error
+        return const Right(LeadCallLogResponse(totalCalls: 0, totalInboundCalls: 0, totalOutboundCalls: 0, totalMissedCalls: 0, totalDuration: 0, callHistory: []));
+      }
+      return Left(ErrorHandler.mapExceptionToFailure(e));
+    } on Exception catch (e) {
+      return Left(ErrorHandler.mapExceptionToFailure(e));
+    }
+  }
+
+  @override
   Future<Either<Failure, LeadAudio>> uploadLeadAudio(
     String leadId,
     String? filePath, {
@@ -511,41 +539,83 @@ class LeadsRepositoryImpl implements LeadsRepository {
         formData.files.add(MapEntry('file', dummyFile2));
       }
 
+      var effBound = bound;
+      var effStartTime = startTime;
+      var effEndTime = endTime;
+      var effFrom = from;
+      var effTo = to;
+      var effDuration = duration;
+      var effCallDate = callDate;
+
+      if (filePath != null && filePath.isNotEmpty && await File(filePath).exists() &&
+          (effStartTime == null || effStartTime.isEmpty || effFrom == null || effFrom.isEmpty || effTo == null || effTo.isEmpty)) {
+        try {
+          // Fetch lead detail phone number if needed
+          String leadPhone = '';
+          try {
+            final leadDetailResult = await getLeadDetails(leadId);
+            leadDetailResult.fold((_) {}, (detail) => leadPhone = detail.phone);
+          } catch (_) {}
+
+          final callDetails = await CallRecordingService().getLatestCallDetails(
+            phoneNumber: leadPhone,
+            callTimestamp: 0,
+          );
+
+          final meta = await AutoCallRecordingUploader.buildAudioMetadata(
+            filePath: filePath,
+            phoneNumber: leadPhone,
+            bound: effBound,
+            startTime: effStartTime,
+            endTime: effEndTime,
+            from: effFrom,
+            to: effTo,
+            duration: effDuration,
+            callDate: effCallDate,
+            callDetails: callDetails,
+          );
+
+          effBound ??= meta['bound'];
+          effStartTime ??= meta['startTime'];
+          effEndTime ??= meta['endTime'];
+          effFrom ??= meta['from'];
+          effTo ??= meta['to'];
+          effDuration ??= meta['duration'];
+          effCallDate ??= meta['callDate'];
+        } catch (e) {
+          debugPrint('Error auto-resolving metadata in uploadLeadAudio: $e');
+        }
+      }
+
       final Map<String, dynamic> queryParams = {};
 
-      if (bound != null && bound.isNotEmpty) {
-        formData.fields.add(MapEntry('bound', bound));
-        queryParams['bound'] = bound;
+      void setField(String key, String? val) {
+        if (val != null && val.isNotEmpty) {
+          formData.fields.add(MapEntry(key, val));
+          queryParams[key] = val;
+        }
       }
-      if (startTime != null && startTime.isNotEmpty) {
-        formData.fields.add(MapEntry('startTime', startTime));
-        queryParams['startTime'] = startTime;
-      }
-      if (endTime != null && endTime.isNotEmpty) {
-        formData.fields.add(MapEntry('endTime', endTime));
-        queryParams['endTime'] = endTime;
-      }
-      if (from != null && from.isNotEmpty) {
-        formData.fields.add(MapEntry('from', from));
-        queryParams['from'] = from;
-      }
-      if (to != null && to.isNotEmpty) {
-        formData.fields.add(MapEntry('to', to));
-        queryParams['to'] = to;
-      }
-      if (duration != null && duration.isNotEmpty) {
-        formData.fields.add(MapEntry('duration', duration));
-        queryParams['duration'] = duration;
-      }
-      if (callDate != null && callDate.isNotEmpty) {
-        formData.fields.add(MapEntry('callDate', callDate));
-        queryParams['callDate'] = callDate;
-      }
+
+      setField('bound', effBound);
+      setField('startTime', effStartTime);
+      setField('start_time', effStartTime);
+      setField('endTime', effEndTime);
+      setField('end_time', effEndTime);
+      setField('from', effFrom);
+      setField('fromNumber', effFrom);
+      setField('from_number', effFrom);
+      setField('to', effTo);
+      setField('toNumber', effTo);
+      setField('to_number', effTo);
+      setField('duration', effDuration);
+      setField('durationSeconds', effDuration);
+      setField('duration_seconds', effDuration);
+      setField('callDate', effCallDate);
+
       if (callStatus != null && callStatus.isNotEmpty) {
-        formData.fields.add(MapEntry('callStatus', callStatus));
-        formData.fields.add(MapEntry('status', callStatus));
-        queryParams['callStatus'] = callStatus;
-        queryParams['status'] = callStatus;
+        setField('callStatus', callStatus);
+        setField('status', callStatus);
+        setField('call_status', callStatus);
       }
 
       final response = await apiClient.post(
@@ -758,6 +828,27 @@ class LeadsRepositoryImpl implements LeadsRepository {
       return Left(ErrorHandler.mapExceptionToFailure(e));
     } catch (e) {
       return Left(ServerFailure('Error sending quick invite: $e'));
+    }
+  }
+  @override
+  Future<Either<Failure, void>> renameLeadAudio(String audioId, String newName) async {
+    try {
+      final leadsBaseUrl = _leadsBaseUrl;
+      final response = await apiClient.put(
+        '$leadsBaseUrl/leads/audios/$audioId',
+        data: {'fileName': newName},
+      );
+
+      final body = response.data;
+      if (response.statusCode == 200 || (body != null && (body['success'] == true || body['statusCode'] == 200))) {
+        return const Right(null);
+      } else {
+        return Left(ServerFailure(body?['message'] ?? 'Failed to rename audio'));
+      }
+    } on Exception catch (e) {
+      return Left(ErrorHandler.mapExceptionToFailure(e));
+    } catch (e) {
+      return Left(ServerFailure('Error renaming audio: $e'));
     }
   }
 }

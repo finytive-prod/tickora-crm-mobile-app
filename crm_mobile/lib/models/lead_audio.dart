@@ -156,10 +156,10 @@ class LeadAudioModel extends LeadAudio {
       size: (json['size'] as num?)?.toInt() ?? 0,
       createdAt: parsedCreatedAt,
       durationSeconds: parsedDur,
-      startTimeStr: json['startTime']?.toString() ?? json['start_time']?.toString(),
-      endTimeStr: json['endTime']?.toString() ?? json['end_time']?.toString(),
-      fromNumber: json['from']?.toString() ?? json['fromNumber']?.toString(),
-      toNumber: json['to']?.toString() ?? json['toNumber']?.toString(),
+      startTimeStr: json['startTime']?.toString() ?? json['start_time']?.toString() ?? json['startTimeStr']?.toString(),
+      endTimeStr: json['endTime']?.toString() ?? json['end_time']?.toString() ?? json['endTimeStr']?.toString(),
+      fromNumber: json['from']?.toString() ?? json['fromNumber']?.toString() ?? json['from_number']?.toString(),
+      toNumber: json['to']?.toString() ?? json['toNumber']?.toString() ?? json['to_number']?.toString(),
       bound: json['bound']?.toString(),
     );
   }

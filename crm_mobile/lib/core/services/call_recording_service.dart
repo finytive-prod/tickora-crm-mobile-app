@@ -124,9 +124,9 @@ class CallRecordingService {
     }
   }
 
-  Future<void> playRecording(String path, {BuildContext? context, String? title}) async {
+  Future<void> playRecording(String path, {BuildContext? context, String? title, Function(int)? onDurationFound}) async {
     if (context != null && context.mounted) {
-      InAppAudioPlayerModal.show(context, filePath: path, title: title ?? 'Recording');
+      InAppAudioPlayerModal.show(context, filePath: path, title: title ?? 'Recording', onDurationFound: onDurationFound);
       return;
     }
 

@@ -70,18 +70,11 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
             setState(() {
               _cachedOwners = users;
               if (_selectedAssignedUser == null) {
-                final regularStaffOwners = users.where((s) {
-                  final isCurrentUser = (_currentUserId != null && s.userId == _currentUserId);
-                  final lower = s.name.toLowerCase().replaceAll(' ', '').replaceAll('_', '');
-                  final isSuperAdmin = lower.contains('superadmin') || lower == 'admin';
-                  return !isCurrentUser && !isSuperAdmin;
-                }).toList();
-                final otherOwners = users.where((s) => !regularStaffOwners.contains(s)).toList();
-                final orderedOwners = [...regularStaffOwners, ...otherOwners];
+                final currentUserList = users.where((s) => _currentUserId != null && s.userId == _currentUserId).toList();
+                final otherOwners = users.where((s) => !currentUserList.contains(s)).toList();
+                final orderedOwners = [...currentUserList, ...otherOwners];
                 if (orderedOwners.isNotEmpty) {
-                  _selectedAssignedUser = regularStaffOwners.isNotEmpty
-                      ? regularStaffOwners.first.userId
-                      : orderedOwners.first.userId;
+                  _selectedAssignedUser = orderedOwners.first.userId;
                 }
               }
             });
@@ -187,20 +180,27 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
                     }
 
                     List<DropdownMenuItem<String>> assignedItems = [];
-                    final ownersToUse = (state is LeadsLoaded && state.owners.isNotEmpty)
-                        ? state.owners
-                        : _cachedOwners;
+                    List<StaffUser> ownersToUse = (state is LeadsLoaded && state.owners.isNotEmpty)
+                        ? List.from(state.owners)
+                        : List.from(_cachedOwners);
+
+                    if (ownersToUse.isEmpty && _currentUserId != null) {
+                      final prefs = sl<SharedPreferences>();
+                      final userName = prefs.getString('userName') ?? 'Me';
+                      ownersToUse.add(StaffUser(userId: _currentUserId!, name: userName));
+                    }
 
                     if (ownersToUse.isNotEmpty) {
-                      final regularStaffOwners = ownersToUse.where((s) {
-                        final isCurrentUser = (_currentUserId != null && s.userId == _currentUserId);
-                        final lower = s.name.toLowerCase().replaceAll(' ', '').replaceAll('_', '');
-                        final isSuperAdmin = lower.contains('superadmin') || lower == 'admin';
-                        return !isCurrentUser && !isSuperAdmin;
+                      final currentUserList = ownersToUse.where((s) => _currentUserId != null && s.userId == _currentUserId).toList();
+                      final otherOwners = ownersToUse.where((s) => !currentUserList.contains(s)).toList();
+                      
+                      // Remove duplicate user IDs to prevent Dropdown assertion errors
+                      final Set<String> seenIds = {};
+                      final orderedOwners = [...currentUserList, ...otherOwners].where((s) {
+                        if (seenIds.contains(s.userId)) return false;
+                        seenIds.add(s.userId);
+                        return true;
                       }).toList();
-
-                      final otherOwners = ownersToUse.where((s) => !regularStaffOwners.contains(s)).toList();
-                      final orderedOwners = [...regularStaffOwners, ...otherOwners];
 
                       assignedItems = orderedOwners
                           .map((s) => DropdownMenuItem(
@@ -215,9 +215,17 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
                       }
 
                       if (_selectedAssignedUser == null && orderedOwners.isNotEmpty) {
-                        _selectedAssignedUser = regularStaffOwners.isNotEmpty
-                            ? regularStaffOwners.first.userId
-                            : orderedOwners.first.userId;
+                        // Use Future.microtask to avoid modifying state during build
+                        final defaultUserId = orderedOwners.first.userId;
+                        Future.microtask(() {
+                          if (mounted && _selectedAssignedUser != defaultUserId) {
+                            setState(() {
+                              _selectedAssignedUser = defaultUserId;
+                            });
+                          }
+                        });
+                        // Also set it locally for the current build to avoid null value
+                        _selectedAssignedUser = defaultUserId;
                       }
                     }
 

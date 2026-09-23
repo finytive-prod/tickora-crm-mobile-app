@@ -49,6 +49,36 @@ class CallHistoryStorage {
     }
   }
 
+  static Future<void> markCallAsSynced(String phoneNumber, int startTimeMs) async {
+    try {
+      final list = await loadCallHistory();
+      bool updated = false;
+      for (int i = 0; i < list.length; i++) {
+        final entry = list[i];
+        final hPhoneDigits = entry.phoneNumber.replaceAll(RegExp(r'\D'), '');
+        final cPhoneDigits = phoneNumber.replaceAll(RegExp(r'\D'), '');
+        final hLast10 = hPhoneDigits.length >= 10 ? hPhoneDigits.substring(hPhoneDigits.length - 10) : hPhoneDigits;
+        final cLast10 = cPhoneDigits.length >= 10 ? cPhoneDigits.substring(cPhoneDigits.length - 10) : cPhoneDigits;
+        
+        final phoneMatch = (hLast10.isNotEmpty && cLast10.isNotEmpty && hLast10 == cLast10) || 
+                           (hPhoneDigits.isNotEmpty && cLast10.isNotEmpty && hPhoneDigits.contains(cLast10));
+        
+        if (phoneMatch) {
+          final diff = (entry.startTime - startTimeMs).abs();
+          if (diff < 900000) { // 15 minute tolerance
+            list[i] = entry.copyWith(isSynced: true);
+            updated = true;
+          }
+        }
+      }
+      if (updated) {
+        await saveCallHistory(list);
+      }
+    } catch (e) {
+      debugPrint('Error marking call as synced: $e');
+    }
+  }
+
   static Future<void> clearHistory() async {
     try {
       final prefs = await SharedPreferences.getInstance();
