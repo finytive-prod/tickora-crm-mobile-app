@@ -99,9 +99,6 @@ class AutoCallRecordingUploader {
     if (length > 0 && length < 100) return true;
 
     if (isMissedCallKey) {
-      if (_uploadedPaths.contains(path) || _uploadedPaths.contains('${path}_0')) {
-        return true;
-      }
       if (existingServerAudios != null) {
         // Parse timestamp from missed call key: missed_IN_1726650000000_+919876543210
         final parts = path.split('_');
@@ -110,7 +107,10 @@ class AutoCallRecordingUploader {
           final keyBound = parts[1].toUpperCase(); // 'IN' or 'OUT'
           if (ts > 0) {
             for (final sAudio in existingServerAudios) {
-              final parsedTime = _parseTimestampFromFileName(sAudio.displayName);
+              // Missed call entries are 0-byte dummy records. Do not compare with real audio files (size > 0).
+              if (sAudio.size > 0) continue;
+
+              final parsedTime = parseTimestampFromFileName(sAudio.displayName);
               final audioMs = parsedTime ?? (sAudio.createdAt?.millisecondsSinceEpoch ?? 0);
 
               if (audioMs > 0) {
@@ -120,8 +120,7 @@ class AutoCallRecordingUploader {
                     (keyBound == 'OUT' && (serverBound == 'OUT' || serverBound == 'OUTGOING' || serverBound.contains('OUT')));
 
                 if (isBoundMatch) {
-                  final int durationThreshold = (sAudio.durationSeconds > 0 ? sAudio.durationSeconds * 1000 : 0) + 120000;
-                  if ((audioMs - ts).abs() < durationThreshold) {
+                  if ((audioMs - ts).abs() < 120000) { // 2 minute tolerance for 0-byte missed call records
                     await _markAsUploaded(path, 0);
                     return true;
                   }
@@ -130,8 +129,7 @@ class AutoCallRecordingUploader {
             }
           }
         }
-        // Fallback to checking local cache if not found on server (user might have deleted it from server)
-        return _uploadedPaths.contains(path) || _uploadedPaths.contains('${path}_0');
+        return false;
       }
       return _uploadedPaths.contains(path) || _uploadedPaths.contains('${path}_0');
     }
@@ -153,9 +151,10 @@ class AutoCallRecordingUploader {
         await _markAsUploaded(path, length);
         return true;
       }
+      return false;
     }
 
-    // Fallback to checking local cache
+    // Fallback to checking local cache only when existingServerAudios is not provided
     if (_uploadedPaths.contains('${path}_$length')) return true;
     if (_uploadedPaths.contains('${fileName}_$length')) return true;
     if (_uploadedPaths.contains(clean)) return true;
@@ -243,12 +242,13 @@ class AutoCallRecordingUploader {
         final endMs = details != null && (details['endTime'] as int? ?? 0) > 0
             ? (details['endTime'] as int)
             : nowMs;
-        final durationSec = details != null && (details['durationSeconds'] as int? ?? 0) > 0
-            ? (details['durationSeconds'] as int)
-            : ((endMs - startMs) ~/ 1000);
+        final durationSec = details != null
+            ? (details['durationSeconds'] as int? ?? 0)
+            : 0;
 
-        final statusStr = (details != null && details['callStatus'] != null && details['callStatus'].toString().isNotEmpty)
-            ? details['callStatus'].toString()
+        final rawStatus = details != null ? (details['callStatus']?.toString() ?? '') : '';
+        final statusStr = rawStatus.isNotEmpty
+            ? rawStatus
             : (durationSec > 0 ? 'ANSWERED' : 'UNANSWERED');
 
         final formattedEnd = DateFormat('dd-MM-yyyy HH:mm:ss').format(DateTime.fromMillisecondsSinceEpoch(endMs));
@@ -563,21 +563,24 @@ class AutoCallRecordingUploader {
           continue;
         }
 
-        // Check if we ALREADY found a device audio recording for this exact call log
+        // Check if we ALREADY found a valid device audio recording (>= 100 bytes) for this exact call log
         bool hasDeviceRecording = false;
         final endTimeMs = callLog['endTime'] as int? ?? startTimeMs;
         
         for (final recording in allRecordings) {
           final rPath = recording['path'] as String?;
           if (rPath != null && rPath.isNotEmpty) {
-            final rTime = _parseTimestampFromFileName(rPath.split('/').last) ?? (recording['timestamp'] as int? ?? 0);
-            if (rTime > 0) {
-              // Recording timestamp can be the start of the call (from filename) or end of the call (last modified)
-              final diffStart = (rTime - startTimeMs).abs();
-              final diffEnd = (rTime - endTimeMs).abs();
-              if (diffStart < 900000 || diffEnd < 900000) { // 15 minute tolerance
-                hasDeviceRecording = true;
-                break;
+            final f = File(rPath);
+            if (f.existsSync() && f.lengthSync() >= 100) {
+              final rTime = parseTimestampFromFileName(rPath.split('/').last) ?? (recording['timestamp'] as int? ?? 0);
+              if (rTime > 0) {
+                // Recording timestamp can be the start of the call (from filename) or end of the call (last modified)
+                final diffStart = (rTime - startTimeMs).abs();
+                final diffEnd = (rTime - endTimeMs).abs();
+                if (diffStart < 120000 || diffEnd < 120000) { // 2 minute tolerance
+                  hasDeviceRecording = true;
+                  break;
+                }
               }
             }
           }
@@ -593,17 +596,14 @@ class AutoCallRecordingUploader {
         final cPhoneDigits = phoneNumber.replaceAll(RegExp(r'\D'), '');
         final cLast10 = cPhoneDigits.length >= 10 ? cPhoneDigits.substring(cPhoneDigits.length - 10) : cPhoneDigits;
 
-        for (final history in trackedCallHistory) {
-          if (history.isSynced) {
-            final hPhoneDigits = history.phoneNumber.replaceAll(RegExp(r'\D'), '');
-            final hLast10 = hPhoneDigits.length >= 10 ? hPhoneDigits.substring(hPhoneDigits.length - 10) : hPhoneDigits;
-            
-            if (hLast10 == cLast10 || hPhoneDigits.contains(cLast10)) {
-              final diffStart = (history.startTime - startTimeMs).abs();
-              if (diffStart < 60000) { // 1 minute tolerance
-                alreadySyncedInHistory = true;
-                break;
-              }
+        if (existingServerAudios != null) {
+          for (final sAudio in existingServerAudios) {
+            if (sAudio.size > 0) continue;
+            final parsedTime = parseTimestampFromFileName(sAudio.displayName);
+            final audioMs = parsedTime ?? (sAudio.createdAt?.millisecondsSinceEpoch ?? 0);
+            if (audioMs > 0 && (audioMs - startTimeMs).abs() < 120000) {
+              alreadySyncedInHistory = true;
+              break;
             }
           }
         }
@@ -612,7 +612,7 @@ class AutoCallRecordingUploader {
           final allPathsToCheck = [..._uploadedPaths, ..._currentlyUploadingPaths];
           for (final uploadedPath in allPathsToCheck) {
             if (uploadedPath.startsWith('missed_')) continue;
-            final rTime = _parseTimestampFromFileName(uploadedPath.split('/').last.split('_').firstWhere((e) => e.contains(RegExp(r'\d')), orElse: () => '')) ?? _parseTimestampFromFileName(uploadedPath.split('/').last);
+            final rTime = parseTimestampFromFileName(uploadedPath.split('/').last.split('_').firstWhere((e) => e.contains(RegExp(r'\d')), orElse: () => '')) ?? parseTimestampFromFileName(uploadedPath.split('/').last);
             if (rTime != null && rTime > 0) {
               final diffStart = (rTime - startTimeMs).abs();
               if (diffStart < 60000) { // 1 min tolerance
@@ -626,7 +626,7 @@ class AutoCallRecordingUploader {
         }
 
         if (alreadySyncedInHistory) {
-          debugPrint('Phase 2: Call at $startTimeMs was already synced in CallHistoryStorage. Skipping dummy upload.');
+          debugPrint('Phase 2: Call at $startTimeMs was already synced. Skipping dummy upload.');
           continue;
         }
 
@@ -731,7 +731,7 @@ class AutoCallRecordingUploader {
   }
 
 
-  static int? _parseTimestampFromFileName(String fileName) {
+  static int? parseTimestampFromFileName(String fileName) {
     try {
       // 1. Try parsing directly from raw fileName FIRST (handles filenames like 8220021569(8220021569)_20260921131348.mp3)
       final rawMatch1 = RegExp(r'(?:^|[^0-9])(20[2-3]\d)[-_]?(\d{2})[-_]?(\d{2})[-_._]?(\d{2})[-_.]?(\d{2})[-_.]?(\d{2})(?:$|[^0-9])').firstMatch(fileName);
@@ -841,20 +841,31 @@ class AutoCallRecordingUploader {
     int? startMs;
     int? endMs;
 
-    // Priority 1 for startMs & endMs: System CallLog details
+    // First resolve the exact timestamp from the recording filename or callTimestamp
+    int? fileStartMs = parseTimestampFromFileName(fileName);
+    if ((fileStartMs == null || fileStartMs <= 0) && callTimestamp > 0) {
+      fileStartMs = callTimestamp;
+    }
+
+    // Check System CallLog details ONLY if its startTime is within 2 minutes of fileStartMs (or if fileStartMs is unknown)
     if (callDetails != null) {
       final s = callDetails['startTime'] as int? ?? 0;
       final e = callDetails['endTime'] as int? ?? 0;
-      if (s > 0) startMs = s;
-      if (e > 0) endMs = e;
+      final d = callDetails['durationSeconds'] as int? ?? 0;
+      if (s > 0) {
+        if (fileStartMs == null || fileStartMs <= 0 || (s - fileStartMs).abs() < 120000) {
+          startMs = s;
+          if (e > 0) endMs = e;
+          if (durSec <= 0 && d > 0) durSec = d;
+        } else {
+          debugPrint('callDetails startTime ($s) mismatched with file timestamp ($fileStartMs). Ignoring mismatched CallLog details.');
+        }
+      }
     }
 
-    // Priority 2 for startMs: Parse timestamp from file name
-    if (startMs == null || startMs <= 0) {
-      final parsed = _parseTimestampFromFileName(fileName);
-      if (parsed != null && parsed > 0) {
-        startMs = parsed;
-      }
+    // Priority 2: Use fileStartMs if startMs was not matched from callDetails
+    if ((startMs == null || startMs <= 0) && fileStartMs != null && fileStartMs > 0) {
+      startMs = fileStartMs;
     }
 
     // Priority 3: If startMs still unknown, calculate from file lastModified & duration
@@ -876,16 +887,25 @@ class AutoCallRecordingUploader {
     // Final fallback to DateTime.now()
     startMs ??= DateTime.now().millisecondsSinceEpoch;
 
-    // Calculate endMs if not already resolved
-    if (endMs == null || endMs <= 0) {
-      if (durSec > 0) {
+    // Calculate endMs: preserve callDetails.endTime if available and valid
+    if (endMs == null || endMs <= startMs) {
+      if (callDetails != null && (callDetails['durationSeconds'] as int? ?? 0) > 0) {
+        final callDurSec = callDetails['durationSeconds'] as int;
+        endMs = startMs + (callDurSec * 1000);
+      } else if (durSec > 0) {
         endMs = startMs + (durSec * 1000);
       } else if (file.existsSync()) {
-        endMs = file.lastModifiedSync().millisecondsSinceEpoch;
-        if (endMs < startMs) endMs = startMs;
+        final lastMod = file.lastModifiedSync().millisecondsSinceEpoch;
+        endMs = lastMod > startMs ? lastMod : startMs + 1000;
       } else {
-        endMs = startMs;
+        endMs = startMs + 1000;
       }
+    }
+
+    // Ensure endMs is strictly greater than startMs so startTime and endTime are never identical
+    if (endMs <= startMs) {
+      final addSec = durSec > 0 ? durSec : 1;
+      endMs = startMs + (addSec * 1000);
     }
 
     if (durSec <= 0 && endMs > startMs) {

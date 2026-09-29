@@ -65,7 +65,7 @@ class CallHistoryStorage {
         
         if (phoneMatch) {
           final diff = (entry.startTime - startTimeMs).abs();
-          if (diff < 900000) { // 15 minute tolerance
+          if (diff < 60000) { // 1 minute tolerance
             list[i] = entry.copyWith(isSynced: true);
             updated = true;
           }

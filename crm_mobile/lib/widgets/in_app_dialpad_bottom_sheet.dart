@@ -9,6 +9,7 @@ import 'package:crm_mobile/core/services/direct_call_helper.dart';
 import 'package:crm_mobile/core/theme/app_colors.dart';
 import 'package:crm_mobile/repositories/leads_repository.dart';
 import 'package:crm_mobile/injection/injection.dart';
+import 'package:crm_mobile/core/utils/phone_number_utils.dart';
 
 class InAppDialpadBottomSheet extends StatefulWidget {
   const InAppDialpadBottomSheet({super.key});
@@ -59,35 +60,38 @@ class _InAppDialpadBottomSheetState extends State<InAppDialpadBottomSheet> {
   String _cleanDisplayPhoneNumber(String input) {
     if (input.isEmpty) return '';
 
-    String cleaned = input.trim();
+    final sanitized = sanitizeLeadSearchQuery(input);
+    final cleanDigits = sanitized.replaceAll(RegExp(r'[^\d*#]'), '');
+    return cleanDigits;
+  }
 
-    // Strip country code (+91, +)
-    if (cleaned.startsWith('+91')) {
-      cleaned = cleaned.substring(3).trim();
-    } else if (cleaned.startsWith('+')) {
-      String digitsOnly = cleaned.replaceAll(RegExp(r'[^\d]'), '');
-      if (digitsOnly.length > 10) {
-        digitsOnly = digitsOnly.substring(digitsOnly.length - 10);
+  Future<void> _onCopyToClipboard() async {
+    if (_phoneNumber.trim().isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No number to copy'),
+            duration: Duration(seconds: 2),
+            backgroundColor: Colors.orange,
+          ),
+        );
       }
-      return digitsOnly;
+      return;
     }
-
-    // Strip all non-digit characters
-    String digits = cleaned.replaceAll(RegExp(r'[^\d]'), '');
-
-    // Automatically strip country code (91, 0) if length > 10
-    if (digits.length > 10) {
-      if (digits.startsWith('91')) {
-        digits = digits.substring(2);
-      } else if (digits.startsWith('0')) {
-        digits = digits.substring(1);
-      } else {
-        // Extract last 10 digits to preserve the real mobile number
-        digits = digits.substring(digits.length - 10);
+    try {
+      await Clipboard.setData(ClipboardData(text: _phoneNumber.trim()));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Copied ${_phoneNumber.trim()} to clipboard'),
+            duration: const Duration(seconds: 2),
+            backgroundColor: AppColors.primary,
+          ),
+        );
       }
+    } catch (e) {
+      debugPrint('Error copying to clipboard: $e');
     }
-
-    return digits;
   }
 
   Future<void> _onPasteFromClipboard() async {
@@ -110,6 +114,16 @@ class _InAppDialpadBottomSheetState extends State<InAppDialpadBottomSheet> {
               ),
             );
           }
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('No valid phone number found in clipboard'),
+                duration: Duration(seconds: 2),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
         }
       } else {
         if (mounted) {
@@ -117,11 +131,14 @@ class _InAppDialpadBottomSheetState extends State<InAppDialpadBottomSheet> {
             const SnackBar(
               content: Text('No text found in clipboard'),
               duration: Duration(seconds: 2),
+              backgroundColor: Colors.orange,
             ),
           );
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Error pasting from clipboard: $e');
+    }
   }
 
   void _onKeyPress(String digit) {
@@ -184,12 +201,7 @@ class _InAppDialpadBottomSheetState extends State<InAppDialpadBottomSheet> {
     _searchDebounce?.cancel();
     final cleanQuery = _cleanDisplayPhoneNumber(_phoneNumber);
 
-    if (_phoneNumber != cleanQuery &&
-        (_phoneNumber.contains('+') ||
-         _phoneNumber.startsWith('91') ||
-         _phoneNumber.startsWith('0') ||
-         _phoneNumber.length > 10 ||
-         RegExp(r'[^\d]').hasMatch(_phoneNumber))) {
+    if (_phoneNumber != cleanQuery) {
       _phoneController.value = TextEditingValue(
         text: cleanQuery,
         selection: TextSelection.collapsed(offset: cleanQuery.length),
@@ -211,7 +223,8 @@ class _InAppDialpadBottomSheetState extends State<InAppDialpadBottomSheet> {
       return;
     }
 
-    if (cleanQuery.length < 3) {
+    final digitsCount = cleanQuery.replaceAll(RegExp(r'[^\d]'), '').length;
+    if (digitsCount < 3) {
       setState(() {
         _matchedLeadId = '';
         _leadName = 'Enter phone number to search lead';
@@ -432,6 +445,7 @@ class _InAppDialpadBottomSheetState extends State<InAppDialpadBottomSheet> {
                         keyboardType: TextInputType.none,
                         showCursor: true,
                         readOnly: true,
+                        enableInteractiveSelection: true,
                         style: const TextStyle(
                           fontSize: 26,
                           fontWeight: FontWeight.bold,
@@ -461,10 +475,45 @@ class _InAppDialpadBottomSheetState extends State<InAppDialpadBottomSheet> {
                         },
                       ),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.content_paste_rounded, color: AppColors.primary, size: 22),
-                      onPressed: _onPasteFromClipboard,
-                      tooltip: 'Paste from clipboard',
+                    if (_phoneNumber.isNotEmpty)
+                      IconButton(
+                        icon: const Icon(Icons.content_copy_rounded, color: AppColors.primary, size: 20),
+                        onPressed: _onCopyToClipboard,
+                        tooltip: 'Copy phone number',
+                      ),
+                    InkWell(
+                      onTap: _onPasteFromClipboard,
+                      borderRadius: BorderRadius.circular(20),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: AppColors.primary.withOpacity(0.2),
+                            width: 1,
+                          ),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.content_paste_rounded,
+                              color: AppColors.primary,
+                              size: 16,
+                            ),
+                            SizedBox(width: 4),
+                            Text(
+                              'Tap to paste',
+                              style: TextStyle(
+                                color: AppColors.primary,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -590,7 +639,39 @@ class _InAppDialpadBottomSheetState extends State<InAppDialpadBottomSheet> {
                               ],
                             ),
                           ),
-                          const Icon(Icons.arrow_forward_ios, size: 14, color: AppColors.primary),
+                          InkWell(
+                            onTap: () => _showMatchedLeadPopup(_phoneNumber),
+                            borderRadius: BorderRadius.circular(8),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary,
+                                borderRadius: BorderRadius.circular(8),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: AppColors.primary.withValues(alpha: 0.25),
+                                    blurRadius: 4,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.visibility_rounded, size: 14, color: Colors.white),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'View',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                     ] else ...[
@@ -795,6 +876,12 @@ class _InAppDialpadBottomSheetState extends State<InAppDialpadBottomSheet> {
                 HapticFeedback.lightImpact();
                 _onKeyPress(number);
               },
+              onLongPress: number == '0'
+                  ? () {
+                      HapticFeedback.mediumImpact();
+                      _onKeyPress('+');
+                    }
+                  : null,
               child: Container(
                 width: 62,
                 height: 62,

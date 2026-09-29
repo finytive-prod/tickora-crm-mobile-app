@@ -404,11 +404,24 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
   }
 
   Future<void> _onFetchLeadDetails(FetchLeadDetails event, Emitter<LeadsState> emit) async {
-    emit(LeadDetailsLoading());
+    final currentState = state;
+    if (currentState is! LeadDetailsLoaded) {
+      emit(LeadDetailsLoading());
+    }
     final result = await getLeadDetailsUseCase(event.id);
     result.fold(
-      (failure) => emit(LeadDetailsError(failure.message)),
-      (leadDetail) => emit(LeadDetailsLoaded(leadDetail)),
+      (failure) {
+        if (state is! LeadDetailsLoaded) {
+          emit(LeadDetailsError(failure.message));
+        }
+      },
+      (leadDetail) {
+        if (state is LeadDetailsLoaded) {
+          emit((state as LeadDetailsLoaded).copyWith(leadDetail: leadDetail));
+        } else {
+          emit(LeadDetailsLoaded(leadDetail));
+        }
+      },
     );
   }
 
@@ -456,8 +469,16 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
       emit(currentState.copyWith(isAudiosLoading: true, audiosError: null));
       final result = await getLeadAudiosUseCase(event.id);
       result.fold(
-        (failure) => emit(currentState.copyWith(isAudiosLoading: false, audiosError: failure.message)),
-        (audios) => emit(currentState.copyWith(isAudiosLoading: false, audios: audios)),
+        (failure) {
+          if (state is LeadDetailsLoaded) {
+            emit((state as LeadDetailsLoaded).copyWith(isAudiosLoading: false, audiosError: failure.message));
+          }
+        },
+        (audios) {
+          if (state is LeadDetailsLoaded) {
+            emit((state as LeadDetailsLoaded).copyWith(isAudiosLoading: false, audios: audios));
+          }
+        },
       );
     }
   }
@@ -468,8 +489,16 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
       emit(currentState.copyWith(isCallLogsLoading: true, callLogsError: null));
       final result = await getLeadCallLogsUseCase(event.id);
       result.fold(
-        (failure) => emit(currentState.copyWith(isCallLogsLoading: false, callLogsError: failure.message)),
-        (callLogs) => emit(currentState.copyWith(isCallLogsLoading: false, callLogs: callLogs)),
+        (failure) {
+          if (state is LeadDetailsLoaded) {
+            emit((state as LeadDetailsLoaded).copyWith(isCallLogsLoading: false, callLogsError: failure.message));
+          }
+        },
+        (callLogs) {
+          if (state is LeadDetailsLoaded) {
+            emit((state as LeadDetailsLoaded).copyWith(isCallLogsLoading: false, callLogs: callLogs));
+          }
+        },
       );
     }
   }
