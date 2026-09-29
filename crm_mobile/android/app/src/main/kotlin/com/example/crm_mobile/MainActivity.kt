@@ -10,6 +10,7 @@ import android.provider.Settings
 import android.content.Context
 import android.os.Bundle
 import android.telecom.TelecomManager
+import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
@@ -180,40 +181,59 @@ class MainActivity: FlutterActivity() {
             }
             val uri = Uri.parse(cleanNumber)
 
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CALL_PHONE), PERMISSION_REQUEST_CODE)
-                return false
-            }
+            val telecomManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                getSystemService(Context.TELECOM_SERVICE) as? TelecomManager
+            } else null
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                val telecomManager = getSystemService(Context.TELECOM_SERVICE) as? TelecomManager
-                if (telecomManager != null) {
-                    val extras = Bundle()
-                    telecomManager.placeCall(uri, extras)
-                    return true
+            val defaultDialerPackage = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                telecomManager?.defaultDialerPackage
+            } else null
+
+            Log.d("DirectCall", "Target default dialer package: $defaultDialerPackage")
+
+            // 1. Try ACTION_DIAL with explicit default dialer package
+            var intent = Intent(Intent.ACTION_DIAL, uri).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (!defaultDialerPackage.isNullOrEmpty()) {
+                    setPackage(defaultDialerPackage)
                 }
             }
 
-            val intent = Intent(Intent.ACTION_CALL, uri).apply {
+            if (intent.resolveActivity(packageManager) != null) {
+                startActivity(intent)
+                return true
+            }
+
+            // 2. Try ACTION_CALL with explicit default dialer package
+            intent = Intent(Intent.ACTION_CALL, uri).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (!defaultDialerPackage.isNullOrEmpty()) {
+                    setPackage(defaultDialerPackage)
+                }
+            }
+
+            if (intent.resolveActivity(packageManager) != null) {
+                startActivity(intent)
+                return true
+            }
+
+            // 3. Fallback: Generic ACTION_DIAL without package constraint
+            intent = Intent(Intent.ACTION_DIAL, uri).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             startActivity(intent)
             true
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e("DirectCall", "Error in makeDirectCall", e)
             try {
-                var cleanNumber = phoneNumber.replace("#", "%23")
-                if (!cleanNumber.startsWith("tel:")) {
-                    cleanNumber = "tel:$cleanNumber"
-                }
+                val cleanNumber = "tel:${phoneNumber.replace("#", "%23").removePrefix("tel:")}"
                 val uri = Uri.parse(cleanNumber)
-                val intent = Intent(Intent.ACTION_CALL, uri).apply {
+                val intent = Intent(Intent.ACTION_DIAL, uri).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 startActivity(intent)
                 true
             } catch (ex: Exception) {
-                ex.printStackTrace()
                 false
             }
         }

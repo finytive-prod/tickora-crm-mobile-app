@@ -14,6 +14,8 @@ import 'package:crm_mobile/models/lead_detail.dart';
 import 'package:crm_mobile/models/lead_form_layout.dart';
 import 'package:crm_mobile/models/lead.dart';
 import 'package:crm_mobile/models/staff_user.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:crm_mobile/injection/injection.dart';
 
 class AddLeadScreen extends StatefulWidget {
   final LeadDetail? leadToEdit;
@@ -140,13 +142,26 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
     return 'Field';
   }
 
+  String? _currentUserId;
+
+  void _loadCurrentUser() {
+    if (sl.isRegistered<SharedPreferences>()) {
+      final prefs = sl<SharedPreferences>();
+      _currentUserId = prefs.getString('userId');
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    _loadCurrentUser();
+
     int initialPage = 0;
     if (widget.targetFieldKey != null && widget.targetFieldKey!.isNotEmpty) {
       final key = widget.targetFieldKey!.toLowerCase();
       if (key.startsWith('customfield') || key.startsWith('cf_')) {
+        initialPage = 1;
+      } else if (key == 'notes' || key == 'reminderdate' || key == 'remindertime' || key == 'repeat') {
         initialPage = 2;
       }
     }
@@ -474,8 +489,8 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
     }
     switch (_currentPage) {
       case 0: return widget.leadToEdit != null ? 'Edit Lead' : 'New Lead';
-      case 1: return 'Follow-up & Notes';
-      case 2: return 'Custom Fields';
+      case 1: return 'Custom Fields';
+      case 2: return 'Follow-up & Notes';
       default: return widget.leadToEdit != null ? 'Edit Lead' : 'New Lead';
     }
   }
@@ -543,8 +558,8 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
                       onPageChanged: (index) => setState(() => _currentPage = index),
                       children: [
                         KeepAliveWrapper(child: _buildLeadDetailsForm(state)),
-                        KeepAliveWrapper(child: _buildFollowUpTab()),
                         KeepAliveWrapper(child: _buildCustomFieldsTab(state)),
+                        KeepAliveWrapper(child: _buildFollowUpTab()),
                       ],
                     );
                   },
@@ -559,7 +574,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
   }
 
   Widget _buildStepProgressHeader() {
-    final steps = ['1. Lead Details', '2. Follow-Up', '3. Custom Fields'];
+    final steps = ['1. Lead Details', '2. Custom Fields', '3. Follow-Up'];
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       color: Colors.white,
@@ -774,7 +789,11 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
     priorityItems = prioritiesToUse
         .map((p) => DropdownMenuItem(value: p, child: Text(p, overflow: TextOverflow.ellipsis)))
         .toList();
-    ownerItems = ownersToUse
+    final currentUserList = ownersToUse.where((o) => _currentUserId != null && o.userId == _currentUserId).toList();
+    final otherOwners = ownersToUse.where((o) => !currentUserList.contains(o)).toList();
+    final orderedOwners = [...currentUserList, ...otherOwners];
+
+    ownerItems = orderedOwners
         .map((o) => DropdownMenuItem(value: o.userId, child: Text(o.name, overflow: TextOverflow.ellipsis)))
         .toList();
 
@@ -792,7 +811,16 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
       _selectedPriority = prioritiesToUse.first;
     }
     if (_selectedOwner == null && ownersToUse.isNotEmpty) {
-      _selectedOwner = ownersToUse.first.userId;
+      if (_currentUserId != null && _currentUserId!.isNotEmpty) {
+        final loggedInStaff = ownersToUse.where((o) => o.userId == _currentUserId).toList();
+        if (loggedInStaff.isNotEmpty) {
+          _selectedOwner = loggedInStaff.first.userId;
+        } else {
+          _selectedOwner = ownersToUse.first.userId;
+        }
+      } else {
+        _selectedOwner = ownersToUse.first.userId;
+      }
     }
 
     Widget? buildFixedWidget(FixedField ff) {
@@ -1100,8 +1128,8 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
       child: Form(
-        key: _step2FormKey,
-        autovalidateMode: _step2AutovalidateMode,
+        key: _step3FormKey,
+        autovalidateMode: _step3AutovalidateMode,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1222,8 +1250,8 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
       child: Form(
-        key: _step3FormKey,
-        autovalidateMode: _step3AutovalidateMode,
+        key: _step2FormKey,
+        autovalidateMode: _step2AutovalidateMode,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

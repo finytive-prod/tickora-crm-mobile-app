@@ -138,13 +138,13 @@ class LeadAudioModel extends LeadAudio {
 
     DateTime? parsedCreatedAt;
     if (json['createdAt'] != null) {
-      parsedCreatedAt = DateTime.tryParse(json['createdAt'].toString());
+      parsedCreatedAt = DateTime.tryParse(json['createdAt'].toString())?.toLocal();
     } else if (json['created_at'] != null) {
-      parsedCreatedAt = DateTime.tryParse(json['created_at'].toString());
+      parsedCreatedAt = DateTime.tryParse(json['created_at'].toString())?.toLocal();
     } else if (json['callDate'] != null) {
       final cd = json['callDate'].toString();
       final st = json['startTime']?.toString() ?? json['start_time']?.toString() ?? '00:00:00';
-      parsedCreatedAt = DateTime.tryParse('${cd}T$st');
+      parsedCreatedAt = DateTime.tryParse('${cd}T$st')?.toLocal();
     }
 
     return LeadAudioModel(
