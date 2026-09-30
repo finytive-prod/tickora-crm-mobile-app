@@ -720,6 +720,7 @@ class CallRecordingManager(private val context: Context) {
                 .replace(Regex("^OUTBOUND_", RegexOption.IGNORE_CASE), "")
                 .replace(Regex("^INCOMING_", RegexOption.IGNORE_CASE), "")
                 .replace(Regex("^OUTGOING_", RegexOption.IGNORE_CASE), "")
+                .replace(Regex("^Call_", RegexOption.IGNORE_CASE), "")
             if (clean == old) break
         }
         if (clean.isBlank()) return fileName

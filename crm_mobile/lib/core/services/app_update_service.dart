@@ -81,6 +81,19 @@ class AppVersion implements Comparable<AppVersion> {
   String toString() => parts.join('.');
 }
 
+/// Result model for comprehensive app update status check.
+class AppUpdateCheckResult {
+  final bool isUpdateRequired;
+  final String currentVersion;
+  final String requiredVersion;
+
+  AppUpdateCheckResult({
+    required this.isUpdateRequired,
+    required this.currentVersion,
+    required this.requiredVersion,
+  });
+}
+
 /// Service responsible for checking app version updates and directing users to store.
 class AppUpdateService {
   /// Checks if Google Play Store has an update available for the app.
@@ -145,29 +158,70 @@ class AppUpdateService {
     }
   }
 
+  /// Comprehensive update check comparing installed version against minimum required and Play Store available versions.
+  Future<AppUpdateCheckResult> checkAppUpdate(
+      {String minVersionStr = AppUpdateConfig.minimumSupportedVersion}) async {
+    final installedStr = await getInstalledVersion();
+    final installedVersion = AppVersion.parse(installedStr);
+
+    String targetRequiredStr = minVersionStr;
+    bool playStoreHasUpdate = false;
+    int? playStoreBuildCode;
+
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      try {
+        final updateInfo = await InAppUpdate.checkForUpdate();
+        if (updateInfo.updateAvailability == UpdateAvailability.updateAvailable) {
+          playStoreHasUpdate = true;
+          playStoreBuildCode = updateInfo.availableVersionCode;
+          if (playStoreBuildCode != null && playStoreBuildCode > 0) {
+            final mainVersion = installedStr.split('+').first;
+            targetRequiredStr = '$mainVersion+$playStoreBuildCode';
+          }
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          developer.log('Play Store in-app update check exception: $e');
+        }
+      }
+    }
+
+    var targetVersion = AppVersion.parse(targetRequiredStr);
+
+    // If Play Store indicates an update is available but targetVersion <= installedVersion,
+    // ensure targetRequiredStr reflects the higher deployed build number.
+    if (playStoreHasUpdate && targetVersion <= installedVersion) {
+      final mainVersion = installedStr.split('+').first;
+      final installedBuild =
+          installedVersion.parts.length > 3 ? installedVersion.parts[3] : 0;
+      final targetBuild = (playStoreBuildCode != null && playStoreBuildCode > installedBuild)
+          ? playStoreBuildCode
+          : (installedBuild + 1);
+      targetRequiredStr = '$mainVersion+$targetBuild';
+      targetVersion = AppVersion.parse(targetRequiredStr);
+    }
+
+    // Force update ONLY if installed version is strictly below target required version
+    final isRequired = installedVersion < targetVersion;
+
+    return AppUpdateCheckResult(
+      isUpdateRequired: isRequired,
+      currentVersion: installedStr,
+      requiredVersion: targetRequiredStr,
+    );
+  }
+
   /// Checks if the installed version is lower than the minimum required version.
-  /// [minVersionStr] allows dynamic minimum version checking (e.g. from Remote Config / API).
   Future<bool> isUpdateRequired(
       {String minVersionStr = AppUpdateConfig.minimumSupportedVersion}) async {
     try {
-      final installedStr = await getInstalledVersion();
-      final installedVersion = AppVersion.parse(installedStr);
-      final minimumVersion = AppVersion.parse(minVersionStr);
-
-      final isRequired = installedVersion < minimumVersion;
-
-      if (kDebugMode) {
-        developer.log(
-            'AppVersion check -> Installed: $installedStr ($installedVersion), Minimum: $minVersionStr ($minimumVersion), Required: $isRequired');
-      }
-
-      return isRequired;
+      final result = await checkAppUpdate(minVersionStr: minVersionStr);
+      return result.isUpdateRequired;
     } catch (e, stack) {
       if (kDebugMode) {
         developer.log('Error performing version update check: $e',
             error: e, stackTrace: stack);
       }
-      // Fail safe: if version check fails due to unforeseen error, do not block user
       return false;
     }
   }

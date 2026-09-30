@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -44,6 +45,8 @@ class AutoCallRecordingUploader {
 
   static String cleanFileName(String name) {
     var clean = name.trim();
+    // Normalize + to _ for consistent comparison (e.g. Call_+918925966055 → Call__918925966055)
+    clean = clean.replaceAll('+', '_');
     while (true) {
       final old = clean;
       clean = clean.replaceAll(RegExp(r'^\.?pending[-_]?[a-zA-Z0-9]*[-_]?', caseSensitive: false), '');
@@ -57,7 +60,8 @@ class AutoCallRecordingUploader {
           .replaceAll(RegExp(r'^INBOUND_', caseSensitive: false), '')
           .replaceAll(RegExp(r'^OUTBOUND_', caseSensitive: false), '')
           .replaceAll(RegExp(r'^INCOMING_', caseSensitive: false), '')
-          .replaceAll(RegExp(r'^OUTGOING_', caseSensitive: false), '');
+          .replaceAll(RegExp(r'^OUTGOING_', caseSensitive: false), '')
+          .replaceAll(RegExp(r'^Call_', caseSensitive: false), '');
 
       // Strip leading phone number (7 to 15 digits, optionally with (digits)),
       // BUT do NOT strip 14-digit date timestamps (starting with 202/203) or 13-digit epoch ms (16-19)
@@ -190,6 +194,29 @@ class AutoCallRecordingUploader {
     }
 
     final callStartTimestamp = DateTime.now().millisecondsSinceEpoch;
+
+    // Launch dialer IMMEDIATELY without waiting for async disk I/O
+    DirectCallHelper.makeCall(phoneNumber);
+
+    // Track call history and setup auto-upload timers in background
+    unawaited(_trackCallAndSetupUpload(
+      context: context,
+      leadId: leadId,
+      phoneNumber: phoneNumber,
+      leadName: leadName,
+      callStartTimestamp: callStartTimestamp,
+      onUploadSuccess: onUploadSuccess,
+    ));
+  }
+
+  static Future<void> _trackCallAndSetupUpload({
+    required BuildContext context,
+    required String leadId,
+    required String phoneNumber,
+    String? leadName,
+    required int callStartTimestamp,
+    VoidCallback? onUploadSuccess,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     final staffUserName = prefs.getString('userName')?.trim();
     final staffUserPhone = prefs.getString('userPhone')?.trim();
@@ -219,12 +246,6 @@ class AutoCallRecordingUploader {
       callStatus: 'UNANSWERED',
     );
     await CallHistoryStorage.addOrUpdateCall(callHistoryEntry);
-
-    try {
-      await DirectCallHelper.makeCall(phoneNumber);
-    } catch (e) {
-      debugPrint('Error placing phone call: $e');
-    }
 
     // Multi-stage post-call tracking to calculate exact call end time, duration, and scan audio
     for (final delaySec in [3, 8, 15, 30, 45, 60, 90, 120, 180, 240, 300]) {
@@ -555,10 +576,11 @@ class AutoCallRecordingUploader {
         if (startTimeMs <= 0) continue;
 
         // Phase 2 is ONLY for calls without audio files (missed/unanswered).
-        // Skip calls that were actually answered (duration > 0) — Phase 1 handles those with real audio.
+        // Skip calls that were explicitly answered (duration > 0 and status is ANSWERED/CONNECTED)
         final callDuration = callLog['durationSeconds'] as int? ?? 0;
         final callStatusRaw = (callLog['callStatus'] as String? ?? '').toUpperCase();
-        if (callDuration > 0 || callStatusRaw == 'ANSWERED') {
+        final isExplicitlyAnswered = (callStatusRaw == 'ANSWERED' || callStatusRaw == 'CONNECTED') && callDuration > 0;
+        if (isExplicitlyAnswered) {
           debugPrint('Phase 2: Skipping answered call at $startTimeMs (duration=${callDuration}s, status=$callStatusRaw)');
           continue;
         }
@@ -667,27 +689,28 @@ class AutoCallRecordingUploader {
             effectiveStaffPhone = await StaffPhoneResolver.getOrFetchStaffPhone();
           } catch (_) {}
         }
+        if (effectiveStaffPhone.isEmpty) {
+          effectiveStaffPhone = 'Staff';
+        }
 
         final String fromNum;
         final String toNum;
         if (isIncoming) {
-          fromNum = phoneNumber;
+          fromNum = phoneNumber.isNotEmpty ? phoneNumber : 'Lead';
           toNum = effectiveStaffPhone;
         } else {
           fromNum = effectiveStaffPhone;
-          toNum = phoneNumber;
+          toNum = phoneNumber.isNotEmpty ? phoneNumber : 'Lead';
         }
 
-        var callStatusStr = callLog['callStatus'] as String? ?? (isIncoming ? 'MISSED' : 'UNANSWERED');
-        if (callStatusStr.toUpperCase() == 'UNANSWERED' || callStatusStr.toUpperCase() == 'REJECTED') {
-          callStatusStr = 'NOT_CONNECTED';
-        } else if (callStatusStr.toUpperCase() == 'MISSED') {
-          callStatusStr = 'MISSED';
-        } else {
-          callStatusStr = 'NOT_CONNECTED'; // Fallback for phase 2 (no audio)
+        var callStatusStr = (callLog['callStatus'] as String? ?? '').toUpperCase();
+        if (callStatusStr.isEmpty) {
+          callStatusStr = isIncoming ? 'MISSED' : 'UNANSWERED';
+        } else if (callStatusStr == 'NOT_CONNECTED' || callStatusStr == 'NO_ANSWER') {
+          callStatusStr = isIncoming ? 'MISSED' : 'UNANSWERED';
         }
 
-        debugPrint('Auto-uploading missed call metadata ($boundStr) for leadId: $leadId at $startTimeStr');
+        debugPrint('Auto-uploading call metadata ($boundStr, status=$callStatusStr) for leadId: $leadId at $startTimeStr');
         _currentlyUploadingPaths.add(uniqueKey);
 
         final repo = sl<LeadsRepository>();
@@ -706,11 +729,13 @@ class AutoCallRecordingUploader {
 
         result.fold(
           (failure) {
-            debugPrint('Auto-upload missed call metadata failed: ${failure.message}');
+            debugPrint('Auto-upload call metadata failed: ${failure.message}');
             _currentlyUploadingPaths.remove(uniqueKey);
+            _uploadedPaths.remove(uniqueKey);
+            _uploadedPaths.remove('${uniqueKey}_0');
           },
           (audio) async {
-            debugPrint('Successfully uploaded missed call metadata: ${audio.id}');
+            debugPrint('Successfully uploaded call metadata: ${audio.id}');
             await _markAsUploaded(uniqueKey, 0);
             await CallHistoryStorage.markCallAsSynced(phoneNumber, startTimeMs);
             _currentlyUploadingPaths.remove(uniqueKey);

@@ -9,7 +9,6 @@ import 'package:crm_mobile/screens/home_screen.dart';
 import 'package:crm_mobile/screens/auth/login_screen.dart';
 import 'package:crm_mobile/core/services/call_recording_service.dart';
 import 'package:crm_mobile/core/services/app_update_service.dart';
-import 'package:crm_mobile/core/config/app_update_config.dart';
 import '../../error_handling_img/force_update_screen.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -55,19 +54,15 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     final startTime = DateTime.now();
 
     final updateService = sl<AppUpdateService>();
+    final updateResult = await updateService.checkAppUpdate();
 
-    // Enforce ForceUpdateScreen if installed version is below minimum OR Play Store reports an update
-    final updateRequired = await updateService.isUpdateRequired();
-    final playStoreUpdateAvailable = await updateService.isPlayStoreUpdateAvailable();
-
-    if (updateRequired || playStoreUpdateAvailable) {
-      final currentVersion = await updateService.getInstalledVersion();
+    if (updateResult.isUpdateRequired) {
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (context) => ForceUpdateScreen(
-            currentVersion: currentVersion,
-            requiredVersion: AppUpdateConfig.minimumSupportedVersion,
+            currentVersion: updateResult.currentVersion,
+            requiredVersion: updateResult.requiredVersion,
           ),
         ),
       );
