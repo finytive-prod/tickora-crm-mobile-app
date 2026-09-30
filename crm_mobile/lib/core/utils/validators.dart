@@ -79,9 +79,7 @@ class AppValidators {
 }
 
 class AppInputFormatters {
-  static List<TextInputFormatter> get nameFormatters => [
-    FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z\s]')),
-  ];
+  static List<TextInputFormatter> get nameFormatters => [];
   
   static List<TextInputFormatter> get phoneFormatters => [
     MobileNumberInputFormatter(),

@@ -175,67 +175,16 @@ class MainActivity: FlutterActivity() {
     private fun makeDirectCall(phoneNumber: String): Boolean {
         if (phoneNumber.isBlank()) return false
         return try {
-            var cleanNumber = phoneNumber.replace("#", "%23")
-            if (!cleanNumber.startsWith("tel:")) {
-                cleanNumber = "tel:$cleanNumber"
-            }
+            val cleanNumber = "tel:${phoneNumber.trim().replace("#", "%23").removePrefix("tel:")}"
             val uri = Uri.parse(cleanNumber)
-
-            val telecomManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                getSystemService(Context.TELECOM_SERVICE) as? TelecomManager
-            } else null
-
-            val defaultDialerPackage = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                telecomManager?.defaultDialerPackage
-            } else null
-
-            Log.d("DirectCall", "Target default dialer package: $defaultDialerPackage")
-
-            // 1. Try ACTION_DIAL with explicit default dialer package
-            var intent = Intent(Intent.ACTION_DIAL, uri).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                if (!defaultDialerPackage.isNullOrEmpty()) {
-                    setPackage(defaultDialerPackage)
-                }
-            }
-
-            if (intent.resolveActivity(packageManager) != null) {
-                startActivity(intent)
-                return true
-            }
-
-            // 2. Try ACTION_CALL with explicit default dialer package
-            intent = Intent(Intent.ACTION_CALL, uri).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                if (!defaultDialerPackage.isNullOrEmpty()) {
-                    setPackage(defaultDialerPackage)
-                }
-            }
-
-            if (intent.resolveActivity(packageManager) != null) {
-                startActivity(intent)
-                return true
-            }
-
-            // 3. Fallback: Generic ACTION_DIAL without package constraint
-            intent = Intent(Intent.ACTION_DIAL, uri).apply {
+            val intent = Intent(Intent.ACTION_DIAL, uri).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             startActivity(intent)
             true
         } catch (e: Exception) {
             Log.e("DirectCall", "Error in makeDirectCall", e)
-            try {
-                val cleanNumber = "tel:${phoneNumber.replace("#", "%23").removePrefix("tel:")}"
-                val uri = Uri.parse(cleanNumber)
-                val intent = Intent(Intent.ACTION_DIAL, uri).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                startActivity(intent)
-                true
-            } catch (ex: Exception) {
-                false
-            }
+            false
         }
     }
 

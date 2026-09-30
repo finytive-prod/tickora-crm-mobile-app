@@ -78,6 +78,50 @@ class LeadsRepositoryImpl implements LeadsRepository {
   String get _leadsBaseUrl => ApiUrl.leadService;
   String get _identityBaseUrl => ApiUrl.identityService;
 
+  Future<List<Lead>?> _searchGlobalLeads({
+    required String? query,
+    int page = 0,
+    int size = 15,
+  }) async {
+    try {
+      final leadsBaseUrl = _leadsBaseUrl;
+      final q = (query != null && query.trim().isNotEmpty) ? query.trim() : 'null';
+
+      final response = await apiClient.post(
+        '$leadsBaseUrl/leads/search/global',
+        queryParameters: {
+          'page': page,
+          'size': size,
+        },
+        data: {
+          'query': q,
+          'isLead': true,
+          'isCustomer': false,
+          'isUser': false,
+          'isFollowup': true,
+        },
+      );
+
+      final body = response.data;
+      if (body != null && (body['success'] == true || body['statusCode'] == 200) && body['data'] != null) {
+        final List<dynamic> content;
+        if (body['data'] is List) {
+          content = body['data'];
+        } else if (body['data'] is Map && body['data']['content'] is List) {
+          content = body['data']['content'];
+        } else {
+          content = [];
+        }
+
+        final leads = content.map((json) => LeadModel.fromJson(json)).toList();
+        return leads;
+      }
+    } catch (e) {
+      debugPrint('Error searching global leads: $e');
+    }
+    return null;
+  }
+
   @override
   Future<Either<Failure, List<Lead>>> getLeads(
     int page,
@@ -88,6 +132,45 @@ class LeadsRepositoryImpl implements LeadsRepository {
     String? searchQuery,
   }) async {
     try {
+      if (filterParams == null || !filterParams.hasActiveFilters) {
+        final globalLeads = await _searchGlobalLeads(query: searchQuery, page: page, size: size);
+        if (globalLeads != null && globalLeads.isNotEmpty) {
+          var leads = globalLeads;
+
+          if (statusId != null && statusId.isNotEmpty) {
+            final filteredByStatus = leads.where((l) => l.status?.id == statusId).toList();
+            if (filteredByStatus.isNotEmpty) {
+              leads = filteredByStatus;
+            }
+          }
+
+          if (searchQuery != null && searchQuery.trim().isNotEmpty) {
+            final qLower = searchQuery.trim().toLowerCase();
+            final digitsOnly = searchQuery.trim().replaceAll(RegExp(r'[^\d]'), '');
+            final filteredBySearch = leads.where((l) {
+              final name = '${l.firstName} ${l.lastName}'.toLowerCase();
+              final phone = l.phone.toLowerCase();
+              final phoneDigits = l.phone.replaceAll(RegExp(r'[^\d]'), '');
+              final company = l.companyName.toLowerCase();
+              final email = l.email.toLowerCase();
+
+              final matchPhone = phone.contains(qLower) ||
+                  (digitsOnly.isNotEmpty && phoneDigits.contains(digitsOnly));
+
+              return name.contains(qLower) ||
+                  matchPhone ||
+                  company.contains(qLower) ||
+                  email.contains(qLower);
+            }).toList();
+            if (filteredBySearch.isNotEmpty) {
+              leads = filteredBySearch;
+            }
+          }
+
+          return Right(leads);
+        }
+      }
+
       final leadsBaseUrl = _leadsBaseUrl;
 
       final queryParameters = <String, dynamic>{
@@ -149,6 +232,85 @@ class LeadsRepositoryImpl implements LeadsRepository {
     int size = 10,
     LeadFilterParams? filterParams,
   }) async {
+    final qTrimmed = query.trim();
+    final globalLeads = await _searchGlobalLeads(query: qTrimmed, page: page, size: size);
+    if (globalLeads != null && globalLeads.isNotEmpty) {
+      var results = globalLeads;
+      if (qTrimmed.isNotEmpty && qTrimmed != 'null') {
+        final queryLower = qTrimmed.toLowerCase();
+        final digitsOnly = qTrimmed.replaceAll(RegExp(r'[^\d]'), '');
+        final matched = results.where((l) {
+          final name = '${l.firstName} ${l.lastName}'.toLowerCase();
+          final phone = l.phone.toLowerCase();
+          final phoneDigits = l.phone.replaceAll(RegExp(r'[^\d]'), '');
+          final company = l.companyName.toLowerCase();
+          final email = l.email.toLowerCase();
+
+          final matchPhone = phone.contains(queryLower) ||
+              (digitsOnly.isNotEmpty && phoneDigits.contains(digitsOnly));
+
+          return name.contains(queryLower) ||
+              matchPhone ||
+              company.contains(queryLower) ||
+              email.contains(queryLower);
+        }).toList();
+        if (matched.isNotEmpty) {
+          results = matched;
+        }
+      }
+      return Right(results);
+    }
+
+    final cleanDigits = qTrimmed.replaceAll(RegExp(r'[^\d]'), '');
+    if (cleanDigits.length >= 5) {
+      try {
+        final numberResult = await searchLeadByNumber(qTrimmed);
+        final foundLead = numberResult.fold<Lead?>(
+          (_) => null,
+          (res) {
+            if (res.alreadyMapped && res.leadId != null && res.leadId!.isNotEmpty) {
+              final nameStr = res.name ?? 'Lead';
+              final parts = nameStr.trim().split(' ');
+              final fName = parts.isNotEmpty ? parts.first : '';
+              final lName = parts.length > 1 ? parts.sublist(1).join(' ') : '';
+              return Lead(
+                id: res.leadId!,
+                leadNumber: res.leadNumber ?? '',
+                firstName: fName,
+                lastName: lName,
+                companyName: '',
+                email: '',
+                phone: res.phone ?? qTrimmed,
+                status: res.statusName != null
+                    ? LeadStatus(
+                        id: '',
+                        statusName: res.statusName!,
+                        color: res.statusColor ?? '#6B7280',
+                        isDefault: false,
+                        isClosed: false,
+                        displayOrder: 0,
+                      )
+                    : null,
+                source: res.sourceName != null
+                    ? LeadSource(
+                        id: '',
+                        name: res.sourceName!,
+                        category: '',
+                        description: '',
+                      )
+                    : null,
+                ownerUserName: res.assignedToName,
+              );
+            }
+            return null;
+          },
+        );
+        if (foundLead != null) {
+          return Right([foundLead]);
+        }
+      } catch (_) {}
+    }
+
     return getLeads(page, size, filterParams: filterParams, searchQuery: query);
   }
 
@@ -596,27 +758,44 @@ class LeadsRepositoryImpl implements LeadsRepository {
         }
       }
 
+      final effectiveFrom = (effFrom != null && effFrom.isNotEmpty) ? effFrom : 'Staff';
+
       setField('bound', effBound);
+      setField('direction', effBound);
+      setField('callType', effBound);
+      setField('call_type', effBound);
+      setField('type', effBound);
+
       setField('startTime', effStartTime);
       setField('start_time', effStartTime);
       setField('endTime', effEndTime);
       setField('end_time', effEndTime);
-      setField('from', effFrom);
-      setField('fromNumber', effFrom);
-      setField('from_number', effFrom);
+
+      setField('from', effectiveFrom);
+      setField('fromNumber', effectiveFrom);
+      setField('from_number', effectiveFrom);
+
       setField('to', effTo);
       setField('toNumber', effTo);
       setField('to_number', effTo);
+
       setField('duration', effDuration);
       setField('durationSeconds', effDuration);
       setField('duration_seconds', effDuration);
+
       setField('callDate', effCallDate);
 
       if (callStatus != null && callStatus.isNotEmpty) {
         setField('callStatus', callStatus);
         setField('status', callStatus);
         setField('call_status', callStatus);
+        setField('callState', callStatus);
+        setField('call_state', callStatus);
       }
+
+      final dummyName = '${(callStatus ?? "missed").toLowerCase()}_call_${effStartTime?.replaceAll(":", "") ?? "0"}.mp3';
+      setField('originalFileName', dummyName);
+      setField('original_file_name', dummyName);
 
       final response = await apiClient.post(
         '$leadsBaseUrl/leads/$leadId/audios',

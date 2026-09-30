@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:crm_mobile/blocs/leads_bloc.dart';
@@ -13,6 +14,8 @@ import 'package:crm_mobile/core/utils/form_validator_utils.dart';
 import 'package:crm_mobile/models/lead.dart';
 import 'package:crm_mobile/models/staff_user.dart';
 import 'package:crm_mobile/usecases/get_staff_users_usecase.dart';
+import 'package:crm_mobile/repositories/leads_repository.dart';
+import 'package:crm_mobile/screens/leads/lead_details_screen.dart';
 
 class QuickInviteScreen extends StatefulWidget {
   final String? initialPhoneNumber;
@@ -41,16 +44,101 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
   List<LeadStatus> _cachedStatuses = [];
   List<LeadSource> _cachedSources = [];
 
+  Timer? _searchDebounce;
+  bool _isCheckingPhone = false;
+  bool _isExistingLead = false;
+  String? _existingLeadId;
+  String? _existingLeadName;
+
   @override
   void initState() {
     super.initState();
+    _phoneController.addListener(_onPhoneChanged);
     if (widget.initialPhoneNumber != null && widget.initialPhoneNumber!.isNotEmpty) {
       _phoneController.text = widget.initialPhoneNumber!;
+      _checkPhoneNumber(widget.initialPhoneNumber!);
     }
     _loadCurrentUser();
     context.read<LeadsBloc>().add(const FetchStaffUsers());
     context.read<LeadsBloc>().add(FetchLeadStatuses());
     context.read<LeadsBloc>().add(FetchLeadSources());
+  }
+
+  void _onPhoneChanged() {
+    final text = _phoneController.text.trim();
+    _searchDebounce?.cancel();
+    if (text.length < 5) {
+      if (_isExistingLead || _existingLeadId != null || _isCheckingPhone) {
+        setState(() {
+          _isExistingLead = false;
+          _existingLeadId = null;
+          _existingLeadName = null;
+          _isCheckingPhone = false;
+        });
+      }
+      return;
+    }
+
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+      _checkPhoneNumber(text);
+    });
+  }
+
+  Future<void> _checkPhoneNumber(String phone) async {
+    final cleanPhone = phone.trim();
+    if (cleanPhone.isEmpty) return;
+
+    if (mounted) {
+      setState(() {
+        _isCheckingPhone = true;
+      });
+    }
+
+    try {
+      final repo = sl<LeadsRepository>();
+      final response = await repo.searchLeadByNumber(cleanPhone);
+
+      if (!mounted) return;
+
+      response.fold(
+        (failure) {
+          setState(() {
+            _isCheckingPhone = false;
+            _isExistingLead = false;
+            _existingLeadId = null;
+            _existingLeadName = null;
+          });
+        },
+        (result) {
+          if (mounted) {
+            setState(() {
+              _isCheckingPhone = false;
+              if (result.alreadyMapped && result.leadId != null && result.leadId!.isNotEmpty) {
+                _isExistingLead = true;
+                _existingLeadId = result.leadId;
+                _existingLeadName = result.name;
+                if (_nameController.text.trim().isEmpty && result.name != null && result.name!.isNotEmpty) {
+                  _nameController.text = result.name!;
+                }
+              } else {
+                _isExistingLead = false;
+                _existingLeadId = null;
+                _existingLeadName = null;
+              }
+            });
+          }
+        },
+      );
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _isCheckingPhone = false;
+          _isExistingLead = false;
+          _existingLeadId = null;
+          _existingLeadName = null;
+        });
+      }
+    }
   }
 
   void _loadCurrentUser() async {
@@ -86,6 +174,8 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
+    _phoneController.removeListener(_onPhoneChanged);
     _nameController.dispose();
     _phoneController.dispose();
     super.dispose();
@@ -311,6 +401,50 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
                             inputFormatters: AppInputFormatters.phoneFormatters,
                             validator: (val) => AppValidators.validateMobile(val, isRequired: true),
                           ),
+                          if (_isCheckingPhone) ...[
+                            const SizedBox(height: 6),
+                            Row(
+                              children: const [
+                                SizedBox(
+                                  width: 12,
+                                  height: 12,
+                                  child: CircularProgressIndicator(strokeWidth: 1.5, color: AppColors.primary),
+                                ),
+                                SizedBox(width: 8),
+                                Text(
+                                  'Checking phone number...',
+                                  style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                                ),
+                              ],
+                            ),
+                          ],
+                          if (_isExistingLead && _existingLeadId != null) ...[
+                            const SizedBox(height: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: Colors.amber.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.amber.shade700.withValues(alpha: 0.5)),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.info_outline, color: Colors.amber.shade800, size: 16),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Lead already exists${_existingLeadName != null && _existingLeadName!.isNotEmpty ? " ($_existingLeadName)" : ""}. Tap "View" to open details.',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.amber.shade900,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 16),
 
                           // 3. Lead Source Dropdown
@@ -339,7 +473,7 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
 
                           const SizedBox(height: 28),
 
-                          // Action Buttons: Cancel & Invite
+                          // Action Buttons: Cancel & Invite / View
                           Row(
                             mainAxisAlignment: MainAxisAlignment.end,
                             children: [
@@ -362,36 +496,69 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
                                 ),
                               ),
                               const SizedBox(width: 12),
-                              BlocBuilder<LeadsBloc, LeadsState>(
-                                builder: (context, state) {
-                                  final isLoading = state is LeadActionLoading;
-                                  return ElevatedButton(
-                                    onPressed: isLoading ? null : _onCreate,
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFFD32F2F),
-                                      elevation: 0,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(8),
+                              if (_isExistingLead && _existingLeadId != null)
+                                ElevatedButton.icon(
+                                  onPressed: () {
+                                    final leadIdToOpen = _existingLeadId!;
+                                    Navigator.pop(context);
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) => LeadDetailsScreen(
+                                          leadId: leadIdToOpen,
+                                        ),
                                       ),
-                                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                                    );
+                                  },
+                                  icon: const Icon(Icons.visibility_outlined, color: Colors.white, size: 18),
+                                  label: const Text(
+                                    'View',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
                                     ),
-                                    child: isLoading
-                                        ? const SizedBox(
-                                            width: 18,
-                                            height: 18,
-                                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                                          )
-                                        : const Text(
-                                            'Invite',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 14,
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: AppColors.primary,
+                                    elevation: 0,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                                  ),
+                                )
+                              else
+                                BlocBuilder<LeadsBloc, LeadsState>(
+                                  builder: (context, state) {
+                                    final isLoading = state is LeadActionLoading;
+                                    return ElevatedButton(
+                                      onPressed: isLoading ? null : _onCreate,
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFFD32F2F),
+                                        elevation: 0,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                                      ),
+                                      child: isLoading
+                                          ? const SizedBox(
+                                              width: 18,
+                                              height: 18,
+                                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                            )
+                                          : const Text(
+                                              'Invite',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 14,
+                                              ),
                                             ),
-                                          ),
-                                  );
-                                },
-                              ),
+                                    );
+                                  },
+                                ),
                             ],
                           ),
                         ],
