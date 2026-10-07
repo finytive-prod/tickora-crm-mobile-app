@@ -51,16 +51,44 @@ class _InAppAudioPlayerModalState extends State<InAppAudioPlayerModal> {
     _initAudio();
   }
 
+  Future<bool> _checkAudioFileValid(File file) async {
+    if (!await file.exists()) return false;
+    final len = await file.length();
+    if (len < 500) return false;
+
+    try {
+      final raf = await file.open(mode: FileMode.read);
+      final bytes = await raf.read(64);
+      await raf.close();
+
+      if (bytes.isEmpty) return false;
+
+      final firstByte = bytes[0];
+      if (firstByte == 0x7B /* '{' */ || firstByte == 0x3C /* '<' */) {
+        return false;
+      }
+
+      final asciiStr = String.fromCharCodes(bytes.where((b) => b >= 32 && b <= 126));
+      if (asciiStr.contains('<html>') || asciiStr.contains('<HTML>') || asciiStr.contains('404 Not Found') || asciiStr.contains('"success":false')) {
+        return false;
+      }
+      return true;
+    } catch (_) {
+      return true;
+    }
+  }
+
   Future<void> _initAudio() async {
     try {
       final isUrl = widget.filePath.startsWith('http://') || widget.filePath.startsWith('https://');
       if (!isUrl) {
         final file = File(widget.filePath);
-        if (!await file.exists() || (await file.length()) == 0) {
+        final isValid = await _checkAudioFileValid(file);
+        if (!isValid) {
           if (mounted) {
             setState(() {
               _isLoading = false;
-              _errorMessage = 'Audio recording file not found or empty.';
+              _errorMessage = 'Audio recording file is empty or unavailable on the server.';
             });
           }
           return;
@@ -109,7 +137,7 @@ class _InAppAudioPlayerModalState extends State<InAppAudioPlayerModal> {
       if (!success && mounted) {
         setState(() {
           _isLoading = false;
-          _errorMessage = 'Unable to play this audio format.';
+          _errorMessage = 'Unable to play this audio recording.';
         });
       }
     }

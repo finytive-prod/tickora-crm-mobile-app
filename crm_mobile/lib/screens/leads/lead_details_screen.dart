@@ -37,9 +37,7 @@ class LeadDetailsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocProvider(
       create: (_) => sl<LeadsBloc>()
-        ..add(FetchLeadDetails(leadId))
-        ..add(FetchLeadAudios(leadId))
-        ..add(FetchLeadCallLogs(leadId)),
+        ..add(FetchLeadDetails(leadId)),
       child: LeadDetailsView(isActive: isActive),
     );
   }
@@ -75,9 +73,8 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
   final Map<String, String> _resolvedCallTypes = {};
   final Map<String, int> _resolvedAudioDurations = {};
   Future<List<dynamic>>? _callLogsFuture;
-  String? _callLogsFuturePhone;
   bool _localRecordingsFetched = false;
-  String? _autoUploadedLeadId;
+  final Set<String> _scannedLeadIds = {};
 
   String _getResolvedCallType(LeadAudio audio, String phoneNumber) {
     if (_resolvedCallTypes.containsKey(audio.id)) {
@@ -248,25 +245,23 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
       final blocState = context.read<LeadsBloc>().state;
       if (blocState is LeadDetailsLoaded) {
         final lead = blocState.leadDetail;
-
-        // Schedule multi-stage scans (0s, 3s, 7s, 15s) when returning from call to capture finalized recording
-        for (final delaySec in [0, 3, 7, 15]) {
-          Future.delayed(Duration(seconds: delaySec), () {
-            if (!mounted) return;
-            AutoCallRecordingUploader.autoScanAndUploadLeadRecordings(
-              context: context,
-              leadId: lead.id,
-              phoneNumber: lead.phone,
-              onUploadSuccess: () {
-                if (mounted) {
-                  context.read<LeadsBloc>().add(FetchLeadAudios(lead.id));
-                  context.read<LeadsBloc>().add(FetchLeadCallLogs(lead.id));
-                  _fetchLocalRecordings(lead.phone);
-                }
-              },
-            );
-          });
-        }
+        Future.delayed(const Duration(seconds: 3), () {
+          if (!mounted) return;
+          AutoCallRecordingUploader.autoScanAndUploadLeadRecordings(
+            context: context,
+            leadId: lead.id,
+            phoneNumber: lead.phone,
+            existingServerAudios: blocState.audios ?? [],
+            existingServerCallLogs: blocState.callLogs?.callHistory ?? [],
+            onUploadSuccess: () {
+              if (mounted) {
+                context.read<LeadsBloc>().add(FetchLeadAudios(lead.id));
+                context.read<LeadsBloc>().add(FetchLeadCallLogs(lead.id));
+                _fetchLocalRecordings(lead.phone);
+              }
+            },
+          );
+        });
       }
     }
   }
@@ -668,17 +663,19 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
         body: BlocConsumer<LeadsBloc, LeadsState>(
           listener: (context, state) {
             if (state is LeadDetailsLoaded) {
-              if (_autoUploadedLeadId != state.leadDetail.id) {
-                _autoUploadedLeadId = state.leadDetail.id;
+              final leadId = state.leadDetail.id;
+              if (state.audios != null && state.callLogs != null && !_scannedLeadIds.contains(leadId)) {
+                _scannedLeadIds.add(leadId);
                 AutoCallRecordingUploader.autoScanAndUploadLeadRecordings(
                   context: context,
-                  leadId: state.leadDetail.id,
+                  leadId: leadId,
                   phoneNumber: state.leadDetail.phone,
                   existingServerAudios: state.audios,
+                  existingServerCallLogs: state.callLogs?.callHistory,
                   onUploadSuccess: () {
                     if (mounted) {
-                      context.read<LeadsBloc>().add(FetchLeadAudios(state.leadDetail.id));
-                      context.read<LeadsBloc>().add(FetchLeadCallLogs(state.leadDetail.id));
+                      context.read<LeadsBloc>().add(FetchLeadAudios(leadId));
+                      context.read<LeadsBloc>().add(FetchLeadCallLogs(leadId));
                     }
                   },
                 );
@@ -1107,39 +1104,23 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                 setState(() {
                   _activeTabIndex = index;
                 });
-                if (index == 1 && state.auditLogs == null) {
+                if (index == 1 && state.auditLogs == null && !state.isAuditLogsLoading) {
                   context.read<LeadsBloc>().add(
                     FetchLeadAuditLogs(state.leadDetail.id),
                   );
                 } else if (index == 2) {
                   _fetchLocalRecordings(state.leadDetail.phone);
-                  if (state.callLogs == null) {
+                  if (state.callLogs == null && !state.isCallLogsLoading) {
                     context.read<LeadsBloc>().add(
                       FetchLeadCallLogs(state.leadDetail.id),
                     );
                   }
-                  if (state.audios == null) {
+                  if (state.audios == null && !state.isAudiosLoading) {
                     context.read<LeadsBloc>().add(
                       FetchLeadAudios(state.leadDetail.id),
                     );
                   }
-                  AutoCallRecordingUploader.autoScanAndUploadLeadRecordings(
-                    context: context,
-                    leadId: state.leadDetail.id,
-                    phoneNumber: state.leadDetail.phone,
-                    existingServerAudios: state.audios,
-                    onUploadSuccess: () {
-                      if (mounted) {
-                        context.read<LeadsBloc>().add(
-                          FetchLeadAudios(state.leadDetail.id),
-                        );
-                        context.read<LeadsBloc>().add(
-                          FetchLeadCallLogs(state.leadDetail.id),
-                        );
-                      }
-                    },
-                  );
-                } else if (index == 3 && state.attachments == null) {
+                } else if (index == 3 && state.attachments == null && !state.isAttachmentsLoading) {
                   context.read<LeadsBloc>().add(
                     FetchLeadAttachments(state.leadDetail.id),
                   );
@@ -1464,8 +1445,9 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
     final lowerRaw = rawName.toLowerCase();
     if (lowerRaw.startsWith('missed_') ||
         lowerRaw.contains('missed') ||
-        lowerRaw.contains('unanswered')) {
-      return isIncoming ? 'Missed Call' : 'Unanswered Call';
+        lowerRaw.contains('unanswered') ||
+        lowerRaw.contains('not_connected')) {
+      return isIncoming ? 'Missed Call' : 'Not Connected Call';
     }
     var name = rawName;
     while (true) {
@@ -1480,7 +1462,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
     }
     if (name.trim().isEmpty || RegExp(r'^\d+$').hasMatch(name.trim())) {
       if (isUnanswered) {
-        return isIncoming ? 'Missed Call' : 'Unanswered Call';
+        return isIncoming ? 'Missed Call' : 'Not Connected Call';
       }
     }
     return name.isEmpty ? rawName : name;

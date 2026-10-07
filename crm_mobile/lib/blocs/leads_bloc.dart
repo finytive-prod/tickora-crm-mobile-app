@@ -44,6 +44,13 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
   final UpdateLeadActiveStatusUseCase updateLeadActiveStatusUseCase;
   final QuickInviteLeadUseCase? quickInviteLeadUseCase;
 
+  List<dynamic>? _cachedStatuses;
+  List<LeadSource>? _cachedSources;
+  List<String>? _cachedPriorities;
+  List<dynamic>? _cachedOwners;
+  List<CustomField>? _cachedCustomFields;
+  List<FixedField>? _cachedFixedFields;
+
   LeadsBloc({
     required this.getLeadsUseCase,
     required this.getLeadStatusesUseCase,
@@ -92,12 +99,12 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
     List<String>? currentPriorities;
     List<dynamic>? currentOwners;
     
-    if (currentState is! LeadsLoaded || currentState.fixedFields.isEmpty) {
+    if ((currentState is! LeadsLoaded || currentState.fixedFields.isEmpty) && (_cachedFixedFields == null || _cachedFixedFields!.isEmpty)) {
       add(FetchCustomFieldsForm());
     }
 
     LeadFilterParams? effectiveFilter = event.filterParams;
-    String? effectiveSearchQuery = event.searchQuery;
+    String? effectiveSearchQuery;
 
     if (currentState is LeadsLoaded) {
       currentStatuses = currentState.statuses;
@@ -105,15 +112,17 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
       currentPriorities = currentState.priorities;
       currentOwners = currentState.owners;
       effectiveFilter ??= currentState.filterParams;
-      effectiveSearchQuery ??= currentState.searchQuery;
 
       if (event.isLoadMore) {
         existingLeads = currentState.leads;
+        effectiveSearchQuery = event.searchQuery ?? currentState.searchQuery;
         emit(currentState.copyWith(isLoadingMore: true));
       } else {
+        effectiveSearchQuery = (event.searchQuery != null && event.searchQuery!.isNotEmpty) ? event.searchQuery : null;
         emit(LeadsLoading());
       }
     } else {
+      effectiveSearchQuery = (event.searchQuery != null && event.searchQuery!.isNotEmpty) ? event.searchQuery : null;
       emit(LeadsLoading());
     }
 
@@ -138,24 +147,12 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
         final allLeads = event.isLoadMore ? [...existingLeads, ...newLeads] : newLeads;
         final hasMore = newLeads.length >= event.size;
 
-        List<dynamic> finalStatuses = currentStatuses ?? [];
-        List<LeadSource> finalSources = currentSources ?? [];
-        List<String> finalPriorities = currentPriorities ?? [];
-        List<dynamic> finalOwners = currentOwners ?? [];
-        List<CustomField> finalCustomFields = [];
-        List<FixedField> finalFixedFields = [];
-
-        if (state is LeadsLoaded) {
-          finalStatuses = (state as LeadsLoaded).statuses;
-          finalSources = (state as LeadsLoaded).sources;
-          finalPriorities = (state as LeadsLoaded).priorities;
-          finalOwners = (state as LeadsLoaded).owners;
-          finalCustomFields = (state as LeadsLoaded).customFields;
-          finalFixedFields = (state as LeadsLoaded).fixedFields;
-        } else if (currentState is LeadsLoaded) {
-          finalCustomFields = currentState.customFields;
-          finalFixedFields = currentState.fixedFields;
-        }
+        List<dynamic> finalStatuses = (state is LeadsLoaded ? (state as LeadsLoaded).statuses : null) ?? currentStatuses ?? _cachedStatuses ?? [];
+        List<LeadSource> finalSources = (state is LeadsLoaded ? (state as LeadsLoaded).sources : null) ?? currentSources ?? _cachedSources ?? [];
+        List<String> finalPriorities = (state is LeadsLoaded ? (state as LeadsLoaded).priorities : null) ?? currentPriorities ?? _cachedPriorities ?? [];
+        List<dynamic> finalOwners = (state is LeadsLoaded ? (state as LeadsLoaded).owners : null) ?? currentOwners ?? _cachedOwners ?? [];
+        List<CustomField> finalCustomFields = (state is LeadsLoaded ? (state as LeadsLoaded).customFields : null) ?? (currentState is LeadsLoaded ? currentState.customFields : null) ?? _cachedCustomFields ?? [];
+        List<FixedField> finalFixedFields = (state is LeadsLoaded ? (state as LeadsLoaded).fixedFields : null) ?? (currentState is LeadsLoaded ? currentState.fixedFields : null) ?? _cachedFixedFields ?? [];
 
         emit(LeadsLoaded(
           allLeads, 
@@ -271,19 +268,21 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
   Future<void> _onFetchLeadStatuses(FetchLeadStatuses event, Emitter<LeadsState> emit) async {
     final result = await getLeadStatusesUseCase();
     result.fold(
-      (failure) {
-        // Just log or handle silently if we don't want to crash the whole screen for filters
-        if (state is LeadsLoaded) {
-          // Do nothing, keep existing state
-        }
-      },
+      (failure) {},
       (statuses) {
+        _cachedStatuses = statuses;
         if (state is LeadsLoaded) {
           emit((state as LeadsLoaded).copyWith(statuses: statuses));
         } else {
-          // If leads haven't loaded yet, we could potentially hold these in a different way,
-          // but typically FetchLeads is called first. 
-          emit(LeadsLoaded(const [], statuses: statuses));
+          emit(LeadsLoaded(
+            const [],
+            statuses: statuses,
+            sources: _cachedSources ?? const [],
+            priorities: _cachedPriorities ?? const [],
+            owners: (_cachedOwners ?? const []).cast(),
+            customFields: _cachedCustomFields ?? const [],
+            fixedFields: _cachedFixedFields ?? const [],
+          ));
         }
       },
     );
@@ -292,14 +291,21 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
   Future<void> _onFetchLeadSources(FetchLeadSources event, Emitter<LeadsState> emit) async {
     final result = await getLeadSourcesUseCase();
     result.fold(
-      (failure) {
-        if (state is LeadsLoaded) {}
-      },
+      (failure) {},
       (sources) {
+        _cachedSources = sources;
         if (state is LeadsLoaded) {
           emit((state as LeadsLoaded).copyWith(sources: sources));
         } else {
-          emit(LeadsLoaded(const [], sources: sources));
+          emit(LeadsLoaded(
+            const [],
+            statuses: (_cachedStatuses ?? const []).cast(),
+            sources: sources,
+            priorities: _cachedPriorities ?? const [],
+            owners: (_cachedOwners ?? const []).cast(),
+            customFields: _cachedCustomFields ?? const [],
+            fixedFields: _cachedFixedFields ?? const [],
+          ));
         }
       },
     );
@@ -308,14 +314,21 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
   Future<void> _onFetchLeadPriorities(FetchLeadPriorities event, Emitter<LeadsState> emit) async {
     final result = await getLeadPrioritiesUseCase();
     result.fold(
-      (failure) {
-        if (state is LeadsLoaded) {}
-      },
+      (failure) {},
       (priorities) {
+        _cachedPriorities = priorities;
         if (state is LeadsLoaded) {
           emit((state as LeadsLoaded).copyWith(priorities: priorities));
         } else {
-          emit(LeadsLoaded(const [], priorities: priorities));
+          emit(LeadsLoaded(
+            const [],
+            statuses: (_cachedStatuses ?? const []).cast(),
+            sources: _cachedSources ?? const [],
+            priorities: priorities,
+            owners: (_cachedOwners ?? const []).cast(),
+            customFields: _cachedCustomFields ?? const [],
+            fixedFields: _cachedFixedFields ?? const [],
+          ));
         }
       },
     );
@@ -324,14 +337,21 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
   Future<void> _onFetchStaffUsers(FetchStaffUsers event, Emitter<LeadsState> emit) async {
     final result = await getStaffUsersUseCase(search: event.search);
     result.fold(
-      (failure) {
-        if (state is LeadsLoaded) {}
-      },
+      (failure) {},
       (owners) {
+        _cachedOwners = owners;
         if (state is LeadsLoaded) {
           emit((state as LeadsLoaded).copyWith(owners: owners));
         } else {
-          emit(LeadsLoaded(const [], owners: owners));
+          emit(LeadsLoaded(
+            const [],
+            statuses: (_cachedStatuses ?? const []).cast(),
+            sources: _cachedSources ?? const [],
+            priorities: _cachedPriorities ?? const [],
+            owners: owners,
+            customFields: _cachedCustomFields ?? const [],
+            fixedFields: _cachedFixedFields ?? const [],
+          ));
         }
       },
     );
@@ -340,10 +360,10 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
   Future<void> _onFetchCustomFieldsForm(FetchCustomFieldsForm event, Emitter<LeadsState> emit) async {
     final result = await getCustomFieldsUseCase();
     result.fold(
-      (failure) {
-        if (state is LeadsLoaded) {}
-      },
+      (failure) {},
       (layout) {
+        _cachedFixedFields = layout.fixedFields;
+        _cachedCustomFields = layout.customFields;
         if (state is LeadsLoaded) {
           emit((state as LeadsLoaded).copyWith(
             fixedFields: layout.fixedFields,
@@ -352,8 +372,12 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
         } else {
           emit(LeadsLoaded(
             const [],
-            fixedFields: layout.fixedFields,
+            statuses: (_cachedStatuses ?? const []).cast(),
+            sources: _cachedSources ?? const [],
+            priorities: _cachedPriorities ?? const [],
+            owners: (_cachedOwners ?? const []).cast(),
             customFields: layout.customFields,
+            fixedFields: layout.fixedFields,
           ));
         }
       },
@@ -420,6 +444,8 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
           emit((state as LeadDetailsLoaded).copyWith(leadDetail: leadDetail));
         } else {
           emit(LeadDetailsLoaded(leadDetail));
+          add(FetchLeadAudios(event.id));
+          add(FetchLeadCallLogs(event.id));
         }
       },
     );
@@ -517,6 +543,7 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
         to: event.to,
         duration: event.duration,
         callDate: event.callDate,
+        callStatus: event.callStatus,
       );
       result.fold(
         (failure) => emit(currentState.copyWith(isAudiosLoading: false, audiosError: failure.message)),

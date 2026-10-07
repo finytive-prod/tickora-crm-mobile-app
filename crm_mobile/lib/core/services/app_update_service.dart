@@ -164,19 +164,23 @@ class AppUpdateService {
     final installedStr = await getInstalledVersion();
     final installedVersion = AppVersion.parse(installedStr);
 
+    var targetVersion = AppVersion.parse(minVersionStr);
     String targetRequiredStr = minVersionStr;
-    bool playStoreHasUpdate = false;
-    int? playStoreBuildCode;
 
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
       try {
         final updateInfo = await InAppUpdate.checkForUpdate();
         if (updateInfo.updateAvailability == UpdateAvailability.updateAvailable) {
-          playStoreHasUpdate = true;
-          playStoreBuildCode = updateInfo.availableVersionCode;
+          final playStoreBuildCode = updateInfo.availableVersionCode;
           if (playStoreBuildCode != null && playStoreBuildCode > 0) {
             final mainVersion = installedStr.split('+').first;
-            targetRequiredStr = '$mainVersion+$playStoreBuildCode';
+            final playStoreVersionStr = '$mainVersion+$playStoreBuildCode';
+            final playStoreVersion = AppVersion.parse(playStoreVersionStr);
+
+            if (playStoreVersion > targetVersion) {
+              targetVersion = playStoreVersion;
+              targetRequiredStr = playStoreVersionStr;
+            }
           }
         }
       } catch (e) {
@@ -184,21 +188,6 @@ class AppUpdateService {
           developer.log('Play Store in-app update check exception: $e');
         }
       }
-    }
-
-    var targetVersion = AppVersion.parse(targetRequiredStr);
-
-    // If Play Store indicates an update is available but targetVersion <= installedVersion,
-    // ensure targetRequiredStr reflects the higher deployed build number.
-    if (playStoreHasUpdate && targetVersion <= installedVersion) {
-      final mainVersion = installedStr.split('+').first;
-      final installedBuild =
-          installedVersion.parts.length > 3 ? installedVersion.parts[3] : 0;
-      final targetBuild = (playStoreBuildCode != null && playStoreBuildCode > installedBuild)
-          ? playStoreBuildCode
-          : (installedBuild + 1);
-      targetRequiredStr = '$mainVersion+$targetBuild';
-      targetVersion = AppVersion.parse(targetRequiredStr);
     }
 
     // Force update ONLY if installed version is strictly below target required version

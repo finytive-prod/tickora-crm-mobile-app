@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:crm_mobile/widgets/custom_bottom_nav_bar.dart';
+import 'package:crm_mobile/screens/calls/calls_screen.dart';
 import 'package:crm_mobile/screens/dashboard/dashboard_screen.dart';
 import 'package:crm_mobile/screens/leads/leads_screen.dart';
 import 'package:crm_mobile/screens/more/more_screen.dart';
@@ -92,12 +93,12 @@ class HomeScreenState extends State<HomeScreen> {
     // If privileges service has privileges defined, check them. Otherwise show default set.
     final bool showAllByDefault = priv.privileges.isEmpty;
 
-    if (showAllByDefault || priv.hasPrivilege('DASHBOARD_READ')) {
-      _screens.add(const DashboardScreen());
+    if (showAllByDefault || priv.hasPrivilege('DASHBOARD_READ') || priv.hasPrivilege('CALL_READ')) {
+      _screens.add(const CallsScreen());
       _navItems.add(const BottomNavigationBarItem(
-        icon: Icon(Icons.home_outlined),
-        activeIcon: Icon(Icons.home),
-        label: 'Dashboard',
+        icon: Icon(Icons.phone_in_talk_outlined),
+        activeIcon: Icon(Icons.phone_in_talk),
+        label: 'Calls',
       ));
     }
 

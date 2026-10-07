@@ -7,6 +7,8 @@ import 'package:crm_mobile/blocs/settings_event.dart';
 import 'package:crm_mobile/blocs/settings_state.dart';
 import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/widgets/spinning_logo.dart';
+import 'package:crm_mobile/widgets/custom_text_field.dart';
+import 'package:crm_mobile/widgets/custom_dropdown_field.dart';
 import 'package:crm_mobile/core/utils/form_validator_utils.dart';
 
 class LeadSourcesScreen extends StatelessWidget {
@@ -133,7 +135,7 @@ class _LeadSourcesViewState extends State<LeadSourcesView> {
             backgroundColor: AppColors.secondary,
             elevation: 0,
             leading: IconButton(
-              icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
+              icon: const Icon(Icons.arrow_back_ios, color: AppColors.textPrimary, size: 20),
               onPressed: () => Navigator.pop(context),
             ),
             title: const Text(
@@ -160,7 +162,7 @@ class _LeadSourcesViewState extends State<LeadSourcesView> {
                           const LinearProgressIndicator(color: AppColors.primary),
                         // Subtitle Header
                         Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -168,13 +170,13 @@ class _LeadSourcesViewState extends State<LeadSourcesView> {
                                 'Active Lead Channels',
                                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.textPrimary),
                               ),
-                              const SizedBox(height: 4),
+                              const SizedBox(height: 2),
                               const Text(
                                 'Configure acquisition channels like Google Ads, Website, Facebook, etc.',
                                 style: TextStyle(color: AppColors.textHint, fontSize: 12),
                               ),
                               if (_errorMessage != null) ...[
-                                const SizedBox(height: 8),
+                                const SizedBox(height: 6),
                                 Text(
                                   _errorMessage!,
                                   style: const TextStyle(color: AppColors.primary, fontSize: 11, fontWeight: FontWeight.w500),
@@ -184,115 +186,164 @@ class _LeadSourcesViewState extends State<LeadSourcesView> {
                           ),
                         ),
 
+                        // Empty State if no sources
+                        if (_sources.isEmpty)
+                          Container(
+                            width: double.infinity,
+                            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                            padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: AppColors.borderEnabled),
+                            ),
+                            child: const Column(
+                              children: [
+                                Icon(Icons.people_alt_outlined, size: 36, color: AppColors.textHint),
+                                SizedBox(height: 8),
+                                Text(
+                                  'No Lead Sources Found',
+                                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: AppColors.textPrimary),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  'Create a lead source below to start tracking your channels.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(fontSize: 12, color: AppColors.textHint),
+                                ),
+                              ],
+                            ),
+                          ),
+
                         // List of current sources
-                        ListView.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          itemCount: _sources.length,
-                          itemBuilder: (context, index) {
-                            final source = _sources[index];
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 12.0),
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: AppColors.borderEnabled),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  // Name & Actions Row
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          source.name,
-                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.textPrimary),
-                                        ),
-                                      ),
-                                      GestureDetector(
-                                        onTap: _isLocalLoading ? null : () => _deleteSource(context, source),
-                                        child: const Icon(Icons.delete_outline, color: AppColors.primary, size: 20),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 6),
-                                  // Category badge
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                    decoration: BoxDecoration(
-                                      color: Colors.grey.shade100,
-                                      borderRadius: BorderRadius.circular(6),
-                                      border: Border.all(color: Colors.grey.shade300, width: 0.5),
-                                    ),
-                                    child: Text(
-                                      source.category,
-                                      style: TextStyle(color: Colors.grey.shade700, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.3),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 10),
-                                  // Description
-                                  Text(
-                                    source.description.isNotEmpty ? source.description : 'No description provided.',
-                                    style: const TextStyle(color: AppColors.textSecondary, fontSize: 13, height: 1.3),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  const Divider(height: 1, color: AppColors.borderEnabled),
-                                  const SizedBox(height: 10),
-                                  // Active Status Badge / Toggle
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      const Text(
-                                        'Active Status',
-                                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textLabel),
-                                      ),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                        decoration: BoxDecoration(
-                                          color: source.active ? Colors.green.shade50 : Colors.red.shade50,
-                                          borderRadius: BorderRadius.circular(12),
-                                          border: Border.all(color: source.active ? Colors.green.shade200 : Colors.red.shade200),
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            CircleAvatar(
-                                              radius: 4,
-                                              backgroundColor: source.active ? Colors.green : Colors.red,
-                                            ),
-                                            const SizedBox(width: 6),
-                                            Text(
-                                              source.active ? 'Active' : 'Inactive',
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                fontWeight: FontWeight.bold,
-                                                color: source.active ? Colors.green.shade700 : Colors.red.shade700,
+                        if (_sources.isNotEmpty)
+                          ListView.builder(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                            itemCount: _sources.length,
+                            itemBuilder: (context, index) {
+                              final source = _sources[index];
+                              final cleanCategory = source.category.trim();
+                              final hasCategory = cleanCategory.isNotEmpty && cleanCategory != '-';
+                              final cleanDesc = source.description.trim();
+                              final hasDescription = cleanDesc.isNotEmpty && cleanDesc != '-';
+
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 8.0),
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: AppColors.borderEnabled),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Wrap(
+                                            crossAxisAlignment: WrapCrossAlignment.center,
+                                            spacing: 8,
+                                            runSpacing: 4,
+                                            children: [
+                                              Text(
+                                                source.name,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 15,
+                                                  color: AppColors.textPrimary,
+                                                ),
                                               ),
+                                              if (hasCategory)
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                  decoration: BoxDecoration(
+                                                    color: AppColors.secondary,
+                                                    borderRadius: BorderRadius.circular(4),
+                                                    border: Border.all(color: AppColors.borderEnabled),
+                                                  ),
+                                                  child: Text(
+                                                    cleanCategory,
+                                                    style: const TextStyle(
+                                                      color: AppColors.textSecondary,
+                                                      fontSize: 10,
+                                                      fontWeight: FontWeight.w600,
+                                                      letterSpacing: 0.3,
+                                                    ),
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        // Active status badge
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                          decoration: BoxDecoration(
+                                            color: source.active ? const Color(0xFFECFDF5) : const Color(0xFFFEF2F2),
+                                            borderRadius: BorderRadius.circular(10),
+                                            border: Border.all(
+                                              color: source.active ? const Color(0xFFA7F3D0) : const Color(0xFFFECACA),
                                             ),
-                                          ],
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              CircleAvatar(
+                                                radius: 3,
+                                                backgroundColor: source.active ? const Color(0xFF059669) : const Color(0xFFDC2626),
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                source.active ? 'Active' : 'Inactive',
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: source.active ? const Color(0xFF047857) : const Color(0xFFB91C1C),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        InkWell(
+                                          onTap: _isLocalLoading ? null : () => _deleteSource(context, source),
+                                          borderRadius: BorderRadius.circular(4),
+                                          child: const Padding(
+                                            padding: EdgeInsets.all(4),
+                                            child: Icon(Icons.delete_outline, color: AppColors.primary, size: 18),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    if (hasDescription) ...[
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        cleanDesc,
+                                        style: const TextStyle(
+                                          color: AppColors.textSecondary,
+                                          fontSize: 12,
+                                          height: 1.3,
                                         ),
                                       ),
                                     ],
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
 
                         const SizedBox(height: 8),
 
                         // Create Lead Source Form Section (White card)
                         Container(
-                          margin: const EdgeInsets.all(16),
-                          padding: const EdgeInsets.all(20),
+                          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
                             color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
+                            borderRadius: BorderRadius.circular(12),
                             border: Border.all(color: AppColors.borderEnabled),
                           ),
                           child: Form(
@@ -303,93 +354,104 @@ class _LeadSourcesViewState extends State<LeadSourcesView> {
                               children: [
                                 const Row(
                                   children: [
-                                    Icon(Icons.add_circle_outline, color: AppColors.primary, size: 20),
+                                    Icon(Icons.add_circle_outline, color: AppColors.primary, size: 18),
                                     SizedBox(width: 8),
                                     Text(
                                       'Create Lead Source',
-                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.textPrimary),
+                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.textPrimary),
                                     ),
                                   ],
                                 ),
-                                const SizedBox(height: 16),
+                                const SizedBox(height: 14),
 
                                 // Source Name
-                                TextFormField(
+                                CustomTextField(
+                                  label: 'Source Name',
+                                  isRequired: true,
                                   controller: _nameController,
                                   enabled: !_isLocalLoading,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Source Name',
-                                    hintText: 'e.g. Instagram Influencers',
-                                    labelStyle: TextStyle(color: AppColors.textLabel),
-                                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                  ),
+                                  hintText: 'e.g. Instagram Influencers',
+                                  autovalidateMode: _autovalidateMode,
                                   validator: (val) {
                                     if (val == null || val.trim().isEmpty) return 'Source Name is required';
                                     return null;
                                   },
                                 ),
-                                const SizedBox(height: 16),
+                                const SizedBox(height: 12),
 
                                 // Category Dropdown
-                                DropdownButtonFormField<String>(
+                                CustomDropdownField<String>(
+                                  label: 'Source Category / Type',
+                                  isRequired: true,
+                                  enabled: !_isLocalLoading,
+                                  autovalidateMode: _autovalidateMode,
                                   value: _categories.contains(_selectedCategory)
                                       ? _selectedCategory
                                       : (_categories.isNotEmpty ? _categories.first : null),
-                                  decoration: const InputDecoration(
-                                    labelText: 'Source Category / Type',
-                                    labelStyle: TextStyle(color: AppColors.textLabel),
-                                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                  ),
                                   items: _categories
                                       .map((c) => DropdownMenuItem(value: c, child: Text(c, style: const TextStyle(fontSize: 14))))
                                       .toList(),
-                                  onChanged: _isLocalLoading
-                                      ? null
-                                      : (val) {
-                                          if (val != null) {
-                                            setState(() {
-                                              _selectedCategory = val;
-                                            });
-                                          }
-                                        },
+                                  onChanged: (val) {
+                                    if (val != null) {
+                                      setState(() {
+                                        _selectedCategory = val;
+                                      });
+                                    }
+                                  },
                                 ),
-                                const SizedBox(height: 16),
+                                const SizedBox(height: 12),
 
                                 // Description
-                                TextFormField(
+                                CustomTextField(
+                                  label: 'Description',
                                   controller: _descController,
                                   enabled: !_isLocalLoading,
-                                  maxLines: 3,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Description',
-                                    hintText: 'Notes about this source tracking channel...',
-                                    labelStyle: TextStyle(color: AppColors.textLabel),
-                                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                  maxLines: 2,
+                                  hintText: 'Notes about this source tracking channel...',
+                                  autovalidateMode: _autovalidateMode,
+                                ),
+                                const SizedBox(height: 12),
+
+                                // Enable checkbox
+                                InkWell(
+                                  onTap: _isLocalLoading
+                                      ? null
+                                      : () {
+                                          setState(() {
+                                            _isEnabled = !_isEnabled;
+                                          });
+                                        },
+                                  borderRadius: BorderRadius.circular(4),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 4),
+                                    child: Row(
+                                      children: [
+                                        SizedBox(
+                                          height: 20,
+                                          width: 20,
+                                          child: Checkbox(
+                                            value: _isEnabled,
+                                            activeColor: AppColors.primary,
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                                            onChanged: _isLocalLoading
+                                                ? null
+                                                : (val) {
+                                                    setState(() {
+                                                      _isEnabled = val ?? true;
+                                                    });
+                                                  },
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        const Text(
+                                          'Enable source for selection',
+                                          style: TextStyle(fontSize: 13, color: AppColors.textLabel, fontWeight: FontWeight.w500),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(height: 16),
-
-                                // Enable checkbox
-                                Row(
-                                  children: [
-                                    Checkbox(
-                                      value: _isEnabled,
-                                      activeColor: AppColors.primary,
-                                      onChanged: _isLocalLoading
-                                          ? null
-                                          : (val) {
-                                              setState(() {
-                                                _isEnabled = val ?? true;
-                                              });
-                                            },
-                                    ),
-                                    const Text(
-                                      'Enable source for selection',
-                                      style: TextStyle(fontSize: 13, color: AppColors.textLabel, fontWeight: FontWeight.w500),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 24),
 
                                 // Create Source Button
                                 SizedBox(
@@ -401,9 +463,10 @@ class _LeadSourcesViewState extends State<LeadSourcesView> {
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: AppColors.primary,
                                       foregroundColor: Colors.white,
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                      padding: const EdgeInsets.symmetric(vertical: 14),
-                                      textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                                      elevation: 0,
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                      padding: const EdgeInsets.symmetric(vertical: 12),
+                                      textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                                     ),
                                   ),
                                 ),
@@ -411,7 +474,7 @@ class _LeadSourcesViewState extends State<LeadSourcesView> {
                             ),
                           ),
                         ),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 16),
                       ],
                     ),
                   ),
@@ -421,3 +484,4 @@ class _LeadSourcesViewState extends State<LeadSourcesView> {
     );
   }
 }
+

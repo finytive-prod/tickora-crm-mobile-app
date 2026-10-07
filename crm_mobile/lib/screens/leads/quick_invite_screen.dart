@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:intl/intl.dart';
 import 'package:crm_mobile/blocs/leads_bloc.dart';
 import 'package:crm_mobile/blocs/leads_event.dart';
 import 'package:crm_mobile/blocs/leads_state.dart';
@@ -49,6 +50,8 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
   bool _isExistingLead = false;
   String? _existingLeadId;
   String? _existingLeadName;
+  String? _existingAssignedTo;
+  String? _existingLeadCreatedAt;
 
   @override
   void initState() {
@@ -64,6 +67,16 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
     context.read<LeadsBloc>().add(FetchLeadSources());
   }
 
+  String? _formatDateTimeString(String dateStr) {
+    if (dateStr.trim().isEmpty) return null;
+    try {
+      final dt = DateTime.parse(dateStr).toLocal();
+      return DateFormat('MMM dd, yyyy, hh:mm a').format(dt);
+    } catch (_) {
+      return dateStr;
+    }
+  }
+
   void _onPhoneChanged() {
     final text = _phoneController.text.trim();
     _searchDebounce?.cancel();
@@ -73,6 +86,8 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
           _isExistingLead = false;
           _existingLeadId = null;
           _existingLeadName = null;
+          _existingAssignedTo = null;
+          _existingLeadCreatedAt = null;
           _isCheckingPhone = false;
         });
       }
@@ -107,16 +122,25 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
             _isExistingLead = false;
             _existingLeadId = null;
             _existingLeadName = null;
+            _existingAssignedTo = null;
+            _existingLeadCreatedAt = null;
           });
         },
         (result) {
           if (mounted) {
+            String? parsedDate;
+            if (result.createdAt != null && result.createdAt!.isNotEmpty) {
+              parsedDate = _formatDateTimeString(result.createdAt!);
+            }
+
             setState(() {
               _isCheckingPhone = false;
               if (result.alreadyMapped && result.leadId != null && result.leadId!.isNotEmpty) {
                 _isExistingLead = true;
                 _existingLeadId = result.leadId;
                 _existingLeadName = result.name;
+                _existingAssignedTo = result.assignedToName ?? result.assignedToInfo;
+                _existingLeadCreatedAt = parsedDate;
                 if (_nameController.text.trim().isEmpty && result.name != null && result.name!.isNotEmpty) {
                   _nameController.text = result.name!;
                 }
@@ -124,8 +148,26 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
                 _isExistingLead = false;
                 _existingLeadId = null;
                 _existingLeadName = null;
+                _existingAssignedTo = null;
+                _existingLeadCreatedAt = null;
               }
             });
+
+            if (result.alreadyMapped && result.leadId != null && (_existingLeadCreatedAt == null || _existingLeadCreatedAt!.isEmpty)) {
+              final leadId = result.leadId!;
+              repo.getLeadDetails(leadId).then((detailRes) {
+                detailRes.fold(
+                  (_) {},
+                  (leadDetail) {
+                    if (mounted && _existingLeadId == leadId && leadDetail.createdAt != null) {
+                      setState(() {
+                        _existingLeadCreatedAt = DateFormat('MMM dd, yyyy, hh:mm a').format(leadDetail.createdAt!.toLocal());
+                      });
+                    }
+                  },
+                );
+              });
+            }
           }
         },
       );
@@ -136,6 +178,8 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
           _isExistingLead = false;
           _existingLeadId = null;
           _existingLeadName = null;
+          _existingAssignedTo = null;
+          _existingLeadCreatedAt = null;
         });
       }
     }
@@ -419,25 +463,124 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
                             ),
                           ],
                           if (_isExistingLead && _existingLeadId != null) ...[
-                            const SizedBox(height: 6),
+                            const SizedBox(height: 8),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color: Colors.amber.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.amber.shade700.withValues(alpha: 0.5)),
+                                color: const Color(0xFFFFFBEB),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: const Color(0xFFFCD34D)),
                               ),
-                              child: Row(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Icon(Icons.info_outline, color: Colors.amber.shade800, size: 16),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      'Lead already exists${_existingLeadName != null && _existingLeadName!.isNotEmpty ? " ($_existingLeadName)" : ""}. Tap "View" to open details.',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.amber.shade900,
-                                        fontWeight: FontWeight.w600,
+                                  Row(
+                                    children: const [
+                                      Icon(Icons.info_outline, color: Color(0xFFD97706), size: 18),
+                                      SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          'Lead Already Exists',
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.bold,
+                                            color: Color(0xFF92400E),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  if (_existingLeadName != null && _existingLeadName!.trim().isNotEmpty) ...[
+                                    Row(
+                                      children: [
+                                        const Text(
+                                          'Lead Name: ',
+                                          style: TextStyle(fontSize: 12, color: Color(0xFFB45309), fontWeight: FontWeight.w500),
+                                        ),
+                                        Expanded(
+                                          child: Text(
+                                            _existingLeadName!.trim(),
+                                            style: const TextStyle(fontSize: 12, color: Color(0xFF78350F), fontWeight: FontWeight.bold),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                  ],
+                                  Row(
+                                    children: [
+                                      const Text(
+                                        'Assigned To: ',
+                                        style: TextStyle(fontSize: 12, color: Color(0xFFB45309), fontWeight: FontWeight.w500),
+                                      ),
+                                      Expanded(
+                                        child: Text(
+                                          (_existingAssignedTo != null && _existingAssignedTo!.trim().isNotEmpty)
+                                              ? _existingAssignedTo!.trim()
+                                              : 'Unassigned',
+                                          style: const TextStyle(fontSize: 12, color: Color(0xFF78350F), fontWeight: FontWeight.bold),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    children: [
+                                      const Text(
+                                        'Created At: ',
+                                        style: TextStyle(fontSize: 12, color: Color(0xFFB45309), fontWeight: FontWeight.w500),
+                                      ),
+                                      Expanded(
+                                        child: Text(
+                                          (_existingLeadCreatedAt != null && _existingLeadCreatedAt!.trim().isNotEmpty)
+                                              ? _existingLeadCreatedAt!.trim()
+                                              : '—',
+                                          style: const TextStyle(fontSize: 12, color: Color(0xFF78350F), fontWeight: FontWeight.bold),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: ElevatedButton.icon(
+                                      onPressed: () {
+                                        final leadIdToOpen = _existingLeadId!;
+                                        Navigator.pop(context);
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) => LeadDetailsScreen(
+                                              leadId: leadIdToOpen,
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                      icon: const Icon(Icons.visibility_outlined, color: Colors.white, size: 16),
+                                      label: const Text(
+                                        'View Lead',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: AppColors.primary,
+                                        elevation: 0,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                        minimumSize: Size.zero,
+                                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                       ),
                                     ),
                                   ),
@@ -473,7 +616,7 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
 
                           const SizedBox(height: 28),
 
-                          // Action Buttons: Cancel & Invite / View
+                          // Action Buttons: Cancel & Invite
                           Row(
                             mainAxisAlignment: MainAxisAlignment.end,
                             children: [
@@ -495,40 +638,8 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
                                   ),
                                 ),
                               ),
-                              const SizedBox(width: 12),
-                              if (_isExistingLead && _existingLeadId != null)
-                                ElevatedButton.icon(
-                                  onPressed: () {
-                                    final leadIdToOpen = _existingLeadId!;
-                                    Navigator.pop(context);
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (context) => LeadDetailsScreen(
-                                          leadId: leadIdToOpen,
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                  icon: const Icon(Icons.visibility_outlined, color: Colors.white, size: 18),
-                                  label: const Text(
-                                    'View',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: AppColors.primary,
-                                    elevation: 0,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                                  ),
-                                )
-                              else
+                              if (!_isExistingLead || _existingLeadId == null) ...[
+                                const SizedBox(width: 12),
                                 BlocBuilder<LeadsBloc, LeadsState>(
                                   builder: (context, state) {
                                     final isLoading = state is LeadActionLoading;
@@ -559,6 +670,7 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
                                     );
                                   },
                                 ),
+                              ],
                             ],
                           ),
                         ],

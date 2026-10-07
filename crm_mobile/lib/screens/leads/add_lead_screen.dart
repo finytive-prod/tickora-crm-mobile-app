@@ -797,20 +797,116 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         .map((o) => DropdownMenuItem(value: o.userId, child: Text(o.name, overflow: TextOverflow.ellipsis)))
         .toList();
 
-    if (_selectedStatus == null && statusesToUse.isNotEmpty) {
+    // --- STATUS MATCHING ---
+    if (_selectedStatus != null && _selectedStatus!.isNotEmpty) {
+      bool hasMatch = statusItems.any((item) => item.value == _selectedStatus);
+      if (!hasMatch) {
+        final targetLower = _selectedStatus!.trim().toLowerCase();
+        LeadStatus? matchStatus;
+        try {
+          matchStatus = statusesToUse.firstWhere(
+            (s) => s.id.trim().toLowerCase() == targetLower || s.statusName.trim().toLowerCase() == targetLower,
+          );
+        } catch (_) {}
+        if (matchStatus != null && matchStatus.id.isNotEmpty) {
+          _selectedStatus = matchStatus.id;
+          hasMatch = true;
+        }
+      }
+      if (!hasMatch) {
+        final editStatus = widget.leadToEdit?.status;
+        final val = (editStatus != null && editStatus.id.isNotEmpty) ? editStatus.id : _selectedStatus!;
+        final name = (editStatus != null && editStatus.statusName.isNotEmpty) ? editStatus.statusName : _selectedStatus!;
+        _selectedStatus = val;
+        if (!statusItems.any((item) => item.value == val)) {
+          statusItems.insert(0, DropdownMenuItem(value: val, child: Text(name, overflow: TextOverflow.ellipsis)));
+        }
+      }
+    } else if (statusesToUse.isNotEmpty) {
       try {
         _selectedStatus = statusesToUse.firstWhere((s) => s.isDefault == true).id;
       } catch (_) {
         _selectedStatus = statusesToUse.first.id;
       }
     }
-    if (_selectedSource == null && sourcesToUse.isNotEmpty) {
+
+    // --- SOURCE MATCHING ---
+    if (_selectedSource != null && _selectedSource!.isNotEmpty) {
+      bool hasMatch = sourceItems.any((item) => item.value == _selectedSource);
+      if (!hasMatch) {
+        final targetLower = _selectedSource!.trim().toLowerCase();
+        LeadSource? matchSource;
+        try {
+          matchSource = sourcesToUse.firstWhere(
+            (s) => s.id.trim().toLowerCase() == targetLower || s.name.trim().toLowerCase() == targetLower,
+          );
+        } catch (_) {}
+        if (matchSource != null && matchSource.id.isNotEmpty) {
+          _selectedSource = matchSource.id;
+          hasMatch = true;
+        }
+      }
+      if (!hasMatch) {
+        final editSource = widget.leadToEdit?.source;
+        final val = (editSource != null && editSource.id.isNotEmpty) ? editSource.id : _selectedSource!;
+        final name = (editSource != null && editSource.name.isNotEmpty) ? editSource.name : _selectedSource!;
+        _selectedSource = val;
+        if (!sourceItems.any((item) => item.value == val)) {
+          sourceItems.insert(0, DropdownMenuItem(value: val, child: Text(name, overflow: TextOverflow.ellipsis)));
+        }
+      }
+    } else if (sourcesToUse.isNotEmpty) {
       _selectedSource = sourcesToUse.first.id;
     }
-    if (_selectedPriority == null && prioritiesToUse.isNotEmpty) {
+
+    // --- PRIORITY MATCHING ---
+    if (_selectedPriority != null && _selectedPriority!.isNotEmpty) {
+      bool hasMatch = priorityItems.any((item) => item.value == _selectedPriority);
+      if (!hasMatch) {
+        final targetLower = _selectedPriority!.trim().toLowerCase();
+        String? matchPriority;
+        try {
+          matchPriority = prioritiesToUse.firstWhere(
+            (p) => p.trim().toLowerCase() == targetLower,
+          );
+        } catch (_) {}
+        if (matchPriority != null && matchPriority.isNotEmpty) {
+          _selectedPriority = matchPriority;
+          hasMatch = true;
+        }
+      }
+      if (!hasMatch) {
+        priorityItems.insert(0, DropdownMenuItem(value: _selectedPriority!, child: Text(_selectedPriority!, overflow: TextOverflow.ellipsis)));
+      }
+    } else if (prioritiesToUse.isNotEmpty) {
       _selectedPriority = prioritiesToUse.first;
     }
-    if (_selectedOwner == null && ownersToUse.isNotEmpty) {
+
+    // --- OWNER MATCHING ---
+    if (_selectedOwner != null && _selectedOwner!.isNotEmpty) {
+      bool hasMatch = ownerItems.any((item) => item.value == _selectedOwner);
+      if (!hasMatch) {
+        final targetLower = _selectedOwner!.trim().toLowerCase();
+        StaffUser? matchOwner;
+        try {
+          matchOwner = ownersToUse.firstWhere(
+            (o) => o.userId.trim().toLowerCase() == targetLower || o.name.trim().toLowerCase() == targetLower,
+          );
+        } catch (_) {}
+        if (matchOwner != null && matchOwner.userId.isNotEmpty) {
+          _selectedOwner = matchOwner.userId;
+          hasMatch = true;
+        }
+      }
+      if (!hasMatch) {
+        final name = (widget.leadToEdit?.ownerUserName != null && widget.leadToEdit!.ownerUserName!.isNotEmpty)
+            ? widget.leadToEdit!.ownerUserName!
+            : _selectedOwner!;
+        if (!ownerItems.any((item) => item.value == _selectedOwner)) {
+          ownerItems.insert(0, DropdownMenuItem(value: _selectedOwner!, child: Text(name, overflow: TextOverflow.ellipsis)));
+        }
+      }
+    } else if (ownersToUse.isNotEmpty) {
       if (_currentUserId != null && _currentUserId!.isNotEmpty) {
         final loggedInStaff = ownersToUse.where((o) => o.userId == _currentUserId).toList();
         if (loggedInStaff.isNotEmpty) {
@@ -1282,9 +1378,22 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
       List<DropdownMenuItem<String>> items = [];
       List<dynamic> opts = field.options ?? [];
       for (var opt in opts) {
-        items.add(DropdownMenuItem(value: opt.toString(), child: Text(opt.toString())));
+        final optStr = opt.toString();
+        items.add(DropdownMenuItem(value: optStr, child: Text(optStr)));
       }
-      return CustomDropdownField(
+      final rawVal = _customFieldValues[field.fieldId]?.toString();
+      if (rawVal != null && rawVal.isNotEmpty && !items.any((item) => item.value == rawVal)) {
+        final matchOpt = opts.firstWhere(
+          (o) => o.toString().trim().toLowerCase() == rawVal.trim().toLowerCase(),
+          orElse: () => null,
+        );
+        if (matchOpt != null) {
+          _customFieldValues[field.fieldId] = matchOpt.toString();
+        } else {
+          items.insert(0, DropdownMenuItem(value: rawVal, child: Text(rawVal)));
+        }
+      }
+      return CustomDropdownField<String>(
         label: displayLabel,
         isRequired: isRequired,
         items: items,

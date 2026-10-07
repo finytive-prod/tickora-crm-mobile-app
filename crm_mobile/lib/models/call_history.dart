@@ -15,7 +15,7 @@ class CallHistory {
   final String? appUserPhone; // Caller (From) number
   final String? recordingUrl;
   final bool isSynced;
-  final String callStatus; // ANSWERED, UNANSWERED, MISSED, REJECTED
+  final String callStatus; // ANSWERED, NOT_CONNECTED, MISSED, REJECTED
 
   CallHistory({
     required this.id,
@@ -39,13 +39,16 @@ class CallHistory {
 
   bool get isUnanswered =>
       callStatus == 'UNANSWERED' ||
+      callStatus == 'NOT_CONNECTED' ||
       callStatus == 'MISSED' ||
       callStatus == 'REJECTED' ||
       callStatus == 'NO_ANSWER' ||
       (durationSeconds <= 0 && (recordingUrl == null || recordingUrl!.isEmpty));
 
   String get formattedStatus {
-    if (isUnanswered) return 'UNANSWERED';
+    if (callStatus.toUpperCase() == 'MISSED') return 'MISSED';
+    if (callStatus.toUpperCase() == 'REJECTED') return 'REJECTED';
+    if (isUnanswered) return 'NOT_CONNECTED';
     return callStatus.toUpperCase();
   }
 
@@ -84,8 +87,8 @@ class CallHistory {
         : (int.tryParse(json['durationSeconds']?.toString() ?? '0') ?? 0);
     final rawStatus = json['callStatus']?.toString();
     final defaultStatus = (rawStatus != null && rawStatus.isNotEmpty)
-        ? rawStatus
-        : (duration <= 0 ? 'UNANSWERED' : 'ANSWERED');
+        ? (rawStatus.toUpperCase() == 'UNANSWERED' ? 'NOT_CONNECTED' : rawStatus)
+        : (duration <= 0 ? 'NOT_CONNECTED' : 'ANSWERED');
 
     return CallHistory(
       id: (json['id'] ?? '').toString(),
