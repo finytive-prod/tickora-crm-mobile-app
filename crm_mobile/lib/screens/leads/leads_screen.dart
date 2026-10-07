@@ -64,7 +64,7 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
     if (!_scrollController.hasClients) return;
     final maxScroll = _scrollController.position.maxScrollExtent;
     final currentScroll = _scrollController.position.pixels;
-    if (maxScroll - currentScroll <= 200) {
+    if (maxScroll > 0 && currentScroll > 0 && (maxScroll - currentScroll <= 200)) {
       final bloc = context.read<LeadsBloc>();
       final state = bloc.state;
       if (state is LeadsLoaded && state.hasMoreLeads && !state.isLoadingMore) {
@@ -110,6 +110,7 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
           statusId: selectedStatusId,
           isActive: selectedIsActive ?? true,
           filterParams: filterParams,
+          searchQuery: null,
         ),
       );
     } else {
@@ -326,7 +327,7 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
                       contextMenuBuilder: buildAdaptiveContextMenu,
                       onChanged: (query) => _onSearchChanged(query, selectedStatusId, selectedIsActive, activeFilter),
                       decoration: InputDecoration(
-                        hintText: 'Search leads, assignees...',
+                        hintText: 'Search Leads',
                         hintStyle: const TextStyle(color: AppColors.textHint, fontSize: 14),
                         prefixIcon: const Icon(Icons.search, color: AppColors.textHint),
                         suffixIcon: _searchController.text.isNotEmpty
@@ -468,16 +469,18 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
               child: LeadCard(
                 leadId: lead.id,
                 initials: initials.toUpperCase(),
-                avatarColor: statusColor.withValues(alpha: 0.2),
-                avatarTextColor: statusColor,
+                avatarColor: const Color(0xFFFDE8E1),
+                avatarTextColor: const Color(0xFFD97706),
                 name: '${lead.firstName} ${lead.lastName}',
                 company: lead.companyName,
                 status: lead.status?.statusName ?? 'Unknown',
-                statusBgColor: statusColor.withValues(alpha: 0.2),
+                statusBgColor: statusColor.withValues(alpha: 0.15),
                 statusTextColor: statusColor,
                 priority: lead.priority != null ? '${lead.priority} Priority' : 'No Priority',
                 priorityColor: priorityColor,
                 createdByName: lead.createdByName,
+                createdAt: lead.createdAt,
+                callStatus: lead.callStatus,
                 assignee: _resolveAssigneeName(lead, state.owners),
                 phone: lead.phone,
               ),

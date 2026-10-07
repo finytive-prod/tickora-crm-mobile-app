@@ -57,8 +57,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   IconButton(
                     icon: const Icon(Icons.refresh_rounded, color: AppColors.textPrimary, size: 22),
                     tooltip: 'Refresh Notifications',
-                    onPressed: () {
-                      setState(() {});
+                    onPressed: () async {
+                      await NotificationService.instance.refresh();
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Notifications refreshed'),
+                            duration: Duration(seconds: 1),
+                          ),
+                        );
+                      }
                     },
                   ),
                   IconButton(

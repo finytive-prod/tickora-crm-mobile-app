@@ -87,15 +87,39 @@ class MainActivity: FlutterActivity() {
                 }
                 "getAudioDuration" -> {
                     val filePath = call.argument<String>("filePath") ?: ""
-                    val durationMs = try {
+                    var durationMs = 0L
+                    try {
                         val file = java.io.File(filePath)
-                        if (file.exists()) {
-                            android.media.MediaMetadataRetriever().use { mmr ->
-                                mmr.setDataSource(file.absolutePath)
-                                mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+                        if (file.exists() && file.length() > 0) {
+                            try {
+                                android.media.MediaMetadataRetriever().use { mmr ->
+                                    try {
+                                        mmr.setDataSource(file.absolutePath)
+                                    } catch (_: Exception) {
+                                        mmr.setDataSource(context, android.net.Uri.fromFile(file))
+                                    }
+                                    val durStr = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
+                                    durationMs = durStr?.toLongOrNull() ?: 0L
+                                }
+                            } catch (_: Exception) {}
+
+                            if (durationMs <= 0L) {
+                                try {
+                                    val mp = android.media.MediaPlayer()
+                                    try {
+                                        mp.setDataSource(file.absolutePath)
+                                    } catch (_: Exception) {
+                                        mp.setDataSource(context, android.net.Uri.fromFile(file))
+                                    }
+                                    mp.prepare()
+                                    durationMs = mp.duration.toLong()
+                                    mp.release()
+                                } catch (_: Exception) {}
                             }
-                        } else { 0L }
-                    } catch (_: Exception) { 0L }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("MainActivity", "Error getting audio duration for $filePath: ${e.message}")
+                    }
                     result.success(durationMs)
                 }
                 "detectCallType" -> {

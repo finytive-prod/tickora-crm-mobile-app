@@ -36,23 +36,12 @@ class _LoginScreenViewState extends State<LoginScreenView> {
   bool _obscurePassword = true;
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  String? _emailError;
+  String? _passwordError;
 
   @override
   void initState() {
     super.initState();
-    if (widget.sessionExpired) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Your session has expired. Please log in again.'),
-              backgroundColor: AppColors.primary,
-              duration: Duration(seconds: 4),
-            ),
-          );
-        }
-      });
-    }
   }
 
   @override
@@ -60,6 +49,46 @@ class _LoginScreenViewState extends State<LoginScreenView> {
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
+  }
+
+  void _handleLogin(BuildContext context) {
+    setState(() {
+      _emailError = null;
+      _passwordError = null;
+    });
+
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+
+    bool hasError = false;
+
+    if (email.isEmpty) {
+      setState(() {
+        _emailError = 'Please enter your email address';
+      });
+      hasError = true;
+    } else if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email)) {
+      setState(() {
+        _emailError = 'Please enter a valid email address';
+      });
+      hasError = true;
+    }
+
+    if (password.isEmpty) {
+      setState(() {
+        _passwordError = 'Please enter your password';
+      });
+      hasError = true;
+    }
+
+    if (hasError) return;
+
+    context.read<LoginBloc>().add(
+          LoginButtonPressed(
+            email: email,
+            password: password,
+          ),
+        );
   }
 
   @override
@@ -82,9 +111,26 @@ class _LoginScreenViewState extends State<LoginScreenView> {
                 );
               }
             } else if (state is LoginFailure) {
+              final msg = state.message;
+              final lowerMsg = msg.toLowerCase();
+
+              setState(() {
+                if (lowerMsg.contains('email') || lowerMsg.contains('user not found') || lowerMsg.contains('account')) {
+                  _emailError = msg;
+                } else if (lowerMsg.contains('password')) {
+                  _passwordError = msg;
+                } else if (lowerMsg.contains('credential') || lowerMsg.contains('incorrect') || lowerMsg.contains('invalid') || lowerMsg.contains('unauthorized')) {
+                  _emailError = 'Invalid email or password';
+                  _passwordError = 'Invalid email or password';
+                } else {
+                  _emailError = msg;
+                  _passwordError = msg;
+                }
+              });
+
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text(state.message),
+                  content: Text(msg),
                   backgroundColor: AppColors.primary,
                 ),
               );
@@ -141,13 +187,15 @@ class _LoginScreenViewState extends State<LoginScreenView> {
                     const SizedBox(height: 8),
 
                     // Email Field
-                    TextField(
+                    TextFormField(
+                      key: const ValueKey('login_email_input'),
                       controller: _emailController,
                       keyboardType: TextInputType.emailAddress,
-                      selectionControls: MaterialTextSelectionControls(),
-                      onTap: () {
-                        if (_emailController.selection.isValid && !_emailController.selection.isCollapsed) {
-                          _emailController.selection = TextSelection.collapsed(offset: _emailController.selection.extentOffset);
+                      onChanged: (val) {
+                        if (_emailError != null) {
+                          setState(() {
+                            _emailError = null;
+                          });
                         }
                       },
                       style: const TextStyle(fontSize: 15, color: Colors.black87),
@@ -158,15 +206,25 @@ class _LoginScreenViewState extends State<LoginScreenView> {
                         filled: true,
                         fillColor: Colors.white,
                         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                        errorText: _emailError,
+                        errorStyle: const TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w500),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                           borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                          borderSide: BorderSide(color: _emailError != null ? AppColors.primary : const Color(0xFFE2E8F0)),
                         ),
                         focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: _emailError != null ? AppColors.primary : AppColors.primary, width: 1.5),
+                        ),
+                        errorBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+                        ),
+                        focusedErrorBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                           borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
                         ),
@@ -186,13 +244,15 @@ class _LoginScreenViewState extends State<LoginScreenView> {
                     const SizedBox(height: 8),
 
                     // Password Field
-                    TextField(
+                    TextFormField(
+                      key: const ValueKey('login_password_input'),
                       controller: _passwordController,
                       obscureText: _obscurePassword,
-                      selectionControls: MaterialTextSelectionControls(),
-                      onTap: () {
-                        if (_passwordController.selection.isValid && !_passwordController.selection.isCollapsed) {
-                          _passwordController.selection = TextSelection.collapsed(offset: _passwordController.selection.extentOffset);
+                      onChanged: (val) {
+                        if (_passwordError != null) {
+                          setState(() {
+                            _passwordError = null;
+                          });
                         }
                       },
                       style: const TextStyle(fontSize: 15, color: Colors.black87),
@@ -203,15 +263,25 @@ class _LoginScreenViewState extends State<LoginScreenView> {
                         filled: true,
                         fillColor: Colors.white,
                         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                        errorText: _passwordError,
+                        errorStyle: const TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w500),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                           borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                          borderSide: BorderSide(color: _passwordError != null ? AppColors.primary : const Color(0xFFE2E8F0)),
                         ),
                         focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: _passwordError != null ? AppColors.primary : AppColors.primary, width: 1.5),
+                        ),
+                        errorBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+                        ),
+                        focusedErrorBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                           borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
                         ),
@@ -264,16 +334,7 @@ class _LoginScreenViewState extends State<LoginScreenView> {
                     SizedBox(
                       height: 52,
                       child: ElevatedButton(
-                        onPressed: state is LoginLoading 
-                          ? null 
-                          : () {
-                            context.read<LoginBloc>().add(
-                              LoginButtonPressed(
-                                email: _emailController.text,
-                                password: _passwordController.text,
-                              ),
-                            );
-                          },
+                        onPressed: state is LoginLoading ? null : () => _handleLogin(context),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.primary,
                           foregroundColor: Colors.white,
@@ -303,7 +364,6 @@ class _LoginScreenViewState extends State<LoginScreenView> {
                       ),
                     ),
                     const SizedBox(height: 36),
-
                   ],
                 ),
               ),

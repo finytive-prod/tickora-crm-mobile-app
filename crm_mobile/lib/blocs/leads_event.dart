@@ -169,6 +169,7 @@ class UploadLeadAudio extends LeadsEvent {
   final String? to;
   final String? duration;
   final String? callDate;
+  final String? callStatus;
 
   const UploadLeadAudio({
     required this.leadId,
@@ -180,6 +181,7 @@ class UploadLeadAudio extends LeadsEvent {
     this.to,
     this.duration,
     this.callDate,
+    this.callStatus,
   });
 
   @override
@@ -193,6 +195,7 @@ class UploadLeadAudio extends LeadsEvent {
         to,
         duration,
         callDate,
+        callStatus,
       ];
 }
 

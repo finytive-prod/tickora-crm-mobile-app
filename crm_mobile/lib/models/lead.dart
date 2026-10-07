@@ -136,6 +136,7 @@ class Lead extends Equatable {
   final String? createdBy;
   final String? createdByName;
   final DateTime? createdAt;
+  final String? callStatus;
 
   const Lead({
     required this.id,
@@ -153,6 +154,7 @@ class Lead extends Equatable {
     this.createdBy,
     this.createdByName,
     this.createdAt,
+    this.callStatus,
   });
 
   @override
@@ -172,6 +174,7 @@ class Lead extends Equatable {
         createdBy,
         createdByName,
         createdAt,
+        callStatus,
       ];
 }
 
@@ -192,6 +195,7 @@ class LeadModel extends Lead {
     super.createdBy,
     super.createdByName,
     super.createdAt,
+    super.callStatus,
   });
 
   factory LeadModel.fromJson(Map<String, dynamic> json) {
@@ -296,6 +300,11 @@ class LeadModel extends Lead {
     trySetCreatedByName(json['createdByUser']);
     trySetCreatedByName(json['creator']);
 
+    final callStatus = json['callStatus']?.toString() ??
+        json['call_status']?.toString() ??
+        json['lastCallStatus']?.toString() ??
+        json['latestCallStatus']?.toString();
+
     return LeadModel(
       id: json['id'] ?? '',
       leadNumber: json['leadNumber'] ?? '',
@@ -316,6 +325,7 @@ class LeadModel extends Lead {
           : (json['created_at'] != null 
               ? DateTime.tryParse(json['created_at'].toString()) 
               : (json['createdDate'] != null ? DateTime.tryParse(json['createdDate'].toString()) : null)),
+      callStatus: callStatus,
     );
   }
 }

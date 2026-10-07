@@ -23,6 +23,7 @@ import 'package:crm_mobile/models/lead_call_log.dart';
 import 'package:crm_mobile/core/services/auto_call_recording_uploader.dart';
 import 'package:crm_mobile/core/services/call_recording_service.dart';
 import 'package:crm_mobile/core/utils/phone_number_utils.dart';
+import 'package:crm_mobile/models/owner_call_report.dart';
 
 abstract class LeadsRepository {
   Future<Either<Failure, List<Lead>>> getLeads(
@@ -68,6 +69,7 @@ abstract class LeadsRepository {
   Future<Either<Failure, DialpadLeadSearchResult>> searchLeadByNumber(String phoneNumber);
   Future<Either<Failure, void>> quickInviteLead(Map<String, dynamic> data);
   Future<Either<Failure, void>> renameLeadAudio(String audioId, String newName);
+  Future<Either<Failure, List<OwnerCallReport>>> getOwnerCallReport({String? ownerId, List<String>? ownerIds, String? startDate, String? endDate});
 }
 
 class LeadsRepositoryImpl implements LeadsRepository {
@@ -338,22 +340,74 @@ class LeadsRepositoryImpl implements LeadsRepository {
     try {
       final identityBaseUrl = _identityBaseUrl;
       
-      final queryParameters = <String, dynamic>{};
+      final queryParameters = <String, dynamic>{
+        'page': 0,
+        'size': 1000,
+      };
       if (search != null && search.isNotEmpty) {
         queryParameters['search'] = search;
       }
 
+      // 1. Try /identity/users/dropdown
+      try {
+        final response = await apiClient.get(
+          '$identityBaseUrl/users/dropdown',
+          queryParameters: queryParameters,
+        );
+
+        final body = response.data;
+        if (body != null && (body['success'] == true || response.statusCode == 200) && body['data'] != null) {
+          List<dynamic> content;
+          if (body['data'] is List) {
+            content = body['data'];
+          } else if (body['data'] is Map && body['data']['content'] is List) {
+            content = body['data']['content'];
+          } else {
+            content = [];
+          }
+          final users = content.map((json) => StaffUser.fromJson(json)).toList();
+          if (users.isNotEmpty) {
+            return Right(users);
+          }
+        }
+      } catch (_) {}
+
+      // 2. Try /identity/users/staff
+      try {
+        final response = await apiClient.get(
+          '$identityBaseUrl/users/staff',
+          queryParameters: queryParameters,
+        );
+
+        final body = response.data;
+        if (body != null && (body['success'] == true || response.statusCode == 200) && body['data'] != null) {
+          List<dynamic> content;
+          if (body['data'] is List) {
+            content = body['data'];
+          } else if (body['data'] is Map && body['data']['content'] is List) {
+            content = body['data']['content'];
+          } else {
+            content = [];
+          }
+          final users = content.map((json) => StaffUser.fromJson(json)).toList();
+          if (users.isNotEmpty) {
+            return Right(users);
+          }
+        }
+      } catch (_) {}
+
+      // 3. Fallback to /identity/users
       final response = await apiClient.get(
-        '$identityBaseUrl/users/dropdown',
+        '$identityBaseUrl/users',
         queryParameters: queryParameters,
       );
 
       final body = response.data;
-      if (body['success'] == true && body['data'] != null) {
+      if (body != null && body['data'] != null) {
         List<dynamic> content;
         if (body['data'] is List) {
           content = body['data'];
-        } else if (body['data'] is Map && body['data']['content'] != null) {
+        } else if (body['data'] is Map && body['data']['content'] is List) {
           content = body['data']['content'];
         } else {
           content = [];
@@ -361,10 +415,12 @@ class LeadsRepositoryImpl implements LeadsRepository {
         final users = content.map((json) => StaffUser.fromJson(json)).toList();
         return Right(users);
       } else {
-        throw ApiException(message: body['message'] ?? 'Failed to load staff users');
+        return const Right([]);
       }
     } on Exception catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));
+    } catch (e) {
+      return Left(ServerFailure('Error fetching staff users: $e'));
     }
   }
 
@@ -684,21 +740,6 @@ class LeadsRepositoryImpl implements LeadsRepository {
 
         formData.files.add(MapEntry('files', multipartFile1));
         formData.files.add(MapEntry('file', multipartFile2));
-      } else {
-        // For missed and unanswered calls without audio recording,
-        // attach a 0-byte dummy audio file so multipart endpoint validations pass cleanly.
-        final dummyFile1 = MultipartFile.fromBytes(
-          [],
-          filename: 'missed_call.mp3',
-          contentType: MediaType('audio', 'mpeg'),
-        );
-        final dummyFile2 = MultipartFile.fromBytes(
-          [],
-          filename: 'missed_call.mp3',
-          contentType: MediaType('audio', 'mpeg'),
-        );
-        formData.files.add(MapEntry('files', dummyFile1));
-        formData.files.add(MapEntry('file', dummyFile2));
       }
 
       var effBound = bound;
@@ -749,58 +790,35 @@ class LeadsRepositoryImpl implements LeadsRepository {
         }
       }
 
-      final Map<String, dynamic> queryParams = {};
-
       void setField(String key, String? val) {
         if (val != null && val.isNotEmpty) {
           formData.fields.add(MapEntry(key, val));
-          queryParams[key] = val;
         }
       }
 
       final effectiveFrom = (effFrom != null && effFrom.isNotEmpty) ? effFrom : 'Staff';
 
       setField('bound', effBound);
-      setField('direction', effBound);
-      setField('callType', effBound);
-      setField('call_type', effBound);
-      setField('type', effBound);
-
       setField('startTime', effStartTime);
-      setField('start_time', effStartTime);
       setField('endTime', effEndTime);
-      setField('end_time', effEndTime);
-
       setField('from', effectiveFrom);
-      setField('fromNumber', effectiveFrom);
-      setField('from_number', effectiveFrom);
-
       setField('to', effTo);
-      setField('toNumber', effTo);
-      setField('to_number', effTo);
-
-      setField('duration', effDuration);
-      setField('durationSeconds', effDuration);
-      setField('duration_seconds', effDuration);
-
+      setField('duration', effDuration ?? '0');
       setField('callDate', effCallDate);
 
       if (callStatus != null && callStatus.isNotEmpty) {
         setField('callStatus', callStatus);
-        setField('status', callStatus);
-        setField('call_status', callStatus);
-        setField('callState', callStatus);
-        setField('call_state', callStatus);
       }
 
-      final dummyName = '${(callStatus ?? "missed").toLowerCase()}_call_${effStartTime?.replaceAll(":", "") ?? "0"}.mp3';
-      setField('originalFileName', dummyName);
-      setField('original_file_name', dummyName);
+      if (filePath != null && filePath.isNotEmpty && await File(filePath).exists()) {
+        final realFilename = filePath.split('/').last.split('\\').last;
+        setField('originalFileName', realFilename);
+      }
 
       final response = await apiClient.post(
         '$leadsBaseUrl/leads/$leadId/audios',
         data: formData,
-        queryParameters: queryParams.isNotEmpty ? queryParams : null,
+        queryParameters: null,
         options: Options(
           sendTimeout: const Duration(minutes: 15),
           receiveTimeout: const Duration(minutes: 15),
@@ -824,7 +842,17 @@ class LeadsRepositoryImpl implements LeadsRepository {
         } else if (body is List && body.isNotEmpty && body.first is Map<String, dynamic>) {
           dataJson = body.first as Map<String, dynamic>;
         }
-        final audioModel = LeadAudioModel.fromJson(dataJson);
+
+        LeadAudio audioModel;
+        if (dataJson.isNotEmpty && (dataJson['id'] != null || dataJson['_id'] != null)) {
+          try {
+            audioModel = LeadAudioModel.fromJson(dataJson);
+          } catch (_) {
+            audioModel = _createFallbackAudioModel(leadId, effBound, effStartTime, effEndTime, effectiveFrom, effTo, effDuration, effCallDate, callStatus);
+          }
+        } else {
+          audioModel = _createFallbackAudioModel(leadId, effBound, effStartTime, effEndTime, effectiveFrom, effTo, effDuration, effCallDate, callStatus);
+        }
         return Right(audioModel);
       } else {
         throw ApiException(message: 'Failed to upload audio file');
@@ -840,6 +868,36 @@ class LeadsRepositoryImpl implements LeadsRepository {
     } on Exception catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));
     }
+  }
+
+  LeadAudio _createFallbackAudioModel(
+    String leadId,
+    String? bound,
+    String? startTime,
+    String? endTime,
+    String? from,
+    String? to,
+    String? duration,
+    String? callDate,
+    String? callStatus,
+  ) {
+    return LeadAudio(
+      id: 'log_${DateTime.now().millisecondsSinceEpoch}',
+      leadId: leadId,
+      fileName: '',
+      originalFileName: '',
+      contentType: 'audio/mpeg',
+      size: 0,
+      bound: bound,
+      startTimeStr: startTime,
+      endTimeStr: endTime,
+      fromNumber: from,
+      toNumber: to,
+      durationSeconds: int.tryParse(duration ?? '0') ?? 0,
+      callDate: callDate,
+      createdAt: DateTime.now(),
+      callStatus: callStatus ?? 'NOT_CONNECTED',
+    );
   }
 
   @override
@@ -1028,6 +1086,50 @@ class LeadsRepositoryImpl implements LeadsRepository {
       return Left(ErrorHandler.mapExceptionToFailure(e));
     } catch (e) {
       return Left(ServerFailure('Error renaming audio: $e'));
+    }
+  }
+
+  @override
+  Future<Either<Failure, List<OwnerCallReport>>> getOwnerCallReport({
+    String? ownerId,
+    List<String>? ownerIds,
+    String? startDate,
+    String? endDate,
+  }) async {
+    try {
+      final leadsBaseUrl = _leadsBaseUrl;
+      final Map<String, dynamic> payload = {};
+
+      if (ownerIds != null) {
+        payload['ownerIds'] = ownerIds;
+      } else if (ownerId != null && ownerId.isNotEmpty) {
+        payload['ownerIds'] = [ownerId];
+      }
+
+      if (startDate != null && startDate.isNotEmpty) {
+        payload['startDate'] = startDate;
+      }
+      if (endDate != null && endDate.isNotEmpty) {
+        payload['endDate'] = endDate;
+      }
+
+      final response = await apiClient.post(
+        '$leadsBaseUrl/leads/owner-call-report',
+        data: payload,
+      );
+
+      final body = response.data;
+      if (body != null && (body['data'] is List)) {
+        final List list = body['data'];
+        final reports = list.map((e) => OwnerCallReport.fromJson(e as Map<String, dynamic>)).toList();
+        return Right(reports);
+      } else {
+        return const Right([]);
+      }
+    } on Exception catch (e) {
+      return Left(ErrorHandler.mapExceptionToFailure(e));
+    } catch (e) {
+      return Left(ServerFailure('Error fetching owner call report: $e'));
     }
   }
 }

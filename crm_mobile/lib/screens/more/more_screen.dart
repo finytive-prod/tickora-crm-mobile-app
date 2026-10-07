@@ -1,3 +1,4 @@
+import 'package:crm_mobile/screens/dashboard/dashboard_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crm_mobile/core/theme/app_colors.dart';
@@ -52,6 +53,7 @@ class _MoreScreenState extends State<MoreScreen> {
   }
 
   void _handleLogout(BuildContext context) {
+    FocusManager.instance.primaryFocus?.unfocus();
     showDialog(
       context: context,
       builder: (BuildContext dialogContext) {
@@ -82,22 +84,20 @@ class _MoreScreenState extends State<MoreScreen> {
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
-              onPressed: () async {
+              onPressed: () {
                 Navigator.of(dialogContext).pop();
-                
-                final prefs = sl<SharedPreferences>();
-                await prefs.clear(); // Complete session wipe
-                sl<PrivilegeService>().clearPrivileges();
-                
-                // Delete FCM token so this device stops receiving notifications
-                await FcmService.instance.deleteToken();
-                
-                if (context.mounted) {
-                  Navigator.of(context).pushAndRemoveUntil(
-                    MaterialPageRoute(builder: (context) => const LoginScreen()),
-                    (Route<dynamic> route) => false,
-                  );
+
+                // Clear session & FCM token asynchronously without blocking instant navigation
+                if (sl.isRegistered<SharedPreferences>()) {
+                  sl<SharedPreferences>().clear();
                 }
+                sl<PrivilegeService>().clearPrivileges();
+                FcmService.instance.deleteToken();
+
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (context) => const LoginScreen()),
+                  (Route<dynamic> route) => false,
+                );
               },
               child: const Text('Logout', style: TextStyle(fontWeight: FontWeight.bold)),
             ),
@@ -117,8 +117,8 @@ class _MoreScreenState extends State<MoreScreen> {
   @override
   Widget build(BuildContext context) {
     const brandColor = Color(0xFFDB222A);
-    final activeTabColor = const Color(0xFFFEE2E2);
     final priv = sl<PrivilegeService>();
+    final bool showAllByDefault = priv.privileges.isEmpty;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -164,7 +164,7 @@ class _MoreScreenState extends State<MoreScreen> {
                       ],
                     ),
                     GestureDetector(
-                      onTap: () => _changeTab(context, priv.hasPrivilege('LEAD_READ') ? 'Leads' : 'Dashboard'),
+                      onTap: () => _changeTab(context, priv.hasPrivilege('LEAD_READ') ? 'Leads' : 'Calls'),
                       child: Container(
                         padding: const EdgeInsets.all(6),
                         decoration: BoxDecoration(
@@ -230,14 +230,24 @@ class _MoreScreenState extends State<MoreScreen> {
             child: ListView(
               padding: const EdgeInsets.symmetric(vertical: 12),
               children: [
-                if (priv.hasPrivilege('DASHBOARD_READ'))
+                if (showAllByDefault || priv.hasPrivilege('DASHBOARD_READ'))
                   _buildMenuItem(
                     icon: Icons.grid_view_outlined,
                     title: 'Dashboard',
-                    isSelected: true,
-                    activeTabColor: activeTabColor,
                     brandColor: brandColor,
-                    onTap: () => _changeTab(context, 'Dashboard'),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const DashboardScreen()),
+                      );
+                    },
+                  ),
+                if (showAllByDefault || priv.hasPrivilege('CALL_READ') || priv.hasPrivilege('DASHBOARD_READ'))
+                  _buildMenuItem(
+                    icon: Icons.phone_in_talk_outlined,
+                    title: 'Calls',
+                    brandColor: brandColor,
+                    onTap: () => _changeTab(context, 'Calls'),
                   ),
                 if (priv.hasPrivilege('LEAD_READ')) ...[
                   _buildMenuItem(

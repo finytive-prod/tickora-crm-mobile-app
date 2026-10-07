@@ -70,6 +70,10 @@ class NotificationService extends ValueNotifier<List<AppNotification>> {
     }
   }
 
+  Future<void> refresh() async {
+    await _loadNotifications();
+  }
+
   Future<void> _loadNotifications() async {
     try {
       final prefs = await _getPrefs();

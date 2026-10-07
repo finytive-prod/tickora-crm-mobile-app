@@ -71,6 +71,12 @@ class _DashboardViewState extends State<DashboardView> {
         backgroundColor: Colors.white,
         elevation: 0.5,
         automaticallyImplyLeading: false,
+        leading: Navigator.canPop(context)
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
+                onPressed: () => Navigator.of(context).pop(),
+              )
+            : null,
         title: Row(
           children: [
             Image.asset(
