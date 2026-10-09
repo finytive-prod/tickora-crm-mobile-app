@@ -13,6 +13,8 @@ import 'package:crm_mobile/core/services/privilege_service.dart';
 import 'package:crm_mobile/screens/leads/lead_details_screen.dart';
 import 'edit_followup_screen.dart';
 import 'add_followup_screen.dart';
+import 'package:crm_mobile/core/services/auto_call_recording_uploader.dart';
+import 'package:crm_mobile/core/services/direct_call_helper.dart';
 
 class LeadFollowUpDetailsScreen extends StatelessWidget {
   final String leadId;
@@ -484,9 +486,9 @@ class _LeadFollowUpDetailsViewState extends State<LeadFollowUpDetailsView> {
                       padding: const EdgeInsets.all(16.0),
                       child: Column(
                         children: [
-                          _buildDetailRow(Icons.phone_iphone, 'Phone', leadDetails.phone.isNotEmpty ? leadDetails.phone : 'Not Specified'),
+                          _buildDetailRow(Icons.phone_iphone, 'Phone', leadDetails.phone.isNotEmpty ? leadDetails.phone : 'Not Specified', leadId: leadDetails.id, leadName: displayName),
                           const Divider(height: 24, color: AppColors.borderEnabled),
-                          _buildDetailRow(Icons.phone_callback, 'Alternate Phone', leadDetails.alternatePhone != null && leadDetails.alternatePhone!.isNotEmpty ? leadDetails.alternatePhone! : 'Not Specified'),
+                          _buildDetailRow(Icons.phone_callback, 'Alternate Phone', leadDetails.alternatePhone != null && leadDetails.alternatePhone!.isNotEmpty ? leadDetails.alternatePhone! : 'Not Specified', leadId: leadDetails.id, leadName: displayName),
                           const Divider(height: 24, color: AppColors.borderEnabled),
                           _buildDetailRow(Icons.mail_outline, 'Email', leadDetails.email.isNotEmpty ? leadDetails.email : 'Not Specified'),
                           const Divider(height: 24, color: AppColors.borderEnabled),
@@ -541,9 +543,17 @@ class _LeadFollowUpDetailsViewState extends State<LeadFollowUpDetailsView> {
     );
   }
 
-  Widget _buildDetailRow(IconData icon, String label, String value) {
+  Widget _buildDetailRow(
+    IconData icon,
+    String label,
+    String value, {
+    String? leadId,
+    String? leadName,
+  }) {
+    final isPhone = (label.toLowerCase().contains('phone')) && value.isNotEmpty && value != 'Not Specified';
+
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Icon(icon, size: 20, color: AppColors.textSecondary),
         const SizedBox(width: 12),
@@ -564,6 +574,42 @@ class _LeadFollowUpDetailsViewState extends State<LeadFollowUpDetailsView> {
             ],
           ),
         ),
+        if (isPhone) ...[
+          IconButton(
+            icon: const Icon(Icons.copy_rounded, size: 18, color: AppColors.textHint),
+            tooltip: 'Copy Phone Number',
+            onPressed: () => _copyToClipboard(value, label),
+          ),
+          IconButton(
+            icon: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.phone, size: 16, color: AppColors.primary),
+            ),
+            tooltip: 'Call Phone Number',
+            onPressed: () {
+              if (leadId != null && leadId.isNotEmpty) {
+                AutoCallRecordingUploader.makeCallAndAutoUpload(
+                  context: context,
+                  leadId: leadId,
+                  phoneNumber: value,
+                  leadName: leadName ?? '',
+                );
+              } else {
+                DirectCallHelper.makeCall(value);
+              }
+            },
+          ),
+        ] else if (label == 'Email' && value.isNotEmpty && value != 'Not Specified') ...[
+          IconButton(
+            icon: const Icon(Icons.copy_rounded, size: 18, color: AppColors.textHint),
+            tooltip: 'Copy Email',
+            onPressed: () => _copyToClipboard(value, label),
+          ),
+        ],
       ],
     );
   }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:crm_mobile/core/theme/app_colors.dart';
 import 'package:crm_mobile/widgets/spinning_logo.dart';
@@ -12,6 +13,8 @@ import 'package:crm_mobile/blocs/followups_state.dart';
 import 'package:crm_mobile/models/follow_up.dart';
 import 'package:crm_mobile/core/services/privilege_service.dart';
 import 'package:crm_mobile/core/utils/text_selection_utils.dart';
+import 'package:crm_mobile/core/services/auto_call_recording_uploader.dart';
+import 'package:crm_mobile/core/services/direct_call_helper.dart';
 import 'lead_followup_details_screen.dart';
 import 'add_followup_screen.dart';
 
@@ -21,7 +24,7 @@ class FollowUpsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
-      create: (_) => sl<FollowUpsBloc>()..add(const FetchFollowUps(category: 'ALL')),
+      create: (_) => sl<FollowUpsBloc>()..add(const FetchFollowUps(category: 'TODAY')),
       child: const FollowUpsScreenView(),
     );
   }
@@ -35,7 +38,7 @@ class FollowUpsScreenView extends StatefulWidget {
 }
 
 class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
-  String _selectedTab = 'All';
+  String _selectedTab = 'Today';
   final TextEditingController _searchController = TextEditingController();
 
   int _todayCount = 0;
@@ -227,10 +230,12 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
               listener: (context, state) {
                 if (state is FollowUpsLoaded) {
                   setState(() {
-                    _todayCount = state.response.summary.today;
-                    _upcomingCount = state.response.summary.upcoming;
-                    _missedCount = state.response.summary.missed;
-                    _completedCount = state.response.summary.completed;
+                    if (_searchController.text.trim().isEmpty) {
+                      _todayCount = state.response.summary.today;
+                      _upcomingCount = state.response.summary.upcoming;
+                      _missedCount = state.response.summary.missed;
+                      _completedCount = state.response.summary.completed;
+                    }
                   });
                 }
               },
@@ -488,6 +493,9 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
         ? _hexToColor(item.leadStatus!.color) 
         : Colors.grey;
 
+    final phoneStr = (item.phoneNumber ?? '').trim();
+    final hasPhone = phoneStr.isNotEmpty && phoneStr != '-';
+
     return GestureDetector(
       onTap: () {
         Navigator.push(
@@ -514,6 +522,7 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   // Initials Avatar (Status themed)
                   CircleAvatar(
@@ -532,17 +541,22 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          item.leadName,
+                          item.leadName.isNotEmpty ? item.leadName : 'Unnamed Lead',
                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.textPrimary),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                         if (item.companyName.trim().isNotEmpty)
                           Text(
                             item.companyName,
                             style: const TextStyle(color: AppColors.textHint, fontSize: 13),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                       ],
                     ),
                   ),
+                  const SizedBox(width: 8),
                   
                   // Priority Badge
                   Container(
@@ -559,6 +573,85 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
                 ],
               ),
               const SizedBox(height: 12),
+              const Divider(height: 1, color: AppColors.borderEnabled),
+              const SizedBox(height: 10),
+
+              // Phone Number Row (Below line with copy option and call button)
+              if (hasPhone) ...[
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    InkWell(
+                      onTap: () {
+                        Clipboard.setData(ClipboardData(text: phoneStr));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Row(
+                              children: [
+                                const Icon(Icons.check_circle, color: Colors.white, size: 20),
+                                const SizedBox(width: 8),
+                                Text('Phone number copied ($phoneStr)'),
+                              ],
+                            ),
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      },
+                      borderRadius: BorderRadius.circular(6),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.phone_iphone, size: 16, color: AppColors.textSecondary),
+                            const SizedBox(width: 6),
+                            Text(
+                              phoneStr,
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            const Icon(Icons.copy_rounded, size: 14, color: AppColors.textHint),
+                          ],
+                        ),
+                      ),
+                    ),
+                    InkWell(
+                      onTap: () async {
+                        if (item.leadId.isNotEmpty) {
+                          AutoCallRecordingUploader.makeCallAndAutoUpload(
+                            context: context,
+                            leadId: item.leadId,
+                            phoneNumber: phoneStr,
+                            leadName: item.leadName,
+                          );
+                        } else {
+                          await DirectCallHelper.makeCall(phoneStr);
+                        }
+                      },
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.phone,
+                          size: 18,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+              ],
               
               // Time / Assigned User row
               Row(

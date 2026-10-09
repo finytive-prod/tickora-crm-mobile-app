@@ -18,11 +18,13 @@ import 'package:crm_mobile/widgets/custom_dropdown_field.dart';
 class EditFollowUpScreen extends StatelessWidget {
   final FollowUp followUp;
   final LeadDetail leadDetail;
+  final bool showOnlyLeadUpdate;
 
   const EditFollowUpScreen({
     super.key,
     required this.followUp,
     required this.leadDetail,
+    this.showOnlyLeadUpdate = false,
   });
 
   @override
@@ -37,7 +39,11 @@ class EditFollowUpScreen extends StatelessWidget {
             ..add(const FetchStaffUsers()),
         ),
       ],
-      child: EditFollowUpView(followUp: followUp, leadDetail: leadDetail),
+      child: EditFollowUpView(
+        followUp: followUp,
+        leadDetail: leadDetail,
+        showOnlyLeadUpdate: showOnlyLeadUpdate,
+      ),
     );
   }
 }
@@ -45,11 +51,13 @@ class EditFollowUpScreen extends StatelessWidget {
 class EditFollowUpView extends StatefulWidget {
   final FollowUp followUp;
   final LeadDetail leadDetail;
+  final bool showOnlyLeadUpdate;
 
   const EditFollowUpView({
     super.key,
     required this.followUp,
     required this.leadDetail,
+    this.showOnlyLeadUpdate = false,
   });
 
   @override
@@ -69,6 +77,7 @@ class _EditFollowUpViewState extends State<EditFollowUpView> {
   final _leadTaskController = TextEditingController();
   final _dateController = TextEditingController();
   final _timeController = TextEditingController();
+  final _remarksController = TextEditingController();
   String? _selectedStatusId;
   String? _selectedPriority;
   String? _selectedAgentId;
@@ -112,6 +121,7 @@ class _EditFollowUpViewState extends State<EditFollowUpView> {
     _leadTaskController.dispose();
     _dateController.dispose();
     _timeController.dispose();
+    _remarksController.dispose();
     _completeRemarksController.dispose();
     _activityRemarksController.dispose();
     super.dispose();
@@ -133,6 +143,25 @@ class _EditFollowUpViewState extends State<EditFollowUpView> {
     } catch (_) {
       return null;
     }
+  }
+
+  String _formatTimeForApi(String rawTime) {
+    if (_selectedTimeObj != null) {
+      final h = _selectedTimeObj!.hour.toString().padLeft(2, '0');
+      final m = _selectedTimeObj!.minute.toString().padLeft(2, '0');
+      return '$h:$m';
+    }
+    final parsed = _parseTime(rawTime);
+    if (parsed != null) {
+      final h = parsed.hour.toString().padLeft(2, '0');
+      final m = parsed.minute.toString().padLeft(2, '0');
+      return '$h:$m';
+    }
+    final clean = rawTime.trim();
+    if (clean.contains(' ')) {
+      return clean.split(' ').first;
+    }
+    return clean.isEmpty ? "10:00" : clean;
   }
 
   Future<void> _selectDate(BuildContext context) async {
@@ -187,23 +216,30 @@ class _EditFollowUpViewState extends State<EditFollowUpView> {
       return;
     }
     final List<String> reminders = [];
-    if (_emailAlert) reminders.add("Email");
     if (_pushNotification) reminders.add("Push");
+    if (_emailAlert) reminders.add("Email");
+
+    final formattedTime = _formatTimeForApi(_timeController.text);
 
     final updateData = {
       "leadTask": _leadTaskController.text.trim(),
       "statusId": _selectedStatusId,
       "priority": _selectedPriority,
       "assignedUserId": _selectedAgentId,
-      "followupDate": _dateController.text,
-      "followupTime": _timeController.text,
-      "reminder": reminders.isEmpty ? "Email" : reminders.join(', '),
-      "remarks": "Rescheduled and updated follow-up details.",
+      "followupDate": _dateController.text.trim(),
+      "followupTime": formattedTime,
+      "reminder": reminders.isEmpty ? "Push" : reminders.join(', '),
+      "completed": null,
+      "remarks": _remarksController.text.trim(),
     };
 
-    if (widget.followUp.id != null) {
+    if (widget.followUp.id != null && widget.followUp.id!.isNotEmpty) {
       context.read<FollowUpsBloc>().add(
             UpdateFollowUp(followupId: widget.followUp.id!, updateData: updateData),
+          );
+    } else {
+      context.read<FollowUpsBloc>().add(
+            AddFollowUpEvent(leadId: widget.leadDetail.id, data: updateData),
           );
     }
   }
@@ -220,7 +256,7 @@ class _EditFollowUpViewState extends State<EditFollowUpView> {
       "remarks": _completeRemarksController.text.trim(),
     };
 
-    if (widget.followUp.id != null) {
+    if (widget.followUp.id != null && widget.followUp.id!.isNotEmpty) {
       context.read<FollowUpsBloc>().add(
             UpdateFollowUp(followupId: widget.followUp.id!, updateData: updateData),
           );
@@ -238,7 +274,7 @@ class _EditFollowUpViewState extends State<EditFollowUpView> {
       "remarks": _activityRemarksController.text.trim(),
     };
 
-    if (widget.followUp.id != null) {
+    if (widget.followUp.id != null && widget.followUp.id!.isNotEmpty) {
       context.read<FollowUpsBloc>().add(
             UpdateFollowUp(followupId: widget.followUp.id!, updateData: updateData),
           );
@@ -247,91 +283,112 @@ class _EditFollowUpViewState extends State<EditFollowUpView> {
 
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 3,
-      child: Scaffold(
-        backgroundColor: AppColors.secondary,
-        appBar: AppBar(
-          backgroundColor: Colors.white,
-          elevation: 0,
-          leading: IconButton(
-            icon: const Icon(Icons.close, color: AppColors.textPrimary),
-            onPressed: () => Navigator.pop(context),
-          ),
-          title: Column(
-            children: [
-              const Text(
-                'Edit Follow-up',
-                style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 16),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                'Manage details, scheduling, and activity logs',
-                style: TextStyle(color: AppColors.textHint, fontSize: 11),
-              ),
-            ],
-          ),
-          centerTitle: true,
-          bottom: const TabBar(
-            indicatorColor: AppColors.primary,
-            labelColor: AppColors.primary,
-            unselectedLabelColor: AppColors.textSecondary,
-            labelStyle: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-            tabs: [
-              Tab(text: 'Lead Update'),
-              Tab(text: 'Complete'),
-              Tab(text: 'Activity Log'),
-            ],
-          ),
+    final scaffoldContent = Scaffold(
+      backgroundColor: AppColors.secondary,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.close, color: AppColors.textPrimary),
+          onPressed: () => Navigator.pop(context),
         ),
-        body: BlocListener<FollowUpsBloc, FollowUpsState>(
-          listener: (context, state) {
-            if (state is UpdateFollowUpSuccess) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Follow-up updated successfully!'),
-                  backgroundColor: Colors.green,
-                ),
-              );
-              Navigator.pop(context, true);
-            } else if (state is UpdateFollowUpError) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(state.message),
-                  backgroundColor: AppColors.primary,
+        title: Column(
+          children: [
+            const Text(
+              'Edit Follow-up',
+              style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              widget.showOnlyLeadUpdate
+                  ? 'Update follow-up details'
+                  : 'Manage details, scheduling, and activity logs',
+              style: const TextStyle(color: AppColors.textHint, fontSize: 11),
+            ),
+          ],
+        ),
+        centerTitle: true,
+        bottom: widget.showOnlyLeadUpdate
+            ? null
+            : const TabBar(
+                indicatorColor: AppColors.primary,
+                labelColor: AppColors.primary,
+                unselectedLabelColor: AppColors.textSecondary,
+                labelStyle: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                tabs: [
+                  Tab(text: 'Lead Update'),
+                  Tab(text: 'Complete'),
+                  Tab(text: 'Activity Log'),
+                ],
+              ),
+      ),
+      body: BlocListener<FollowUpsBloc, FollowUpsState>(
+        listener: (context, state) {
+          if (state is UpdateFollowUpSuccess || state is AddFollowUpSuccess) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Follow-up updated successfully!'),
+                backgroundColor: Colors.green,
+              ),
+            );
+            Navigator.pop(context, true);
+          } else if (state is UpdateFollowUpError) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(state.message),
+                backgroundColor: AppColors.primary,
+              ),
+            );
+          } else if (state is AddFollowUpError) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(state.message),
+                backgroundColor: AppColors.primary,
+              ),
+            );
+          }
+        },
+        child: BlocBuilder<FollowUpsBloc, FollowUpsState>(
+          builder: (context, state) {
+            final isSaving = state is UpdateFollowUpLoading || state is AddFollowUpLoading;
+
+            if (isSaving) {
+              return const Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(color: AppColors.primary),
+                    SizedBox(height: 16),
+                    Text('Saving changes...', style: TextStyle(color: AppColors.textSecondary)),
+                  ],
                 ),
               );
             }
+
+            if (widget.showOnlyLeadUpdate) {
+              return _buildLeadUpdateTab();
+            }
+
+            return TabBarView(
+              physics: const BouncingScrollPhysics(),
+              children: [
+                _buildLeadUpdateTab(),
+                _buildCompleteFollowUpTab(),
+                _buildActivityLogTab(),
+              ],
+            );
           },
-          child: BlocBuilder<FollowUpsBloc, FollowUpsState>(
-            builder: (context, state) {
-              final isSaving = state is UpdateFollowUpLoading;
-
-              if (isSaving) {
-                return const Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      CircularProgressIndicator(color: AppColors.primary),
-                      SizedBox(height: 16),
-                      Text('Saving changes...', style: TextStyle(color: AppColors.textSecondary)),
-                    ],
-                  ),
-                );
-              }
-
-              return TabBarView(
-                physics: const BouncingScrollPhysics(),
-                children: [
-                  _buildLeadUpdateTab(),
-                  _buildCompleteFollowUpTab(),
-                  _buildActivityLogTab(),
-                ],
-              );
-            },
-          ),
         ),
       ),
+    );
+
+    if (widget.showOnlyLeadUpdate) {
+      return scaffoldContent;
+    }
+
+    return DefaultTabController(
+      length: 3,
+      child: scaffoldContent,
     );
   }
 
@@ -371,7 +428,17 @@ class _EditFollowUpViewState extends State<EditFollowUpView> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // 1. Lead Task / Objective
-                
+                CustomTextField(
+                  label: 'Lead Task',
+                  isRequired: true,
+                  controller: _leadTaskController,
+                  hintText: 'Enter lead task description...',
+                  validator: (val) {
+                    if (val == null || val.trim().isEmpty) return 'Please enter lead task';
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
 
                 // 2. Lead Status Dropdown
                 CustomDropdownField<String>(
@@ -474,6 +541,15 @@ class _EditFollowUpViewState extends State<EditFollowUpView> {
                     );
                   }).toList(),
                   onChanged: (val) => setState(() => _selectedAgentId = val),
+                ),
+                const SizedBox(height: 16),
+
+                // 7. Notes / Remarks Box
+                CustomTextField(
+                  label: 'Notes / Remarks',
+                  controller: _remarksController,
+                  maxLines: 3,
+                  hintText: 'Enter notes or remarks...',
                 ),
                 const SizedBox(height: 32),
 

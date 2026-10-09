@@ -15,7 +15,7 @@ class ExportReportSideSheet extends StatefulWidget {
   final String subtitle;
   final IconData icon;
   final List<dynamic> dynamicItems;
-  final List<String> allPriorities;
+
 
   const ExportReportSideSheet({
     Key? key,
@@ -24,7 +24,7 @@ class ExportReportSideSheet extends StatefulWidget {
     required this.subtitle,
     required this.icon,
     required this.dynamicItems,
-    this.allPriorities = const ['HIGH', 'MEDIUM', 'LOW'],
+    
   }) : super(key: key);
 
   static void show(
@@ -381,15 +381,7 @@ class _ExportReportSideSheetState extends State<ExportReportSideSheet> {
                     ),
 
                     const SizedBox(height: 16),
-                    CustomMultiSelectDropdown<String>(
-                      label: 'Select priority',
-                      items: widget.allPriorities,
-                      selectedItems: _selectedPriorities,
-                      itemLabelBuilder: (item) => item,
-                      onChanged: (selected) {
-                        setState(() => _selectedPriorities = selected);
-                      },
-                    ),
+                 
 
                     const SizedBox(height: 32),
                   ],

@@ -1,3 +1,4 @@
+import 'package:crm_mobile/injection/injection.dart';
 import 'package:flutter/material.dart';
 import 'package:crm_mobile/widgets/custom_bottom_nav_bar.dart';
 import 'package:crm_mobile/screens/calls/calls_screen.dart';
@@ -9,7 +10,7 @@ import 'package:crm_mobile/screens/calendar/calendar_screen.dart';
 import 'package:crm_mobile/core/services/privilege_service.dart';
 import 'package:crm_mobile/core/services/call_recording_service.dart';
 import 'package:crm_mobile/core/theme/app_colors.dart';
-import 'package:crm_mobile/injection/injection.dart';
+import 'package:crm_mobile/widgets/call_log_icon.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -76,7 +77,10 @@ class HomeScreenState extends State<HomeScreen> {
   }
 
   void changeTabByLabel(String label) {
-    final index = _navItems.indexWhere((item) => item.label == label);
+    final index = _navItems.indexWhere((item) =>
+        item.label == label ||
+        
+        (label == 'Call Logs' && item.label == 'Call Logs'));
     if (index != -1) {
       setState(() {
         _currentIndex = index;
@@ -96,9 +100,9 @@ class HomeScreenState extends State<HomeScreen> {
     if (showAllByDefault || priv.hasPrivilege('DASHBOARD_READ') || priv.hasPrivilege('CALL_READ')) {
       _screens.add(const CallsScreen());
       _navItems.add(const BottomNavigationBarItem(
-        icon: Icon(Icons.phone_in_talk_outlined),
-        activeIcon: Icon(Icons.phone_in_talk),
-        label: 'Calls',
+        icon: CallLogIcon(color: AppColors.textHint),
+        activeIcon: CallLogIcon(color: AppColors.primary),
+        label: 'Call Logs',
       ));
     }
 

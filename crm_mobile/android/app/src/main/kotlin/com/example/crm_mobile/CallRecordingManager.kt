@@ -439,11 +439,13 @@ class CallRecordingManager(private val context: Context) {
         if (callTimestamp > 0L) {
             val timeDiffMs = abs(effectiveTime - callTimestamp)
             score += when {
-                timeDiffMs < 30 * 1000L -> 50
+                timeDiffMs < 15 * 1000L -> 100
+                timeDiffMs < 35 * 1000L -> 60
                 timeDiffMs < 90 * 1000L -> 30
-                timeDiffMs < 180 * 1000L -> 15
-                else -> -20
+                timeDiffMs < 180 * 1000L -> 10
+                else -> -50
             }
+            score -= (timeDiffMs / 1000L).toInt()
         }
         return score
     }
@@ -501,13 +503,15 @@ class CallRecordingManager(private val context: Context) {
 
     private fun clearInternalRecordings() {
         try {
+            val now = System.currentTimeMillis()
+            val sixHoursMs = 6 * 60 * 60 * 1000L
             val appRecordingsDir = File(context.filesDir, "recordings")
             if (appRecordingsDir.exists()) {
-                appRecordingsDir.listFiles()?.forEach { it.delete() }
+                appRecordingsDir.listFiles()?.forEach { if (now - it.lastModified() > sixHoursMs) it.delete() }
             }
             val cacheRecordingsDir = File(context.cacheDir, "recordings")
             if (cacheRecordingsDir.exists()) {
-                cacheRecordingsDir.listFiles()?.forEach { it.delete() }
+                cacheRecordingsDir.listFiles()?.forEach { if (now - it.lastModified() > sixHoursMs) it.delete() }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error clearing internal recordings cache", e)

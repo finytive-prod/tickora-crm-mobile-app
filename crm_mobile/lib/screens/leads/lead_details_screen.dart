@@ -20,6 +20,9 @@ import 'package:crm_mobile/repositories/settings_repository.dart';
 import 'package:crm_mobile/core/utils/staff_phone_resolver.dart';
 import 'package:crm_mobile/screens/leads/add_lead_screen.dart';
 import 'package:crm_mobile/screens/followups/add_followup_screen.dart';
+import 'package:crm_mobile/screens/followups/edit_followup_screen.dart';
+import 'package:crm_mobile/models/follow_up.dart';
+import 'package:crm_mobile/repositories/followups_repository.dart';
 import 'package:crm_mobile/screens/leads/widgets/lead_activities_tab.dart';
 import 'package:crm_mobile/screens/leads/widgets/lead_call_logs_tab.dart';
 import 'package:crm_mobile/screens/leads/widgets/lead_documents_tab.dart';
@@ -1039,10 +1042,42 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
           ),
         ),
         onPressed: () async {
-          final result = await AddFollowUpScreen.openFromRight(
-            context,
+          final repo = sl<FollowUpsRepository>();
+          final res = await repo.getLeadFollowUps(lead.id);
+
+          FollowUp? targetFollowUp;
+          res.fold((_) {}, (leadFollowUps) {
+            if (leadFollowUps.followups.isNotEmpty) {
+              targetFollowUp = leadFollowUps.followups.first;
+            }
+          });
+
+          targetFollowUp ??= FollowUp(
             leadId: lead.id,
+            leadName: '${lead.firstName} ${lead.lastName}'.trim(),
+            companyName: lead.companyName ?? '',
+            phoneNumber: lead.phone,
+            leadTask: 'Follow up with lead',
+            followUpStatus: lead.status?.statusName ?? 'Fresh',
+            followUpDate: DateFormat('yyyy-MM-dd').format(DateTime.now()),
+            followUpTime: DateFormat('hh:mm a').format(DateTime.now()),
+            reminder: 'Push',
+            priority: lead.priority ?? 'LOW',
           );
+
+          if (!context.mounted) return;
+
+          final result = await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => EditFollowUpScreen(
+                followUp: targetFollowUp!,
+                leadDetail: lead,
+                showOnlyLeadUpdate: true,
+              ),
+            ),
+          );
+
           if (result == true && context.mounted) {
             _wasEdited = true;
             context.read<LeadsBloc>().add(FetchLeadDetails(lead.id));
