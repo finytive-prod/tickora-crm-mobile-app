@@ -9,11 +9,16 @@ import 'package:crm_mobile/core/network/error_handler.dart';
 import 'package:crm_mobile/models/user.dart';
 import 'package:crm_mobile/core/network/api_constants.dart';
 import 'package:crm_mobile/core/utils/staff_phone_resolver.dart';
+import 'package:crm_mobile/core/services/fcm_service.dart';
+import 'package:crm_mobile/models/user_profile.dart';
 
 abstract class LoginRepository {
   Future<Either<Failure, User>> login(String email, String password);
   Future<Either<Failure, void>> verifyMail(String email);
   Future<Either<Failure, void>> resetPassword(String email, String currentPassword, String newPassword);
+  Future<Either<Failure, void>> logout({String? fcmToken});
+  Future<Either<Failure, UserProfile>> getProfile();
+  Future<Either<Failure, UserProfile>> updateProfile(String name);
 }
 
 class LoginRepositoryImpl implements LoginRepository {
@@ -81,6 +86,10 @@ class LoginRepositoryImpl implements LoginRepository {
 
         await sharedPreferences.setString('userName', name);
         await sharedPreferences.setString('userEmail', userEmail);
+        String userRole = (decoded['roles'] != null ? (decoded['roles'] is List ? (decoded['roles'] as List).join(', ') : decoded['roles'].toString()) : decoded['role']?.toString()) ?? '';
+        if (userRole.isNotEmpty) {
+          await sharedPreferences.setString('userRole', userRole);
+        }
         if (userModel.userId.isNotEmpty) {
           await sharedPreferences.setString('userId', userModel.userId);
         }
@@ -157,6 +166,89 @@ class LoginRepositoryImpl implements LoginRepository {
         return const Right(null);
       } else {
         throw ApiException(message: body?['message'] ?? 'Failed to reset password');
+      }
+    } catch (e) {
+      return Left(ErrorHandler.mapExceptionToFailure(e));
+    }
+  }
+
+  @override
+  Future<Either<Failure, void>> logout({String? fcmToken}) async {
+    try {
+      final logoutUrl = '${ApiUrl.identityService}/auth/logout';
+      String? token = fcmToken;
+      if (token == null || token.isEmpty) {
+        token = await FcmService.instance.getToken();
+      }
+
+      final response = await apiClient.post(
+        logoutUrl,
+        data: {
+          'fcmToken': token ?? '',
+        },
+      );
+
+      final body = response.data;
+      if (body != null && (body['success'] == true || response.statusCode == 200)) {
+        return const Right(null);
+      } else {
+        throw ApiException(message: body?['message'] ?? 'Logged out successfully');
+      }
+    } catch (e) {
+      return Left(ErrorHandler.mapExceptionToFailure(e));
+    }
+  }
+
+  @override
+  Future<Either<Failure, UserProfile>> getProfile() async {
+    try {
+      final profileUrl = '${ApiUrl.identityService}/auth/profile';
+      final response = await apiClient.get(profileUrl);
+      final body = response.data;
+      if (body != null && body['success'] == true && body['data'] != null) {
+        final profile = UserProfile.fromJson(body['data']);
+        if (profile.fullName.isNotEmpty) {
+          await sharedPreferences.setString('userName', profile.fullName);
+        }
+        if (profile.email.isNotEmpty) {
+          await sharedPreferences.setString('userEmail', profile.email);
+        }
+        if (profile.roles.isNotEmpty) {
+          await sharedPreferences.setString('userRole', profile.roles.join(', '));
+        } else if (profile.designation != null && profile.designation!.isNotEmpty) {
+          await sharedPreferences.setString('userRole', profile.designation!);
+        }
+        return Right(profile);
+      } else {
+        throw ApiException(message: body?['message'] ?? 'Failed to fetch profile');
+      }
+    } catch (e) {
+      return Left(ErrorHandler.mapExceptionToFailure(e));
+    }
+  }
+
+  @override
+  Future<Either<Failure, UserProfile>> updateProfile(String name) async {
+    try {
+      final profileUrl = '${ApiUrl.identityService}/auth/profile';
+      final response = await apiClient.put(
+        profileUrl,
+        data: {
+          'name': name,
+        },
+      );
+      final body = response.data;
+      if (body != null && (body['success'] == true || response.statusCode == 200)) {
+        if (body['data'] != null) {
+          final profile = UserProfile.fromJson(body['data']);
+          if (profile.fullName.isNotEmpty) {
+            await sharedPreferences.setString('userName', profile.fullName);
+          }
+          return Right(profile);
+        }
+        return await getProfile();
+      } else {
+        throw ApiException(message: body?['message'] ?? 'Failed to update profile');
       }
     } catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));

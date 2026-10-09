@@ -5,7 +5,6 @@ import 'package:crm_mobile/models/owner_call_report.dart';
 import 'package:crm_mobile/models/staff_user.dart';
 import 'package:crm_mobile/repositories/leads_repository.dart';
 import 'package:crm_mobile/usecases/get_staff_users_usecase.dart';
-import 'package:crm_mobile/widgets/custom_dropdown_field.dart';
 
 class CallsScreen extends StatefulWidget {
   const CallsScreen({super.key});
@@ -23,6 +22,7 @@ class _CallsScreenState extends State<CallsScreen> {
 
   DateTime? _startDate;
   DateTime? _endDate;
+  String _selectedQuickFilter = 'Today';
 
   List<OwnerCallReport> _allReports = [];
   List<OwnerCallReport> _filteredReports = [];
@@ -30,7 +30,40 @@ class _CallsScreenState extends State<CallsScreen> {
   @override
   void initState() {
     super.initState();
+    _applyQuickDateFilter('Today', fetch: false);
     _loadInitialData();
+  }
+
+  void _applyQuickDateFilter(String filter, {bool fetch = true}) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    setState(() {
+      _selectedQuickFilter = filter;
+      if (filter == 'Today') {
+        _startDate = today;
+        _endDate = today;
+      } else if (filter == 'Yesterday') {
+        final yesterday = today.subtract(const Duration(days: 1));
+        _startDate = yesterday;
+        _endDate = yesterday;
+      } else if (filter == 'Last Week') {
+        _startDate = today.subtract(const Duration(days: 7));
+        _endDate = today;
+      } else if (filter == 'Last Month') {
+        _startDate = today.subtract(const Duration(days: 30));
+        _endDate = today;
+      } else if (filter == 'All Time') {
+        _startDate = null;
+        _endDate = null;
+      } else if (filter == 'Custom') {
+        // Keep current custom start and end dates
+      }
+    });
+
+    if (fetch) {
+      _fetchCallReport();
+    }
   }
 
   String _formatDate(DateTime date) {
@@ -545,6 +578,8 @@ class _CallsScreenState extends State<CallsScreen> {
   }
 
   Widget _buildDateFilterSection() {
+    final filterOptions = ['Today', 'Yesterday', 'Last Week', 'Last Month', 'All Time', 'Custom'];
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -555,15 +590,51 @@ class _CallsScreenState extends State<CallsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Date Range Filter',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textLabel,
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Date Range Filter',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textLabel,
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.borderEnabled),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: filterOptions.contains(_selectedQuickFilter) ? _selectedQuickFilter : filterOptions.first,
+                    isDense: true,
+                    icon: const Icon(Icons.keyboard_arrow_down, color: AppColors.primary, size: 18),
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.primary,
+                    ),
+                    onChanged: (String? val) {
+                      if (val != null) {
+                        _applyQuickDateFilter(val);
+                      }
+                    },
+                    items: filterOptions.map((String opt) {
+                      return DropdownMenuItem<String>(
+                        value: opt,
+                        child: Text(opt),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           Row(
             children: [
               Expanded(
@@ -577,6 +648,7 @@ class _CallsScreenState extends State<CallsScreen> {
                     );
                     if (picked != null) {
                       setState(() {
+                        _selectedQuickFilter = 'Custom';
                         _startDate = picked;
                       });
                       _fetchCallReport();
@@ -622,6 +694,7 @@ class _CallsScreenState extends State<CallsScreen> {
                     );
                     if (picked != null) {
                       setState(() {
+                        _selectedQuickFilter = 'Custom';
                         _endDate = picked;
                       });
                       _fetchCallReport();
@@ -664,6 +737,7 @@ class _CallsScreenState extends State<CallsScreen> {
                     setState(() {
                       _startDate = null;
                       _endDate = null;
+                      _selectedQuickFilter = 'All Time';
                     });
                     _fetchCallReport();
                   },
@@ -811,21 +885,6 @@ class _CallsScreenState extends State<CallsScreen> {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF1F5F9),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  'Total: ${report.totalCallsCount}',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.primary,
-                  ),
-                ),
-              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -933,17 +992,45 @@ class _CallsScreenState extends State<CallsScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerRight,
-            child: Text(
-              'Total Duration: ${report.totalDuration}',
-              style: const TextStyle(
-                fontSize: 11.5,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textSecondary,
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // Highlighted Total Calls below Incoming box
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: AppColors.primary.withValues(alpha: 0.25)),
+                ),
+                child: Text(
+                  'Total: ${report.totalCallsCount}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.primary,
+                  ),
+                ),
               ),
-            ),
+              // Highlighted Total Duration below Outgoing box
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: AppColors.primary.withValues(alpha: 0.25)),
+                ),
+                child: Text(
+                  'Total Duration: ${report.totalDuration}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crm_mobile/injection/injection.dart';
 
@@ -53,7 +54,47 @@ class NotificationService extends ValueNotifier<List<AppNotification>> {
   static final NotificationService instance = NotificationService._();
   static const String _storageKey = 'tickora_notifications_cache_v1';
 
+  final FlutterTts _tts = FlutterTts();
+  bool _ttsInitialized = false;
+
   int get unreadCount => value.where((n) => !n.isRead).length;
+
+  Future<void> _initTts() async {
+    if (_ttsInitialized) return;
+    try {
+      await _tts.setLanguage("en-US");
+      await _tts.setSpeechRate(0.5);
+      await _tts.setVolume(1.0);
+      await _tts.setPitch(1.0);
+      await _tts.awaitSpeakCompletion(true);
+      try {
+        await _tts.setIosAudioCategory(
+          IosTextToSpeechAudioCategory.playback,
+          [
+            IosTextToSpeechAudioCategoryOptions.duckOthers,
+            IosTextToSpeechAudioCategoryOptions.mixWithOthers,
+            IosTextToSpeechAudioCategoryOptions.defaultToSpeaker,
+          ],
+        );
+      } catch (_) {}
+      _ttsInitialized = true;
+    } catch (e) {
+      debugPrint("TTS Init Error: $e");
+    }
+  }
+
+  Future<void> speakNotificationTitle(String title) async {
+    try {
+      if (title.trim().isEmpty) return;
+      await _initTts();
+      await _tts.stop();
+      final cleanTitle = title.replaceAll(RegExp(r'[^\w\s\d,.-]'), '').trim();
+      final textToSpeak = cleanTitle.isNotEmpty ? cleanTitle : title;
+      await _tts.speak(textToSpeak);
+    } catch (e) {
+      debugPrint("TTS Speak Error: $e");
+    }
+  }
 
   Future<SharedPreferences?> _getPrefs() async {
     try {
@@ -100,8 +141,15 @@ class NotificationService extends ValueNotifier<List<AppNotification>> {
     required String body,
     String? type,
     Map<String, dynamic>? data,
+    bool speakTitle = false,
   }) {
-    addNotificationAsync(title: title, body: body, type: type, data: data);
+    addNotificationAsync(
+      title: title,
+      body: body,
+      type: type,
+      data: data,
+      speakTitle: speakTitle,
+    );
   }
 
   Future<void> addNotificationAsync({
@@ -109,6 +157,7 @@ class NotificationService extends ValueNotifier<List<AppNotification>> {
     required String body,
     String? type,
     Map<String, dynamic>? data,
+    bool speakTitle = false,
   }) async {
     final notificationId = data?['notificationId']?.toString() ??
         data?['id']?.toString() ??
@@ -130,6 +179,10 @@ class NotificationService extends ValueNotifier<List<AppNotification>> {
 
     value = [newNotification, ...value];
     await _saveNotifications();
+
+    if (speakTitle) {
+      await speakNotificationTitle(title);
+    }
   }
 
   void markAsRead(String id) {

@@ -134,26 +134,50 @@ class FollowUpModel extends FollowUp {
   });
 
   factory FollowUpModel.fromJson(Map<String, dynamic> json) {
+    String parsedLeadName = '';
+    if (json['leadName'] != null && json['leadName'].toString().trim().isNotEmpty) {
+      parsedLeadName = json['leadName'].toString().trim();
+    } else if (json['name'] != null && json['name'].toString().trim().isNotEmpty) {
+      parsedLeadName = json['name'].toString().trim();
+    } else if (json['title'] != null && json['title'].toString().trim().isNotEmpty) {
+      parsedLeadName = json['title'].toString().trim();
+    } else {
+      final fn = json['firstName'] ?? (json['lead'] is Map ? json['lead']['firstName'] : null);
+      final ln = json['lastName'] ?? (json['lead'] is Map ? json['lead']['lastName'] : null);
+      final combined = '${fn ?? ''} ${ln ?? ''}'.trim();
+      if (combined.isNotEmpty) {
+        parsedLeadName = combined;
+      }
+    }
+
+    String parsedCompany = json['companyName']?.toString().trim() ?? '';
+    if (parsedCompany.isEmpty && json['lead'] is Map) {
+      parsedCompany = json['lead']['companyName']?.toString().trim() ?? '';
+    }
+
+    String? parsedPhone = json['phoneNumber']?.toString().trim() ?? json['phone']?.toString().trim();
+    if ((parsedPhone == null || parsedPhone.isEmpty) && json['lead'] is Map) {
+      parsedPhone = json['lead']['phone']?.toString().trim();
+    }
+
     return FollowUpModel(
-      id: json['id'],
-      leadId: json['leadId'] ?? json['id'] ?? '',
-      leadName: (json['leadName'] != null && json['leadName'].toString().isNotEmpty)
-          ? json['leadName']
-          : (json['name'] ?? ''),
-      companyName: json['companyName'] ?? '',
-      phoneNumber: json['phoneNumber'] ?? json['phone'],
+      id: json['id']?.toString(),
+      leadId: json['leadId']?.toString() ?? json['id']?.toString() ?? '',
+      leadName: parsedLeadName,
+      companyName: parsedCompany,
+      phoneNumber: parsedPhone,
       leadTask: (json['leadTask'] != null && json['leadTask'].toString().isNotEmpty)
-          ? json['leadTask']
-          : (json['task'] ?? 'Follow up'),
+          ? json['leadTask'].toString()
+          : (json['task']?.toString() ?? 'Follow up'),
       followUpStatus: (json['followUpStatus'] != null && json['followUpStatus'].toString().isNotEmpty)
-          ? json['followUpStatus']
-          : (json['status'] ?? 'ADDED_TO_FOLLOW_UP'),
-      followUpDate: json['followUpDate'] ?? json['date'] ?? '',
-      followUpTime: json['followUpTime'] ?? json['time'] ?? '',
-      followUpType: json['followUpType'] ?? json['type'],
+          ? json['followUpStatus'].toString()
+          : (json['status']?.toString() ?? 'ADDED_TO_FOLLOW_UP'),
+      followUpDate: json['followUpDate']?.toString() ?? json['date']?.toString() ?? '',
+      followUpTime: json['followUpTime']?.toString() ?? json['time']?.toString() ?? '',
+      followUpType: json['followUpType']?.toString() ?? json['type']?.toString(),
       reminder: json['reminder']?.toString() ?? '',
       leadStatus: json['leadStatus'] != null ? LeadStatusModel.fromJson(json['leadStatus']) : null,
-      priority: json['priority'] ?? 'MEDIUM',
+      priority: json['priority']?.toString() ?? 'MEDIUM',
       assignedUser: json['assignedUser'] != null ? FollowUpAssignedUserModel.fromJson(json['assignedUser']) : null,
     );
   }

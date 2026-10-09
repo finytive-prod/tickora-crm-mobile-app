@@ -258,6 +258,14 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
       } catch (_) {}
     }
 
+    // Extract actual call date from audio.callDate or audio.createdAt
+    String? resolvedDateStr;
+    if (audio.callDate != null && audio.callDate!.isNotEmpty) {
+      resolvedDateStr = audio.callDate!.trim();
+    } else if (audio.createdAt != null && audio.createdAt!.millisecondsSinceEpoch > 0) {
+      resolvedDateStr = DateFormat('yyyy-MM-dd').format(audio.createdAt!.toLocal());
+    }
+
     // 4. Check audio.createdAt if non-midnight
     if (audio.createdAt != null && audio.createdAt!.millisecondsSinceEpoch > 0) {
       final dt = audio.createdAt!.toLocal();
@@ -266,14 +274,11 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
       }
     }
 
-    // 5. Check audio.startTimeStr if non-midnight
+    // 5. Combine resolvedDateStr with audio.startTimeStr if startTimeStr exists
     if (audio.startTimeStr != null && audio.startTimeStr!.isNotEmpty && audio.startTimeStr != 'null' && audio.startTimeStr != '--:--') {
-      final parsed = _parseTimeStringToMs(audio.startTimeStr);
+      final parsed = _parseTimeStringToMs(audio.startTimeStr, resolvedDateStr);
       if (parsed > 0) {
-        final dt = DateTime.fromMillisecondsSinceEpoch(parsed);
-        if (dt.hour != 0 || dt.minute != 0 || dt.second != 0) {
-          return parsed;
-        }
+        return parsed;
       }
     }
 
@@ -282,7 +287,7 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
       return audio.createdAt!.millisecondsSinceEpoch;
     }
 
-    // 7. Fallback to startTimeStr
+    // 7. Fallback to startTimeStr without known date
     if (audio.startTimeStr != null && audio.startTimeStr!.isNotEmpty) {
       final parsed = _parseTimeStringToMs(audio.startTimeStr);
       if (parsed > 0) return parsed;
@@ -291,7 +296,7 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
     return 0;
   }
 
-  int _parseTimeStringToMs(String? timeStr) {
+  int _parseTimeStringToMs(String? timeStr, [String? knownDateStr]) {
     if (timeStr == null || timeStr.isEmpty || timeStr == 'null' || timeStr == '--:--') return 0;
     String clean = timeStr.trim();
     if (clean.contains(' - ')) {
@@ -301,28 +306,40 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
       if (clean.contains('T')) {
         return DateTime.parse(clean).toLocal().millisecondsSinceEpoch;
       }
-      final now = DateTime.now();
-      final datePart = DateFormat('yyyy-MM-dd').format(now);
-      if (clean.toUpperCase().contains('AM') || clean.toUpperCase().contains('PM')) {
-        final parsed = DateFormat('yyyy-MM-dd hh:mm:ss a').parse('$datePart $clean');
-        return parsed.millisecondsSinceEpoch;
-      } else {
-        final parsed = DateFormat('yyyy-MM-dd HH:mm:ss').parse('$datePart $clean');
-        return parsed.millisecondsSinceEpoch;
+      var datePart = (knownDateStr != null && knownDateStr.isNotEmpty)
+          ? knownDateStr.trim()
+          : DateFormat('yyyy-MM-dd').format(DateTime.now());
+
+      if (datePart.toUpperCase() == 'TODAY') {
+        datePart = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      } else if (datePart.toUpperCase() == 'YESTERDAY') {
+        datePart = DateFormat('yyyy-MM-dd').format(DateTime.now().subtract(const Duration(days: 1)));
       }
-    } catch (_) {
-      try {
-        final now = DateTime.now();
-        final datePart = DateFormat('yyyy-MM-dd').format(now);
-        if (clean.toUpperCase().contains('AM') || clean.toUpperCase().contains('PM')) {
-          final parsed = DateFormat('yyyy-MM-dd hh:mm a').parse('$datePart $clean');
+
+      final dateFormats = ['yyyy-MM-dd', 'dd-MM-yyyy', 'yyyy/MM/dd', 'dd/MM/yyyy'];
+      DateTime? parsedBaseDate;
+      for (final df in dateFormats) {
+        try {
+          parsedBaseDate = DateFormat(df).parse(datePart);
+          break;
+        } catch (_) {}
+      }
+      final normalizedDate = parsedBaseDate != null ? DateFormat('yyyy-MM-dd').format(parsedBaseDate) : datePart;
+
+      final timeFormats = [
+        'hh:mm:ss a',
+        'hh:mm a',
+        'HH:mm:ss',
+        'HH:mm',
+      ];
+
+      for (final tf in timeFormats) {
+        try {
+          final parsed = DateFormat('yyyy-MM-dd $tf').parse('$normalizedDate $clean');
           return parsed.millisecondsSinceEpoch;
-        } else {
-          final parsed = DateFormat('yyyy-MM-dd HH:mm').parse('$datePart $clean');
-          return parsed.millisecondsSinceEpoch;
-        }
-      } catch (_) {}
-    }
+        } catch (_) {}
+      }
+    } catch (_) {}
     return 0;
   }
 

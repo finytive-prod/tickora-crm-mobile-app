@@ -37,6 +37,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
         title: title,
         body: body,
         data: data,
+        speakTitle: true,
       );
     }
   } catch (e) {
@@ -239,6 +240,7 @@ class FcmService {
           title: title,
           body: body,
           data: data,
+          speakTitle: true,
         );
 
         final notificationId = message.messageId?.hashCode ??
@@ -330,6 +332,16 @@ class FcmService {
   // ---------------------------------------------------------------------------
   // Cleanup
   // ---------------------------------------------------------------------------
+
+  /// Returns the current FCM device token if available.
+  Future<String?> getToken() async {
+    try {
+      return await _messaging.getToken();
+    } catch (e) {
+      debugPrint('Error getting FCM token: $e');
+      return null;
+    }
+  }
 
   /// Deletes the FCM token. Call this on logout to stop receiving
   /// notifications for the logged-out user.

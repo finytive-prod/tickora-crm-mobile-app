@@ -15,6 +15,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:crm_mobile/blocs/leads_bloc.dart';
 import 'package:crm_mobile/blocs/leads_event.dart';
 import 'package:crm_mobile/screens/pipeline/lead_pipeline_screen.dart';
+import 'package:crm_mobile/repositories/login_repository.dart';
+import 'package:crm_mobile/screens/profile/profile_screen.dart';
+import 'package:crm_mobile/widgets/call_log_icon.dart';
 
 class MoreScreen extends StatefulWidget {
   const MoreScreen({super.key});
@@ -26,6 +29,7 @@ class MoreScreen extends StatefulWidget {
 class _MoreScreenState extends State<MoreScreen> {
   String _userName = 'User';
   String _userEmail = '';
+  String _userRole = '';
 
   @override
   void initState() {
@@ -49,7 +53,31 @@ class _MoreScreenState extends State<MoreScreen> {
     setState(() {
       _userName = prefs.getString('userName') ?? 'User';
       _userEmail = prefs.getString('userEmail') ?? '';
+      _userRole = prefs.getString('userRole') ?? '';
     });
+
+    if (sl.isRegistered<LoginRepository>()) {
+      sl<LoginRepository>().getProfile().then((res) {
+        res.fold((_) {}, (profile) {
+          if (mounted) {
+            setState(() {
+              _userName = profile.fullName.isNotEmpty
+                  ? profile.fullName
+                  : _userName;
+              _userEmail = profile.email.isNotEmpty
+                  ? profile.email
+                  : _userEmail;
+              if (profile.roles.isNotEmpty) {
+                _userRole = profile.roles.join(', ');
+              } else if (profile.designation != null &&
+                  profile.designation!.isNotEmpty) {
+                _userRole = profile.designation!;
+              }
+            });
+          }
+        });
+      });
+    }
   }
 
   void _handleLogout(BuildContext context) {
@@ -58,50 +86,208 @@ class _MoreScreenState extends State<MoreScreen> {
       context: context,
       builder: (BuildContext dialogContext) {
         return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           title: const Row(
             children: [
               Icon(Icons.logout, color: Color(0xFFDB222A)),
               SizedBox(width: 8),
-              Text(
-                'Logout',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
+              Text('Logout', style: TextStyle(fontWeight: FontWeight.bold)),
             ],
           ),
-          content: const Text('Are you sure you want to log out of the application?'),
+          content: const Text(
+            'Are you sure you want to log out of the application?',
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
               child: const Text(
                 'Cancel',
-                style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFDB222A),
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
               ),
-              onPressed: () {
+              onPressed: () async {
                 Navigator.of(dialogContext).pop();
 
-                // Clear session & FCM token asynchronously without blocking instant navigation
+                // Call logout API endpoint with FCM token
+                try {
+                  if (sl.isRegistered<LoginRepository>()) {
+                    await sl<LoginRepository>().logout();
+                  }
+                } catch (_) {}
+
+                // Clear session & FCM token
                 if (sl.isRegistered<SharedPreferences>()) {
-                  sl<SharedPreferences>().clear();
+                  await sl<SharedPreferences>().clear();
                 }
                 sl<PrivilegeService>().clearPrivileges();
-                FcmService.instance.deleteToken();
+                await FcmService.instance.deleteToken();
 
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (context) => const LoginScreen()),
-                  (Route<dynamic> route) => false,
-                );
+                if (context.mounted) {
+                  Navigator.of(context).pushAndRemoveUntil(
+                    MaterialPageRoute(
+                      builder: (context) => const LoginScreen(),
+                    ),
+                    (Route<dynamic> route) => false,
+                  );
+                }
               },
-              child: const Text('Logout', style: TextStyle(fontWeight: FontWeight.bold)),
+              child: const Text(
+                'Logout',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
             ),
           ],
+        );
+      },
+    );
+  }
+
+  void _openEditProfileModal() {
+    final nameController = TextEditingController(text: _userName.trim());
+    final formKey = GlobalKey<FormState>();
+    bool isSaving = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Container(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+                top: 20,
+                left: 20,
+                right: 20,
+              ),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(24),
+                  topRight: Radius.circular(24),
+                ),
+              ),
+              child: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Edit Profile',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: AppColors.textSecondary),
+                          onPressed: () => Navigator.pop(ctx),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: nameController,
+                      decoration: InputDecoration(
+                        labelText: 'Name',
+                        prefixIcon: const Icon(Icons.person_outline, color: AppColors.primary),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: AppColors.primary, width: 2),
+                        ),
+                      ),
+                      validator: (value) {
+                        if (value == null || value.trim().isEmpty) {
+                          return 'Name is required';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          elevation: 2,
+                        ),
+                        onPressed: isSaving
+                            ? null
+                            : () async {
+                                if (!formKey.currentState!.validate()) return;
+                                setModalState(() => isSaving = true);
+
+                                final repo = sl<LoginRepository>();
+                                final result = await repo.updateProfile(
+                                  nameController.text.trim(),
+                                );
+
+                                if (!context.mounted) return;
+                                Navigator.pop(ctx);
+
+                                result.fold(
+                                  (failure) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(failure.message),
+                                        backgroundColor: Colors.red,
+                                      ),
+                                    );
+                                  },
+                                  (updatedProfile) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Profile updated successfully!'),
+                                        backgroundColor: Colors.green,
+                                      ),
+                                    );
+                                    _loadUserData();
+                                  },
+                                );
+                              },
+                        child: isSaving
+                            ? const SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
+                              )
+                            : const Text(
+                                'Save Changes',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
         );
       },
     );
@@ -135,7 +321,12 @@ class _MoreScreenState extends State<MoreScreen> {
                 bottomRight: Radius.circular(20),
               ),
             ),
-            padding: const EdgeInsets.only(top: 50, left: 20, right: 20, bottom: 24),
+            padding: const EdgeInsets.only(
+              top: 50,
+              left: 20,
+              right: 20,
+              bottom: 24,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -149,7 +340,11 @@ class _MoreScreenState extends State<MoreScreen> {
                           'assets/images/logo.webp',
                           width: 28,
                           height: 28,
-                          errorBuilder: (_, __, ___) => const Icon(Icons.dashboard_customize_outlined, color: Colors.white, size: 24),
+                          errorBuilder: (_, __, ___) => const Icon(
+                            Icons.dashboard_customize_outlined,
+                            color: Colors.white,
+                            size: 24,
+                          ),
                         ),
                         const SizedBox(width: 8),
                         const Text(
@@ -164,62 +359,68 @@ class _MoreScreenState extends State<MoreScreen> {
                       ],
                     ),
                     GestureDetector(
-                      onTap: () => _changeTab(context, priv.hasPrivilege('LEAD_READ') ? 'Leads' : 'Calls'),
+                      onTap: _openEditProfileModal,
                       child: Container(
                         padding: const EdgeInsets.all(6),
                         decoration: BoxDecoration(
                           color: Colors.white.withOpacity(0.2),
                           shape: BoxShape.circle,
                         ),
-                        child: const Icon(Icons.close, color: Colors.white, size: 18),
+                        child: const Icon(
+                          Icons.edit_outlined,
+                          color: Colors.white,
+                          size: 18,
+                        ),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 16),
 
-                // Profile row
-                Row(
-                  children: [
-                    // Avatar
-                    Container(
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 2),
-                      ),
-                      child: const CircleAvatar(
-                        radius: 28,
+                // Centered Profile Header
+                Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      CircleAvatar(
+                        radius: 34,
                         backgroundColor: Colors.white,
-                        child: Icon(Icons.person, color: brandColor, size: 32),
+                        child: Text(
+                          _userName.isNotEmpty ? _userName[0].toUpperCase() : 'U',
+                          style: const TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.bold,
+                            color: brandColor,
+                          ),
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 14),
+                      const SizedBox(height: 10),
 
-                    // User name & email
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _userName,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            _userEmail,
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.white.withOpacity(0.85),
-                            ),
-                          ),
-                        ],
+                      // Centered User Name
+                      Text(
+                        _userName,
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                        textAlign: TextAlign.center,
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 4),
+
+                      // Role below the name
+                      Text(
+                        _userRole.isNotEmpty ? _userRole : 'USER',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.white.withValues(alpha: 0.9),
+                          fontWeight: FontWeight.w500,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -238,16 +439,23 @@ class _MoreScreenState extends State<MoreScreen> {
                     onTap: () {
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => const DashboardScreen()),
+                        MaterialPageRoute(
+                          builder: (context) => const DashboardScreen(),
+                        ),
                       );
                     },
                   ),
-                if (showAllByDefault || priv.hasPrivilege('CALL_READ') || priv.hasPrivilege('DASHBOARD_READ'))
+                if (showAllByDefault ||
+                    priv.hasPrivilege('CALL_READ') ||
+                    priv.hasPrivilege('DASHBOARD_READ'))
                   _buildMenuItem(
-                    icon: Icons.phone_in_talk_outlined,
-                    title: 'Calls',
+                    customIcon: const CallLogIcon(
+                      color: AppColors.textPrimary,
+                      size: 22,
+                    ),
+                    title: 'Call logs',
                     brandColor: brandColor,
-                    onTap: () => _changeTab(context, 'Calls'),
+                    onTap: () => _changeTab(context, 'Call logs'),
                   ),
                 if (priv.hasPrivilege('LEAD_READ')) ...[
                   _buildMenuItem(
@@ -263,7 +471,9 @@ class _MoreScreenState extends State<MoreScreen> {
                     onTap: () {
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => const LeadPipelineScreen()),
+                        MaterialPageRoute(
+                          builder: (context) => const LeadPipelineScreen(),
+                        ),
                       );
                     },
                   ),
@@ -276,7 +486,9 @@ class _MoreScreenState extends State<MoreScreen> {
                     onTap: () {
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => const CustomerScreen()),
+                        MaterialPageRoute(
+                          builder: (context) => const CustomerScreen(),
+                        ),
                       );
                     },
                   ),
@@ -287,7 +499,8 @@ class _MoreScreenState extends State<MoreScreen> {
                     brandColor: brandColor,
                     onTap: () => _changeTab(context, 'Follow ups'),
                   ),
-                if (priv.hasPrivilege('STAFF_READ') || priv.hasPrivilege('USER_READ'))
+                if (priv.hasPrivilege('STAFF_READ') ||
+                    priv.hasPrivilege('USER_READ'))
                   _buildMenuItem(
                     icon: Icons.business_center_outlined,
                     title: 'Staff',
@@ -295,16 +508,12 @@ class _MoreScreenState extends State<MoreScreen> {
                     onTap: () {
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => const StaffListScreen()),
+                        MaterialPageRoute(
+                          builder: (context) => const StaffListScreen(),
+                        ),
                       );
                     },
                   ),
-                // _buildMenuItem(
-                //   icon: Icons.check_box_outlined,
-                //   title: 'Tasks',
-                //   brandColor: brandColor,
-                //   onTap: () => _showComingSoon('Tasks'),
-                // ),
                 if (priv.hasPrivilege('CALENDAR_READ'))
                   _buildMenuItem(
                     icon: Icons.calendar_today_outlined,
@@ -332,10 +541,17 @@ class _MoreScreenState extends State<MoreScreen> {
                       );
                     },
                   ),
-                
+
                 const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                  child: Divider(color: Color(0xFFF3F4F6), thickness: 1, height: 1),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 16.0,
+                    vertical: 8.0,
+                  ),
+                  child: Divider(
+                    color: Color(0xFFF3F4F6),
+                    thickness: 1,
+                    height: 1,
+                  ),
                 ),
 
                 if (priv.hasPrivilege('SETTINGS_READ'))
@@ -346,16 +562,26 @@ class _MoreScreenState extends State<MoreScreen> {
                     onTap: () {
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => const SettingsMenuScreen()),
+                        MaterialPageRoute(
+                          builder: (context) => const SettingsMenuScreen(),
+                        ),
                       );
                     },
                   ),
-                // _buildMenuItem(
-                //   icon: Icons.person_outline,
-                //   title: 'Profile',
-                //   brandColor: brandColor,
-                //   onTap: () => _showComingSoon('Profile'),
-                // ),
+                _buildMenuItem(
+                  icon: Icons.person_outline,
+                  title: 'My Profile',
+                  brandColor: brandColor,
+                  onTap: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const ProfileScreen(),
+                      ),
+                    );
+                    _loadUserData();
+                  },
+                ),
                 _buildMenuItem(
                   icon: Icons.logout,
                   title: 'Logout',
@@ -372,7 +598,8 @@ class _MoreScreenState extends State<MoreScreen> {
   }
 
   Widget _buildMenuItem({
-    required IconData icon,
+    IconData? icon,
+    Widget? customIcon,
     required String title,
     required Color brandColor,
     required VoidCallback onTap,
@@ -380,10 +607,10 @@ class _MoreScreenState extends State<MoreScreen> {
     Color? activeTabColor,
     bool isDestructive = false,
   }) {
-    final color = isDestructive 
-        ? brandColor 
+    final color = isDestructive
+        ? brandColor
         : (isSelected ? brandColor : AppColors.textPrimary);
-        
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
       decoration: BoxDecoration(
@@ -391,7 +618,9 @@ class _MoreScreenState extends State<MoreScreen> {
         borderRadius: BorderRadius.circular(8),
       ),
       child: ListTile(
-        leading: Icon(icon, color: color, size: 22),
+        leading:
+            customIcon ??
+            (icon != null ? Icon(icon, color: color, size: 22) : null),
         title: Text(
           title,
           style: TextStyle(
@@ -400,8 +629,8 @@ class _MoreScreenState extends State<MoreScreen> {
             fontSize: 15,
           ),
         ),
-        trailing: isSelected 
-            ? Icon(Icons.chevron_right, color: color, size: 20) 
+        trailing: isSelected
+            ? Icon(Icons.chevron_right, color: color, size: 20)
             : null,
         onTap: onTap,
         dense: true,
@@ -409,6 +638,4 @@ class _MoreScreenState extends State<MoreScreen> {
       ),
     );
   }
-
-  
 }

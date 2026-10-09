@@ -27,59 +27,19 @@ class FollowUpsRepositoryImpl implements FollowUpsRepository {
     try {
       final q = (searchQuery != null && searchQuery.trim().isNotEmpty) ? searchQuery.trim() : null;
 
-      // If user is performing a search, try global search endpoint first
-      if (q != null) {
-        try {
-          final response = await apiClient.post(
-            '$_leadsBaseUrl/leads/search/global',
-            queryParameters: {
-              'page': page,
-              'size': size,
-            },
-            data: {
-              'query': q,
-              'isLead': false,
-              'isCustomer': false,
-              'isUser': false,
-              'isFollowup': true,
-            },
-          );
-
-          final body = response.data;
-          if (body != null && body['success'] == true && body['data'] != null) {
-            FollowUpResponse followUpResponse = FollowUpResponseModel.fromJson(body['data']);
-            final queryLower = q.toLowerCase();
-            final filteredList = followUpResponse.followUps.where((item) {
-              final leadName = item.leadName.toLowerCase();
-              final phone = (item.phoneNumber ?? '').toLowerCase();
-              final company = item.companyName.toLowerCase();
-              final task = item.leadTask.toLowerCase();
-              return leadName.contains(queryLower) || phone.contains(queryLower) || company.contains(queryLower) || task.contains(queryLower);
-            }).toList();
-
-            followUpResponse = followUpResponse.copyWith(
-              followUps: filteredList,
-              totalElements: filteredList.length,
-              numberOfElements: filteredList.length,
-            );
-
-            if (followUpResponse.followUps.isNotEmpty) {
-              return Right(followUpResponse);
-            }
-          }
-        } catch (_) {
-          // If search/global fails, continue to standard GET endpoint
-        }
+      final queryParams = <String, dynamic>{
+        'category': category,
+        'page': page,
+        'size': size,
+      };
+      if (q != null && q.isNotEmpty) {
+        queryParams['search'] = q;
+        queryParams['query'] = q;
       }
 
-      // Standard category followups retrieval (or fallback when searching)
       final response = await apiClient.get(
         '$_leadsBaseUrl/leads/followups',
-        queryParameters: {
-          'category': category,
-          'page': page,
-          'size': size,
-        },
+        queryParameters: queryParams,
       );
 
       final body = response.data;
@@ -92,7 +52,14 @@ class FollowUpsRepositoryImpl implements FollowUpsRepository {
             final phone = (item.phoneNumber ?? '').toLowerCase();
             final company = item.companyName.toLowerCase();
             final task = item.leadTask.toLowerCase();
-            return leadName.contains(queryLower) || phone.contains(queryLower) || company.contains(queryLower) || task.contains(queryLower);
+            final status = item.followUpStatus.toLowerCase();
+            final assigned = (item.assignedUser?.name ?? '').toLowerCase();
+            return leadName.contains(queryLower) ||
+                phone.contains(queryLower) ||
+                company.contains(queryLower) ||
+                task.contains(queryLower) ||
+                status.contains(queryLower) ||
+                assigned.contains(queryLower);
           }).toList();
           followUpResponse = followUpResponse.copyWith(
             followUps: filteredList,

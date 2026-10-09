@@ -287,21 +287,26 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
       return;
     }
 
-    if (_currentPage < 2) {
+    int lastPageIndex = widget.leadToEdit != null ? 1 : 2;
+    if (_currentPage < lastPageIndex) {
       _pageController.animateToPage(
         _currentPage + 1,
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeInOut,
       );
     } else {
-      setState(() {
-        _hasCompletedOptionalSteps = true;
-      });
-      _pageController.animateToPage(
-        0,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-      );
+      if (widget.leadToEdit != null) {
+        _onSaveLead();
+      } else {
+        setState(() {
+          _hasCompletedOptionalSteps = true;
+        });
+        _pageController.animateToPage(
+          0,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+        );
+      }
     }
   }
 
@@ -320,13 +325,13 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
   void _onSaveLead() {
     bool isStep1Valid = validateAndScrollToError(_step1FormKey);
     bool isStep2Valid = _step2FormKey.currentState == null || _step2FormKey.currentState!.validate();
-    bool isStep3Valid = _step3FormKey.currentState == null || _step3FormKey.currentState!.validate();
+    bool isStep3Valid = widget.leadToEdit != null || _step3FormKey.currentState == null || _step3FormKey.currentState!.validate();
 
     if (!isStep1Valid || !isStep2Valid || !isStep3Valid) {
       setState(() {
         if (!isStep1Valid) _step1AutovalidateMode = AutovalidateMode.onUserInteraction;
         if (!isStep2Valid) _step2AutovalidateMode = AutovalidateMode.onUserInteraction;
-        if (!isStep3Valid) _step3AutovalidateMode = AutovalidateMode.onUserInteraction;
+        if (!isStep3Valid && widget.leadToEdit == null) _step3AutovalidateMode = AutovalidateMode.onUserInteraction;
       });
     }
 
@@ -344,14 +349,14 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
       );
       return;
     }
-    if (!isStep3Valid) {
+    if (widget.leadToEdit == null && !isStep3Valid) {
       _pageController.animateToPage(2, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please complete all required custom fields in Step 3'), backgroundColor: Colors.orange),
       );
       return;
     }
-      final leadData = {
+      final leadData = <String, dynamic>{
         'firstName': _firstNameController.text,
         'lastName': _lastNameController.text,
         'companyName': _companyController.text,
@@ -375,43 +380,45 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         'description': _descriptionController.text,
         'ownerUserId': _selectedOwner,
         'notes': _notesController.text,
-        'enableReminder': _emailAlert || _pushNotification || _smsAlert,
-        'reminderDate': _formatDateForApi(_reminderDateController.text),
-        'reminderTime': _formatTimeForApi(_reminderTimeController.text),
-        'repeat': _mapRepeatCycle(_repeatCycleController.text),
-        'notifyEmail': _emailAlert,
-        'notifySMS': _smsAlert,
-        'notifyPush': _pushNotification,
       };
+
+      if (widget.leadToEdit == null) {
+        leadData['enableReminder'] = _emailAlert || _pushNotification || _smsAlert;
+        leadData['reminderDate'] = _formatDateForApi(_reminderDateController.text);
+        leadData['reminderTime'] = _formatTimeForApi(_reminderTimeController.text);
+        leadData['repeat'] = _mapRepeatCycle(_repeatCycleController.text);
+        leadData['notifyEmail'] = _emailAlert;
+        leadData['notifySMS'] = _smsAlert;
+        leadData['notifyPush'] = _pushNotification;
+      }
 
       leadData.removeWhere((key, value) => value == null);
 
       final customFieldsList = <Map<String, dynamic>>[];
       final filePaths = <String>[];
 
-      // 1. Add general follow-up attached files
-      for (var file in _followUpFiles) {
-        if (file.path != null) {
-          filePaths.add(file.path!);
+      // 1. Add general follow-up attached files (only when creating lead)
+      if (widget.leadToEdit == null) {
+        for (var file in _followUpFiles) {
+          if (file.path != null) {
+            filePaths.add(file.path!);
+          }
         }
       }
 
       // 2. Process custom field values
       _customFieldValues.forEach((fieldId, value) {
         if (value is List<fp.PlatformFile>) {
-          // FILE/DOCUMENT custom field — multiple files
-          // For each file: add filename to customFields value, add path to filePaths
           for (var file in value) {
             customFieldsList.add({
               'fieldId': fieldId,
-              'value': file.name, // filename goes into JSON
+              'value': file.name,
             });
             if (file.path != null) {
-              filePaths.add(file.path!); // actual file goes into FormData 'files'
+              filePaths.add(file.path!);
             }
           }
         } else if (value is fp.PlatformFile) {
-          // FILE/DOCUMENT custom field — single file
           customFieldsList.add({
             'fieldId': fieldId,
             'value': value.name,
@@ -420,7 +427,6 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
             filePaths.add(value.path!);
           }
         } else if (value != null && value.toString().isNotEmpty) {
-          // Non-file custom field (DROPDOWN, TEXT, DATE, etc.)
           customFieldsList.add({
             'fieldId': fieldId,
             'value': value,
@@ -559,7 +565,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
                       children: [
                         KeepAliveWrapper(child: _buildLeadDetailsForm(state)),
                         KeepAliveWrapper(child: _buildCustomFieldsTab(state)),
-                        KeepAliveWrapper(child: _buildFollowUpTab()),
+                        if (widget.leadToEdit == null) KeepAliveWrapper(child: _buildFollowUpTab()),
                       ],
                     );
                   },
@@ -574,7 +580,9 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
   }
 
   Widget _buildStepProgressHeader() {
-    final steps = ['1. Lead Details', '2. Custom Fields', '3. Follow-Up'];
+    final steps = widget.leadToEdit != null
+        ? ['1. Lead Details', '2. Custom Fields']
+        : ['1. Lead Details', '2. Custom Fields', '3. Follow-Up'];
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       color: Colors.white,
@@ -719,7 +727,8 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         );
       }
     } else {
-      final isLastStep = _currentPage == 2;
+      final lastPageIndex = widget.leadToEdit != null ? 1 : 2;
+      final isLastStep = _currentPage == lastPageIndex;
       return Row(
         children: [
           Expanded(
@@ -746,7 +755,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 ),
                 child: Text(
-                  isLastStep ? 'Save' : 'Save & Next', 
+                  isLastStep ? (widget.leadToEdit != null ? 'Update' : 'Save') : 'Save & Next', 
                   style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)
                 ),
               ),
