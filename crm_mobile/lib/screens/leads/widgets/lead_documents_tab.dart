@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:crm_mobile/core/theme/app_colors.dart';
@@ -60,34 +61,56 @@ class LeadDocumentsTab extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           
-          // Upload Button
-          SizedBox(
-            width: double.infinity,
-            height: 48,
-            child: ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
+          // Action Buttons: Camera + Upload Document
+          Row(
+            children: [
+              Container(
+                height: 48,
+                width: 48,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.primary, width: 1.5),
                 ),
-                elevation: 0,
+                child: IconButton(
+                  icon: const Icon(Icons.camera_alt_rounded, color: AppColors.primary, size: 24),
+                  tooltip: 'Take Photo',
+                  onPressed: state.isAttachmentsLoading
+                      ? null
+                      : () => _pickFromCamera(context, state.leadDetail.id),
+                ),
               ),
-              icon: state.isAttachmentsLoading 
-                  ? const SizedBox(
-                      width: 18, 
-                      height: 18, 
-                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
-                    )
-                  : const Icon(Icons.upload_file_outlined),
-              label: Text(
-                state.isAttachmentsLoading ? 'Uploading...' : 'Upload Document',
-                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+              const SizedBox(width: 10),
+              Expanded(
+                child: SizedBox(
+                  height: 48,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      elevation: 0,
+                    ),
+                    icon: state.isAttachmentsLoading 
+                        ? const SizedBox(
+                            width: 18, 
+                            height: 18, 
+                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
+                          )
+                        : const Icon(Icons.upload_file_outlined),
+                    label: Text(
+                      state.isAttachmentsLoading ? 'Uploading...' : 'Upload Document',
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                    ),
+                    onPressed: state.isAttachmentsLoading 
+                        ? null 
+                        : () => _pickFromFiles(context, state.leadDetail.id),
+                  ),
+                ),
               ),
-              onPressed: state.isAttachmentsLoading 
-                  ? null 
-                  : () => _pickAndUploadFile(context, state.leadDetail.id),
-            ),
+            ],
           ),
         ],
       ),
@@ -443,7 +466,33 @@ class LeadDocumentsTab extends StatelessWidget {
     }
   }
 
-  void _pickAndUploadFile(BuildContext context, String leadId) async {
+
+
+  Future<void> _pickFromCamera(BuildContext context, String leadId) async {
+    try {
+      final picker = ImagePicker();
+      final XFile? photo = await picker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 90,
+      );
+      if (photo != null && photo.path.isNotEmpty) {
+        if (context.mounted) {
+          context.read<LeadsBloc>().add(UploadLeadAttachment(
+            leadId: leadId,
+            filePath: photo.path,
+          ));
+        }
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to capture photo: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _pickFromFiles(BuildContext context, String leadId) async {
     try {
       final result = await FilePicker.pickFiles(
         type: FileType.any,

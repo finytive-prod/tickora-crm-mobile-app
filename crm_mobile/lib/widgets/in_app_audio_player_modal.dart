@@ -38,6 +38,7 @@ class _InAppAudioPlayerModalState extends State<InAppAudioPlayerModal> {
   Duration _position = Duration.zero;
   double _playbackRate = 1.0;
   bool _isLoading = true;
+  bool _isBuffering = false;
   String? _errorMessage;
   bool _usingNativePlayer = false;
   Timer? _nativePoller;
@@ -262,14 +263,20 @@ class _InAppAudioPlayerModalState extends State<InAppAudioPlayerModal> {
   }
 
   void _togglePlayPause() async {
+    if (_isBuffering) return;
     if (_usingNativePlayer) {
       const channel = MethodChannel('com.example.crm_mobile/call_recording');
       if (_isPlaying) {
         await channel.invokeMethod('pauseNativeAudio');
         if (mounted) setState(() => _isPlaying = false);
       } else {
-        await channel.invokeMethod('resumeNativeAudio');
-        if (mounted) setState(() => _isPlaying = true);
+        if (mounted) setState(() => _isBuffering = true);
+        try {
+          await channel.invokeMethod('resumeNativeAudio');
+          if (mounted) setState(() => _isPlaying = true);
+        } finally {
+          if (mounted) setState(() => _isBuffering = false);
+        }
       }
       return;
     }
@@ -278,6 +285,7 @@ class _InAppAudioPlayerModalState extends State<InAppAudioPlayerModal> {
       if (_isPlaying) {
         await _audioPlayer.pause();
       } else {
+        if (mounted) setState(() => _isBuffering = true);
         final state = _audioPlayer.state;
         final isUrl = widget.filePath.startsWith('http://') || widget.filePath.startsWith('https://');
         if (state == PlayerState.completed || state == PlayerState.stopped || _position == Duration.zero) {
@@ -293,6 +301,10 @@ class _InAppAudioPlayerModalState extends State<InAppAudioPlayerModal> {
     } catch (e) {
       debugPrint('Error toggling play/pause: $e');
       _playViaNativePlayer();
+    } finally {
+      if (mounted && _isBuffering) {
+        setState(() => _isBuffering = false);
+      }
     }
   }
 
@@ -523,10 +535,21 @@ class _InAppAudioPlayerModalState extends State<InAppAudioPlayerModal> {
                         ),
                       ],
                     ),
-                    child: Icon(
-                      _isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                      color: Colors.white,
-                      size: 36,
+                    child: Center(
+                      child: _isBuffering
+                          ? const SizedBox(
+                              width: 26,
+                              height: 26,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2.5,
+                              ),
+                            )
+                          : Icon(
+                              _isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                              color: Colors.white,
+                              size: 36,
+                            ),
                     ),
                   ),
                 ),

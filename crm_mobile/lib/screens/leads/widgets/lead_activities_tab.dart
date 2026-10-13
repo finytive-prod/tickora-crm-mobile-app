@@ -14,7 +14,13 @@ class LeadActivitiesTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (state.isAuditLogsLoading) {
+    if (state.auditLogs == null && !state.isAuditLogsLoading && state.auditLogsError == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        context.read<LeadsBloc>().add(FetchLeadAuditLogs(state.leadDetail.id));
+      });
+      return const Center(child: SpinningLogo(size: 40));
+    }
+    if (state.isAuditLogsLoading && state.auditLogs == null) {
       return const Center(child: SpinningLogo(size: 40));
     }
     if (state.auditLogsError != null) {

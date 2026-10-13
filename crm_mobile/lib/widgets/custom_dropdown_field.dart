@@ -27,6 +27,15 @@ class CustomDropdownField<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final uniqueItems = <DropdownMenuItem<T>>[];
+    final seenValues = <T?>{};
+    for (var item in items) {
+      if (item.value != null && seenValues.add(item.value)) {
+        uniqueItems.add(item);
+      }
+    }
+    final effectiveValue = uniqueItems.any((item) => item.value == value) ? value : null;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -53,7 +62,7 @@ class CustomDropdownField<T> extends StatelessWidget {
         DropdownButtonFormField<T>(
           isExpanded: true,
           autovalidateMode: autovalidateMode ?? AutovalidateMode.onUserInteraction,
-          value: items.any((item) => item.value == value) ? value : null,
+          value: effectiveValue,
           hint: hintText != null ? Text(hintText!, style: const TextStyle(color: AppColors.textHint, fontSize: 14)) : null,
           icon: const Icon(Icons.keyboard_arrow_down, color: AppColors.textHint),
           decoration: InputDecoration(

@@ -49,6 +49,22 @@ class LeadCard extends StatelessWidget {
     return DateFormat('MMM dd, yyyy, hh:mm a').format(createdAt!.toLocal());
   }
 
+  String _formatCallStatus(String statusStr) {
+    final s = statusStr.trim();
+    if (s.isEmpty) return '';
+
+    final words = s.replaceAll('_', ' ').split(' ');
+    final capitalized = words
+        .map((w) {
+          if (w.isEmpty) return '';
+          return w[0].toUpperCase() + w.substring(1).toLowerCase();
+        })
+        .where((w) => w.isNotEmpty)
+        .join(' ');
+
+    return capitalized;
+  }
+
   Color _getCallStatusColor(String statusStr) {
     final s = statusStr.trim().toUpperCase();
     if (s == 'MISSED') return Colors.red;
@@ -263,7 +279,7 @@ class LeadCard extends StatelessWidget {
                           ),
                           children: [
                             TextSpan(
-                              text: callStatus!.trim(),
+                              text: _formatCallStatus(callStatus!),
                               style: TextStyle(
                                 color: _getCallStatusColor(callStatus!),
                                 fontSize: 11,

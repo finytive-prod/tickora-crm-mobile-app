@@ -35,6 +35,7 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
   final Map<String, String> _resolvedCallTypes = {};
   final Set<String> _pendingAsyncResolutions = {};
   final Map<String, int> _resolvedAudioDurations = {};
+  String? _loadingAudioId;
 
   @override
   void initState() {
@@ -116,9 +117,19 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
 
   bool _resolveIsIncoming(LeadCallLog log, String leadPhone, LeadAudio? matchedAudio) {
     final statusUpper = log.callStatus.trim().toUpperCase();
-    if (statusUpper == 'MISSED') {
-      return true;
+    if (statusUpper == 'MISSED') return true;
+
+    final cleanLead = leadPhone.replaceAll(RegExp(r'\D'), '');
+    final cleanFrom = log.fromNumber.replaceAll(RegExp(r'\D'), '');
+    final cleanTo = log.toNumber.replaceAll(RegExp(r'\D'), '');
+    if (cleanLead.isNotEmpty) {
+      final leadLast10 = cleanLead.length >= 10 ? cleanLead.substring(cleanLead.length - 10) : cleanLead;
+      final fromLast10 = cleanFrom.length >= 10 ? cleanFrom.substring(cleanFrom.length - 10) : cleanFrom;
+      final toLast10 = cleanTo.length >= 10 ? cleanTo.substring(cleanTo.length - 10) : cleanTo;
+      if (fromLast10.isNotEmpty && fromLast10 == leadLast10) return true;
+      if (toLast10.isNotEmpty && toLast10 == leadLast10 && fromLast10 != leadLast10) return false;
     }
+
     final boundUpper = log.bound.trim().toUpperCase();
     if (boundUpper == 'IN' || boundUpper == 'INBOUND' || boundUpper == 'INCOMING' || boundUpper.startsWith('INC') || boundUpper.startsWith('INB')) {
       return true;
@@ -130,15 +141,6 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
       final audioType = _getResolvedCallType(matchedAudio, leadPhone).toUpperCase();
       if (audioType == 'OUTBOUND' || audioType == 'OUT' || audioType == 'OUTGOING') return false;
       if (audioType == 'INBOUND' || audioType == 'IN' || audioType == 'INCOMING') return true;
-    }
-    final cleanLead = leadPhone.replaceAll(RegExp(r'\D'), '');
-    final cleanFrom = log.fromNumber.replaceAll(RegExp(r'\D'), '');
-    if (cleanLead.isNotEmpty && cleanFrom.isNotEmpty) {
-      final leadLast10 = cleanLead.length >= 10 ? cleanLead.substring(cleanLead.length - 10) : cleanLead;
-      final fromLast10 = cleanFrom.length >= 10 ? cleanFrom.substring(cleanFrom.length - 10) : cleanFrom;
-      if (leadLast10 == fromLast10) {
-        return true;
-      }
     }
     return false;
   }
@@ -1715,51 +1717,6 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
                   ],
                 ),
               ),
-              if (hasAudio)
-                Row(
-                  children: [
-                    // Play Button
-                    InkWell(
-                      onTap: () => _playLeadAudio(data.audio!),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: AppColors.primary,
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.play_arrow_rounded, color: Colors.white, size: 16),
-                            SizedBox(width: 3),
-                            Text('Play', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    // Download Button
-                    InkWell(
-                      onTap: () => _downloadLeadAudio(context, data.audio!),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: AppColors.white,
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: AppColors.primary),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.download_rounded, color: AppColors.primary, size: 16),
-                            SizedBox(width: 3),
-                            Text('Download', style: TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.bold)),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
             ],
           ),
           const SizedBox(height: 10),
@@ -1773,6 +1730,69 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
               _buildMetaItem('Audio Size', data.sizeStr),
             ],
           ),
+          if (hasAudio) ...[
+            const SizedBox(height: 12),
+            const Divider(height: 1, color: AppColors.borderEnabled),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                // Play Button
+                InkWell(
+                  onTap: _loadingAudioId == data.audio!.id ? null : () => _playLeadAudio(data.audio!),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (_loadingAudioId == data.audio!.id) ...[
+                          const SizedBox(
+                            width: 13,
+                            height: 13,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                          const Text('Loading...', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                        ] else ...[
+                          const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 16),
+                          const SizedBox(width: 3),
+                          const Text('Play', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                // Download Button
+                InkWell(
+                  onTap: () => _downloadLeadAudio(context, data.audio!),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AppColors.white,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: AppColors.primary),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.download_rounded, color: AppColors.primary, size: 16),
+                        SizedBox(width: 3),
+                        Text('Download', style: TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -2081,6 +2101,7 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
   }
 
   void _playLeadAudio(LeadAudio audio) async {
+    if (_loadingAudioId != null) return;
     if (!_audioHasRealFile(audio)) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2092,6 +2113,10 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
       return;
     }
 
+    setState(() {
+      _loadingAudioId = audio.id;
+    });
+
     void handleDurationFound(int seconds) {
       if (mounted && seconds > 0) {
         if (_resolvedAudioDurations[audio.id] != seconds) {
@@ -2102,42 +2127,49 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
       }
     }
 
-    // 1. Check if recording exists locally on device
-    final localFile = await _findLocalDeviceRecording(audio);
-    if (localFile != null) {
+    bool dialogShown = false;
+    try {
+      // 1. Check if recording exists locally on device
+      final localFile = await _findLocalDeviceRecording(audio);
+      if (localFile != null) {
+        if (!mounted) return;
+        debugPrint('Playing local device recording: ${localFile.path}');
+        if (mounted) {
+          setState(() {
+            _loadingAudioId = null;
+          });
+        }
+        CallRecordingService().playRecording(localFile.path, context: context, title: audio.displayName, onDurationFound: handleDurationFound);
+        return;
+      }
+
       if (!mounted) return;
-      debugPrint('Playing local device recording: ${localFile.path}');
-      CallRecordingService().playRecording(localFile.path, context: context, title: audio.displayName, onDurationFound: handleDurationFound);
-      return;
-    }
 
-    if (!mounted) return;
-
-    // 2. Download from server with full candidate URLs if not local
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        content: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SpinningLogo(size: 40),
-              const SizedBox(height: 14),
-              Text(
-                'Loading ${audio.displayName}...',
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-              ),
-            ],
+      // 2. Download from server with full candidate URLs if not local
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          content: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SpinningLogo(size: 40),
+                const SizedBox(height: 14),
+                Text(
+                  'Loading ${audio.displayName}...',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
           ),
         ),
-      ),
-    );
+      );
+      dialogShown = true;
 
-    try {
       final tempDir = await getTemporaryDirectory();
       final ext = _getAudioFileExtension(audio);
       final displayFileName = audio.displayName.isNotEmpty ? audio.displayName : 'audio_${audio.id}';
@@ -2207,10 +2239,18 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
       }
 
       if (!mounted) return;
-      Navigator.of(context, rootNavigator: true).pop();
+      if (dialogShown) {
+        Navigator.of(context, rootNavigator: true).pop();
+        dialogShown = false;
+      }
 
       if (downloaded && await tempFile.exists() && await _checkAudioFileValid(tempFile)) {
         if (!mounted) return;
+        if (mounted) {
+          setState(() {
+            _loadingAudioId = null;
+          });
+        }
         CallRecordingService().playRecording(tempFile.path, context: context, title: audio.displayName, onDurationFound: handleDurationFound);
       } else {
         if (!mounted) return;
@@ -2223,7 +2263,10 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
       }
     } catch (e) {
       if (!mounted) return;
-      Navigator.of(context, rootNavigator: true).pop();
+      if (dialogShown) {
+        Navigator.of(context, rootNavigator: true).pop();
+        dialogShown = false;
+      }
       debugPrint('Play error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2232,6 +2275,12 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
             backgroundColor: AppColors.primary,
           ),
         );
+      }
+    } finally {
+      if (mounted && _loadingAudioId != null) {
+        setState(() {
+          _loadingAudioId = null;
+        });
       }
     }
   }
