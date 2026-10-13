@@ -131,7 +131,7 @@ class CallRecordingManager(private val context: Context) {
         return dirs.toList()
     }
 
-    private fun isCallOngoing(): Boolean {
+    fun isCallOngoing(): Boolean {
         return try {
             val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
             if (tm != null) {
@@ -152,15 +152,16 @@ class CallRecordingManager(private val context: Context) {
 
     private fun isFileActivelyBeingRecorded(f: File): Boolean {
         if (!f.exists()) return false
+        if (!isCallOngoing()) return false // Call has already completed, no active recording
         val now = System.currentTimeMillis()
         val lastMod = f.lastModified()
         val ageMs = now - lastMod
 
-        // Only check if file is actively growing right now (length increases over 200ms)
-        if (ageMs <= 10000L) {
+        // Only check if file is actively growing right now
+        if (ageMs <= 6000L) {
             val len1 = f.length()
             try {
-                Thread.sleep(200)
+                Thread.sleep(100)
             } catch (_: Exception) {}
             val len2 = f.length()
             if (len2 > len1) {
@@ -935,12 +936,14 @@ class CallRecordingManager(private val context: Context) {
                 for (entry in cachedLogs) {
                     val isPhoneMatch = last10.isEmpty() || (entry.last10.length >= 7 && (entry.last10 == last10 || entry.cleanNumber.contains(last10) || last10.contains(entry.last10)))
                     if (isPhoneMatch) {
+                        val inCallInterval = effectiveTime in (entry.callStart - 60000L)..(entry.callEnd + 60000L)
                         val diffStart = abs(entry.callStart - effectiveTime)
                         val diffEnd = abs(entry.callEnd - effectiveTime)
-                        val diff = minOf(diffStart, diffEnd)
-                        if (diff <= 300 * 1000L && diff < minDiff) {
+                        val diff = if (inCallInterval) 0L else minOf(diffStart, diffEnd)
+                        if (diff <= 600 * 1000L && diff < minDiff) {
                             minDiff = diff
-                            bestCallType = if (entry.rawType == CallLog.Calls.OUTGOING_TYPE) "outbound" else "inbound"
+                            val isIncoming = entry.rawType == CallLog.Calls.INCOMING_TYPE || entry.rawType == CallLog.Calls.MISSED_TYPE || entry.rawType == CallLog.Calls.REJECTED_TYPE
+                            bestCallType = if (isIncoming) "inbound" else "outbound"
                         }
                     }
                 }
@@ -973,17 +976,15 @@ class CallRecordingManager(private val context: Context) {
                                 val callEnd = callStart + (callDurSec * 1000L)
                                 val rawType = if (typeIdx >= 0) c.getInt(typeIdx) else CallLog.Calls.INCOMING_TYPE
 
+                                val inCallInterval = effectiveTime in (callStart - 60000L)..(callEnd + 60000L)
                                 val diffStart = abs(callStart - effectiveTime)
                                 val diffEnd = abs(callEnd - effectiveTime)
-                                val diff = minOf(diffStart, diffEnd)
+                                val diff = if (inCallInterval) 0L else minOf(diffStart, diffEnd)
 
-                                if (diff <= 300 * 1000L && diff < minDiff) {
+                                if (diff <= 600 * 1000L && diff < minDiff) {
                                     minDiff = diff
-                                    bestCallType = if (rawType == CallLog.Calls.OUTGOING_TYPE) {
-                                        "outbound"
-                                    } else {
-                                        "inbound"
-                                    }
+                                    val isIncoming = rawType == CallLog.Calls.INCOMING_TYPE || rawType == CallLog.Calls.MISSED_TYPE || rawType == CallLog.Calls.REJECTED_TYPE
+                                    bestCallType = if (isIncoming) "inbound" else "outbound"
                                 }
                             }
                         }
@@ -998,8 +999,8 @@ class CallRecordingManager(private val context: Context) {
             }
         }
 
-        // 4. Default fallback: If callTimestamp was explicitly set (>0), this is an outbound lead call
-        if (callTimestamp > 0L) {
+        // 4. Default fallback: Only default to outbound if callTimestamp was set AND effectiveTime is close to it (< 3 mins)
+        if (callTimestamp > 0L && effectiveTime > 0L && abs(effectiveTime - callTimestamp) <= 180 * 1000L) {
             Log.d(TAG, "Defaulting to outbound for explicit callTimestamp=$callTimestamp for $last10")
             return "outbound"
         }
@@ -1092,13 +1093,9 @@ class CallRecordingManager(private val context: Context) {
                 }
             }
 
-            // Pattern 2: Epoch timestamp (ms or 10-digit seconds)
+            // Pattern 2: Epoch timestamp in ms (13 digits)
             Regex("(?:^|[^0-9])(1\\d{12})(?:$|[^0-9])").find(cleanName)?.groupValues?.get(1)?.toLongOrNull()?.let {
                 if (it > 1500000000000L && it < 2500000000000L) return it
-            }
-            Regex("(?:^|[^0-9])(1[5-9]\\d{8})(?:$|[^0-9])").find(cleanName)?.groupValues?.get(1)?.toLongOrNull()?.let {
-                val ms = it * 1000L
-                if (ms > 1500000000000L && ms < 2500000000000L) return ms
             }
 
             // Pattern 3: YYMMDD_HHMMSS (e.g. 260911_110844) - Strict boundary & component validation
@@ -1311,9 +1308,16 @@ class CallRecordingManager(private val context: Context) {
                         val fromNum = if (isIncoming) num else devicePhone
                         val toNum = if (isIncoming) devicePhone else num
 
-                        val maxDiff = 60 * 1000L
-                        val diff = abs(startTime - searchTime)
-                        if (diff <= maxDiff) {
+                        val matches = if (callTimestamp > 0L) {
+                            val inInterval = callTimestamp in (startTime - 60000L)..(endTime + 60000L)
+                            val diffStart = abs(startTime - callTimestamp)
+                            val diffEnd = abs(endTime - callTimestamp)
+                            inInterval || diffStart <= 5 * 60 * 1000L || diffEnd <= 5 * 60 * 1000L
+                        } else {
+                            val ageMs = abs(System.currentTimeMillis() - endTime)
+                            ageMs <= 2 * 60 * 60 * 1000L
+                        }
+                        if (matches) {
                             return mapOf(
                                 "phoneNumber" to num,
                                 "fromNumber" to fromNum,

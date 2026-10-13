@@ -3,8 +3,11 @@ import 'package:crm_mobile/core/theme/app_colors.dart';
 import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/models/owner_call_report.dart';
 import 'package:crm_mobile/models/staff_user.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crm_mobile/repositories/leads_repository.dart';
 import 'package:crm_mobile/usecases/get_staff_users_usecase.dart';
+import 'package:crm_mobile/core/network/error_handler.dart';
+import 'package:crm_mobile/widgets/spinning_logo.dart';
 
 class CallsScreen extends StatefulWidget {
   const CallsScreen({super.key});
@@ -99,11 +102,47 @@ class _CallsScreenState extends State<CallsScreen> {
           if (mounted) {
             setState(() {
               _staffList = users;
+              _selectDefaultStaffUser();
             });
           }
         },
       );
     } catch (_) {}
+  }
+
+  void _selectDefaultStaffUser() {
+    if (_selectedStaffUserId != null && _selectedStaffUserId!.isNotEmpty) {
+      return;
+    }
+
+    if (!sl.isRegistered<SharedPreferences>()) return;
+    final prefs = sl<SharedPreferences>();
+    final currentUserId = prefs.getString('userId')?.trim();
+    final currentUserName = prefs.getString('userName')?.trim().toLowerCase();
+
+    StaffUser? matched;
+
+    if (currentUserId != null && currentUserId.isNotEmpty) {
+      for (final staff in _staffList) {
+        if (staff.userId.trim() == currentUserId) {
+          matched = staff;
+          break;
+        }
+      }
+    }
+
+    if (matched == null && currentUserName != null && currentUserName.isNotEmpty) {
+      for (final staff in _staffList) {
+        if (staff.name.trim().toLowerCase() == currentUserName) {
+          matched = staff;
+          break;
+        }
+      }
+    }
+
+    if (matched != null && matched.userId.isNotEmpty) {
+      _selectedStaffUserId = matched.userId;
+    }
   }
 
   Future<void> _fetchCallReport({bool showLoading = false}) async {
@@ -133,7 +172,7 @@ class _CallsScreenState extends State<CallsScreen> {
         (failure) {
           setState(() {
             _isLoading = false;
-            _errorMessage = failure.message;
+            _errorMessage = ErrorHandler.cleanErrorMessage(failure.message);
           });
         },
         (reports) {
@@ -148,7 +187,7 @@ class _CallsScreenState extends State<CallsScreen> {
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _errorMessage = 'Error loading call report: $e';
+          _errorMessage = ErrorHandler.cleanErrorMessage(e.toString());
         });
       }
     }
@@ -218,30 +257,86 @@ class _CallsScreenState extends State<CallsScreen> {
               if (_isLoading) ...[
                 const SizedBox(height: 60),
                 const Center(
-                  child: CircularProgressIndicator(color: AppColors.primary),
+                  child: SpinningLogo(size: 60),
                 ),
               ] else if (_errorMessage != null) ...[
-                const SizedBox(height: 40),
+                const SizedBox(height: 30),
                 Center(
-                  child: Column(
-                    children: [
-                      const Icon(Icons.error_outline, color: Color(0xFFDC2626), size: 48),
-                      const SizedBox(height: 12),
-                      Text(
-                        _errorMessage!,
-                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: _handleRefresh,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppColors.borderEnabled),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.03),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
                         ),
-                        child: const Text('Try Again', style: TextStyle(color: Colors.white)),
-                      ),
-                    ],
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: const BoxDecoration(
+                            color: Color(0xFFFEF2F2),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.error_outline_rounded,
+                            color: Color(0xFFDC2626),
+                            size: 36,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Text(
+                          _errorMessage!.toLowerCase().contains('access denied')
+                              ? 'Access Denied'
+                              : 'Unable to Load Calls Report',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textPrimary,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _errorMessage!,
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 13,
+                            height: 1.4,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 20),
+                        ElevatedButton.icon(
+                          onPressed: _handleRefresh,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          icon: const Icon(Icons.refresh, color: Colors.white, size: 18),
+                          label: const Text(
+                            'Try Again',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ] else ...[

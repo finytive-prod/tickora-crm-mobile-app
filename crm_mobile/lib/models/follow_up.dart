@@ -96,6 +96,16 @@ class FollowUp extends Equatable {
     this.assignedUser,
   });
 
+  bool get isRealFollowUp {
+    if (id == null || id!.trim().isEmpty) return false;
+    final status = followUpStatus.trim().toUpperCase();
+    final task = leadTask.trim().toUpperCase();
+    if (status == 'NO FOLLOW UP' || status == 'NO_FOLLOW_UP' || status == 'NONE') return false;
+    if (task == 'NO FOLLOW UP' || task == 'NO_FOLLOW_UP' || task == 'NONE') return false;
+    if (followUpDate.trim().isEmpty && followUpTime.trim().isEmpty) return false;
+    return true;
+  }
+
   @override
   List<Object?> get props => [
         id,

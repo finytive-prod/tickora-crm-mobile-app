@@ -15,7 +15,11 @@ import 'package:crm_mobile/models/user_profile.dart';
 abstract class LoginRepository {
   Future<Either<Failure, User>> login(String email, String password);
   Future<Either<Failure, void>> verifyMail(String email);
-  Future<Either<Failure, void>> resetPassword(String email, String currentPassword, String newPassword);
+  Future<Either<Failure, void>> resetPassword(
+    String email,
+    String currentPassword,
+    String newPassword,
+  );
   Future<Either<Failure, void>> logout({String? fcmToken});
   Future<Either<Failure, UserProfile>> getProfile();
   Future<Either<Failure, UserProfile>> updateProfile(String name);
@@ -37,18 +41,15 @@ class LoginRepositoryImpl implements LoginRepository {
 
       final response = await apiClient.post(
         loginUrl,
-        data: {
-          'username': email,
-          'password': password,
-        },
+        data: {'username': email, 'password': password},
       );
-      
+
       final body = response.data;
       if (body != null && body['success'] == true && body['data'] != null) {
         final userModel = UserModel.fromJson(body['data']);
         // Save token on successful login
         await sharedPreferences.setString('token', userModel.accessToken);
-        
+
         // Extract userName and email from JWT
         Map<String, dynamic> decoded = {};
         try {
@@ -60,11 +61,18 @@ class LoginRepositoryImpl implements LoginRepository {
             decoded = jsonDecode(resp);
           }
         } catch (_) {}
-        
+
         // Determine real user name (without hardcoded defaults)
         String name = userModel.userName;
         if (name.isEmpty) {
-          name = (decoded['fullName'] ?? decoded['name'] ?? decoded['preferred_username'] ?? decoded['username'] ?? decoded['sub'] ?? '').toString();
+          name =
+              (decoded['fullName'] ??
+                      decoded['name'] ??
+                      decoded['preferred_username'] ??
+                      decoded['username'] ??
+                      decoded['sub'] ??
+                      '')
+                  .toString();
         }
         if (name.isEmpty && email.isNotEmpty) {
           name = email.split('@').first;
@@ -74,19 +82,41 @@ class LoginRepositoryImpl implements LoginRepository {
         }
 
         // Determine real user email (fallback to the email entered at login)
-        String userEmail = (decoded['email'] ?? body['data']['email'] ?? body['data']['username'] ?? '').toString();
+        String userEmail =
+            (decoded['email'] ??
+                    body['data']['email'] ??
+                    body['data']['username'] ??
+                    '')
+                .toString();
         if (userEmail.isEmpty || !userEmail.contains('@')) {
           userEmail = email.trim();
         }
 
-        String userPhone = (decoded['phone'] ?? decoded['phoneNumber'] ?? decoded['mobile'] ?? '').toString();
+        String userPhone =
+            (decoded['phone'] ??
+                    decoded['phoneNumber'] ??
+                    decoded['mobile'] ??
+                    '')
+                .toString();
         if (userPhone.isEmpty) {
-          userPhone = (body['data']['phone'] ?? body['data']['phoneNumber'] ?? body['data']['mobile'] ?? body['data']['contactNumber'] ?? '').toString();
+          userPhone =
+              (body['data']['phone'] ??
+                      body['data']['phoneNumber'] ??
+                      body['data']['mobile'] ??
+                      body['data']['contactNumber'] ??
+                      '')
+                  .toString();
         }
 
         await sharedPreferences.setString('userName', name);
         await sharedPreferences.setString('userEmail', userEmail);
-        String userRole = (decoded['roles'] != null ? (decoded['roles'] is List ? (decoded['roles'] as List).join(', ') : decoded['roles'].toString()) : decoded['role']?.toString()) ?? '';
+        String userRole =
+            (decoded['roles'] != null
+                ? (decoded['roles'] is List
+                      ? (decoded['roles'] as List).join(', ')
+                      : decoded['roles'].toString())
+                : decoded['role']?.toString()) ??
+            '';
         if (userRole.isNotEmpty) {
           await sharedPreferences.setString('userRole', userRole);
         }
@@ -129,18 +159,16 @@ class LoginRepositoryImpl implements LoginRepository {
     try {
       final verifyUrl = '${ApiUrl.identityService}/auth/verify-mail';
 
-      final response = await apiClient.post(
-        verifyUrl,
-        data: {
-          'email': email,
-        },
-      );
-      
+      final response = await apiClient.post(verifyUrl, data: {'email': email});
+
       final body = response.data;
-      if (body != null && (body['success'] == true || response.statusCode == 200)) {
+      if (body != null &&
+          (body['success'] == true || response.statusCode == 200)) {
         return const Right(null);
       } else {
-        throw ApiException(message: body?['message'] ?? 'Failed to send reset link');
+        throw ApiException(
+          message: body?['message'] ?? 'Failed to send reset link',
+        );
       }
     } catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));
@@ -148,7 +176,11 @@ class LoginRepositoryImpl implements LoginRepository {
   }
 
   @override
-  Future<Either<Failure, void>> resetPassword(String email, String currentPassword, String newPassword) async {
+  Future<Either<Failure, void>> resetPassword(
+    String email,
+    String currentPassword,
+    String newPassword,
+  ) async {
     try {
       final resetUrl = '${ApiUrl.identityService}/auth/reset-password';
 
@@ -160,12 +192,15 @@ class LoginRepositoryImpl implements LoginRepository {
           'newPassword': newPassword,
         },
       );
-      
+
       final body = response.data;
-      if (body != null && (body['success'] == true || response.statusCode == 200)) {
+      if (body != null &&
+          (body['success'] == true || response.statusCode == 200)) {
         return const Right(null);
       } else {
-        throw ApiException(message: body?['message'] ?? 'Failed to reset password');
+        throw ApiException(
+          message: body?['message'] ?? 'Failed to reset password',
+        );
       }
     } catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));
@@ -183,16 +218,17 @@ class LoginRepositoryImpl implements LoginRepository {
 
       final response = await apiClient.post(
         logoutUrl,
-        data: {
-          'fcmToken': token ?? '',
-        },
+        data: {'fcmToken': token ?? ''},
       );
 
       final body = response.data;
-      if (body != null && (body['success'] == true || response.statusCode == 200)) {
+      if (body != null &&
+          (body['success'] == true || response.statusCode == 200)) {
         return const Right(null);
       } else {
-        throw ApiException(message: body?['message'] ?? 'Logged out successfully');
+        throw ApiException(
+          message: body?['message'] ?? 'Logged out successfully',
+        );
       }
     } catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));
@@ -214,13 +250,19 @@ class LoginRepositoryImpl implements LoginRepository {
           await sharedPreferences.setString('userEmail', profile.email);
         }
         if (profile.roles.isNotEmpty) {
-          await sharedPreferences.setString('userRole', profile.roles.join(', '));
-        } else if (profile.designation != null && profile.designation!.isNotEmpty) {
+          await sharedPreferences.setString(
+            'userRole',
+            profile.roles.join(', '),
+          );
+        } else if (profile.designation != null &&
+            profile.designation!.isNotEmpty) {
           await sharedPreferences.setString('userRole', profile.designation!);
         }
         return Right(profile);
       } else {
-        throw ApiException(message: body?['message'] ?? 'Failed to fetch profile');
+        throw ApiException(
+          message: body?['message'] ?? 'Failed to fetch profile',
+        );
       }
     } catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));
@@ -228,17 +270,13 @@ class LoginRepositoryImpl implements LoginRepository {
   }
 
   @override
-  Future<Either<Failure, UserProfile>> updateProfile(String name) async {
+  Future<Either<Failure, UserProfile>> updateProfile(String Name) async {
     try {
       final profileUrl = '${ApiUrl.identityService}/auth/profile';
-      final response = await apiClient.put(
-        profileUrl,
-        data: {
-          'name': name,
-        },
-      );
+      final response = await apiClient.put(profileUrl, data: {'Name': Name});
       final body = response.data;
-      if (body != null && (body['success'] == true || response.statusCode == 200)) {
+      if (body != null &&
+          (body['success'] == true || response.statusCode == 200)) {
         if (body['data'] != null) {
           final profile = UserProfile.fromJson(body['data']);
           if (profile.fullName.isNotEmpty) {
@@ -248,7 +286,9 @@ class LoginRepositoryImpl implements LoginRepository {
         }
         return await getProfile();
       } else {
-        throw ApiException(message: body?['message'] ?? 'Failed to update profile');
+        throw ApiException(
+          message: body?['message'] ?? 'Failed to update profile',
+        );
       }
     } catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));

@@ -257,10 +257,13 @@ class AutoCallRecordingUploader {
     );
     await CallHistoryStorage.addOrUpdateCall(callHistoryEntry);
 
-    // Multi-stage post-call tracking to calculate exact call end time, duration, and scan audio
-    for (final delaySec in [3, 8, 15, 30, 45, 60, 90, 120, 180, 240, 300]) {
-      Future.delayed(Duration(seconds: delaySec), () async {
-        final callRecordingService = CallRecordingService();
+    final callRecordingService = CallRecordingService();
+    bool hasUploaded = false;
+    bool wasCallActive = false;
+
+    Future<void> doScanAndUpload() async {
+      if (hasUploaded) return;
+      try {
         final details = await callRecordingService.getLatestCallDetails(
           phoneNumber: phoneNumber,
           callTimestamp: callStartTimestamp,
@@ -293,17 +296,56 @@ class AutoCallRecordingUploader {
         await CallHistoryStorage.addOrUpdateCall(callHistoryEntry);
 
         debugPrint('=================================================================');
-        debugPrint('CALL ENDED -> From: $fromUser | To: $phoneNumber | End Time: $formattedEnd | Duration: ${durationSec}s');
+        debugPrint('CALL ENDED/TRACKED -> From: $fromUser | To: $phoneNumber | End Time: $formattedEnd | Duration: ${durationSec}s');
         debugPrint('=================================================================');
 
-        autoScanAndUploadLeadRecordings(
+        await autoScanAndUploadLeadRecordings(
           context: context.mounted ? context : null,
           leadId: leadId,
           phoneNumber: phoneNumber,
           callTimestamp: callStartTimestamp,
           initialBound: 'OUT',
-          onUploadSuccess: onUploadSuccess,
+          onUploadSuccess: () {
+            hasUploaded = true;
+            if (onUploadSuccess != null) onUploadSuccess();
+          },
         );
+      } catch (e) {
+        debugPrint('Error in doScanAndUpload: $e');
+      }
+    }
+
+    // Active real-time watcher: detects call termination every 1.5 seconds and uploads immediately
+    int pollTicks = 0;
+    Timer.periodic(const Duration(milliseconds: 1500), (timer) async {
+      pollTicks++;
+      if (hasUploaded || pollTicks > 160) { // Max 4 minutes
+        timer.cancel();
+        return;
+      }
+
+      final isOngoing = await callRecordingService.isCallOngoing();
+      if (isOngoing) {
+        wasCallActive = true;
+      } else if (wasCallActive) {
+        // Call was active and has just ended! Trigger immediate fast upload
+        wasCallActive = false;
+        await doScanAndUpload();
+        // Follow-up burst to guarantee audio indexing completion
+        for (final burstMs in [800, 2000, 4000]) {
+          Future.delayed(Duration(milliseconds: burstMs), () {
+            if (!hasUploaded) doScanAndUpload();
+          });
+        }
+      }
+    });
+
+    // Fast milestone checks from call initiation
+    for (final delaySec in [1, 3, 6, 10, 18, 30, 60, 120]) {
+      Future.delayed(Duration(seconds: delaySec), () async {
+        if (!hasUploaded) {
+          await doScanAndUpload();
+        }
       });
     }
   }
@@ -360,7 +402,7 @@ class AutoCallRecordingUploader {
             final meta = await buildAudioMetadata(
               filePath: recordingPath,
               phoneNumber: phoneNumber,
-              bound: 'OUT',
+              bound: null,
               callTimestamp: callTimestamp,
               callDetails: callDetails,
               staffUserPhone: staffPhone,
@@ -443,14 +485,17 @@ class AutoCallRecordingUploader {
 
         var finalLength = length;
         if (ageMs < 4000) {
-          await Future.delayed(const Duration(milliseconds: 250));
-          if (!await file.exists()) continue;
-          final length2 = await file.length();
-          if (length != length2) {
-            debugPrint('Recording file $path is actively growing ($length -> $length2 bytes). Live call ongoing, skipping.');
-            continue;
+          final isOngoing = await service.isCallOngoing();
+          if (isOngoing) {
+            await Future.delayed(const Duration(milliseconds: 150));
+            if (!await file.exists()) continue;
+            final length2 = await file.length();
+            if (length != length2) {
+              debugPrint('Recording file $path is actively growing ($length -> $length2 bytes). Live call ongoing, skipping.');
+              continue;
+            }
+            finalLength = length2;
           }
-          finalLength = length2;
         }
 
         final fileName = path.split('/').last;
@@ -462,34 +507,66 @@ class AutoCallRecordingUploader {
           continue;
         }
 
+        final recTimestamp = (recording['timestamp'] as num?)?.toInt() ?? 0;
+        final fileTimestamp = parseTimestampFromFileName(fileName) ?? recTimestamp;
+        final targetSearchTime = (fileTimestamp > 0) ? fileTimestamp : callTimestamp;
+
         final callDetails = await service.getLatestCallDetails(
           phoneNumber: phoneNumber,
-          callTimestamp: callTimestamp,
+          callTimestamp: targetSearchTime,
         );
 
         final localDurMs = (recording['durationMs'] as num?)?.toInt() ?? 0;
         final localDurSec = (localDurMs / 1000).round();
 
-        final recCallType = recording['callType']?.toString();
-        String? targetBound = initialBound;
-        if (targetBound == null || targetBound.isEmpty) {
-          if (callTimestamp > 0) {
-            targetBound = 'OUT';
-          } else if (recCallType != null && recCallType.isNotEmpty) {
-            final normRec = recCallType.trim().toUpperCase();
-            if (normRec == 'INBOUND' || normRec == 'INCOMING' || normRec == 'IN' || normRec.startsWith('INC')) {
-              targetBound = 'IN';
-            } else if (normRec == 'OUTBOUND' || normRec == 'OUTGOING' || normRec == 'OUT' || normRec.startsWith('OUT')) {
-              targetBound = 'OUT';
-            }
-          }
+        final recCallType = recording['callType']?.toString().trim().toUpperCase() ?? '';
+        final callDetailsType = callDetails?['callType']?.toString().trim().toUpperCase() ?? '';
+        final lowerFileName = fileName.toLowerCase();
+
+        final bool isDefiniteIncoming = callDetailsType == 'INCOMING' ||
+            callDetailsType == 'INBOUND' ||
+            callDetailsType == 'MISSED' ||
+            recCallType == 'INBOUND' ||
+            recCallType == 'INCOMING' ||
+            recCallType == 'IN' ||
+            recCallType.startsWith('INC') ||
+            lowerFileName.contains('incoming') ||
+            lowerFileName.contains('inbound') ||
+            lowerFileName.contains('call_in') ||
+            lowerFileName.contains('_inc_') ||
+            lowerFileName.contains('(in)');
+
+        final bool isDefiniteOutgoing = !isDefiniteIncoming &&
+            (callDetailsType == 'OUTGOING' ||
+             callDetailsType == 'OUTBOUND' ||
+             recCallType == 'OUTBOUND' ||
+             recCallType == 'OUTGOING' ||
+             recCallType == 'OUT' ||
+             recCallType.startsWith('OUT') ||
+             lowerFileName.contains('outgoing') ||
+             lowerFileName.contains('outbound') ||
+             lowerFileName.contains('call_out') ||
+             lowerFileName.contains('_outg_') ||
+             lowerFileName.contains('(out)'));
+
+        String targetBound;
+        if (isDefiniteIncoming) {
+          targetBound = 'IN';
+        } else if (isDefiniteOutgoing) {
+          targetBound = 'OUT';
+        } else if (callTimestamp > 0 && (fileTimestamp <= 0 || (fileTimestamp - callTimestamp).abs() < 180000)) {
+          targetBound = 'OUT';
+        } else if (initialBound != null && initialBound.isNotEmpty) {
+          targetBound = initialBound.toUpperCase().startsWith('IN') ? 'IN' : 'OUT';
+        } else {
+          targetBound = 'IN';
         }
 
         final meta = await buildAudioMetadata(
           filePath: path,
           phoneNumber: phoneNumber,
           bound: targetBound,
-          callTimestamp: callTimestamp,
+          callTimestamp: targetSearchTime,
           callDetails: callDetails,
           staffUserPhone: staffPhone,
           duration: localDurSec > 0 ? localDurSec.toString() : null,
@@ -877,19 +954,20 @@ class AutoCallRecordingUploader {
       }
     }
 
-    if (resBound.isEmpty) {
-      if (lowerName.contains('inbound') || lowerName.contains('incoming') || lowerName.contains('call_in') || lowerName.contains('_inc_')) {
+    // Concrete callDetails or filename incoming indicators override any assumed 'OUT'
+    if (callDetails != null && callDetails['callType'] != null) {
+      final ct = callDetails['callType'].toString().trim().toUpperCase();
+      if (ct == 'INCOMING' || ct == 'INBOUND' || ct == 'MISSED') {
         resBound = 'IN';
-      } else if (lowerName.contains('outbound') || lowerName.contains('outgoing') || lowerName.contains('call_out') || lowerName.contains('_outg_')) {
-        resBound = 'OUT';
-      } else if (callDetails != null && callDetails['callType'] != null) {
-        final ct = callDetails['callType'].toString().toUpperCase();
-        if (ct == 'INCOMING' || ct == 'INBOUND' || ct == 'MISSED') {
-          resBound = 'IN';
-        } else if (ct == 'OUTGOING' || ct == 'OUTBOUND') {
-          resBound = 'OUT';
-        }
+      } else if (ct == 'OUTGOING' || ct == 'OUTBOUND') {
+        if (resBound.isEmpty) resBound = 'OUT';
       }
+    }
+
+    if (lowerName.contains('inbound') || lowerName.contains('incoming') || lowerName.contains('call_in') || lowerName.contains('_inc_') || lowerName.contains('(in)')) {
+      resBound = 'IN';
+    } else if (lowerName.contains('outbound') || lowerName.contains('outgoing') || lowerName.contains('call_out') || lowerName.contains('_outg_') || lowerName.contains('(out)')) {
+      if (resBound.isEmpty) resBound = 'OUT';
     }
 
     if (resBound.isEmpty) {

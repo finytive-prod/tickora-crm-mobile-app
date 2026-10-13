@@ -141,7 +141,17 @@ class _LeadFollowUpDetailsViewState extends State<LeadFollowUpDetailsView> {
                       MaterialPageRoute(
                         builder: (context) => EditFollowUpScreen(
                           followUp: state.leadFollowUps.followups.first,
-                          leadDetail: state.leadFollowUps.leadDetails,
+                          leadDetail: state.leadFollowUps.leadDetails ?? LeadDetail(
+                            id: state.leadFollowUps.followups.first.leadId,
+                            leadNumber: '',
+                            firstName: state.leadFollowUps.followups.first.leadName,
+                            lastName: '',
+                            companyName: state.leadFollowUps.followups.first.companyName,
+                            email: '',
+                            phone: state.leadFollowUps.followups.first.phoneNumber ?? '',
+                            status: state.leadFollowUps.followups.first.leadStatus,
+                            priority: state.leadFollowUps.followups.first.priority,
+                          ),
                         ),
                       ),
                     );
@@ -191,8 +201,18 @@ class _LeadFollowUpDetailsViewState extends State<LeadFollowUpDetailsView> {
               ),
             );
           } else if (state is LeadFollowUpsLoaded) {
-            final leadDetails = state.leadFollowUps.leadDetails;
             final followups = state.leadFollowUps.followups;
+            final leadDetails = state.leadFollowUps.leadDetails ?? LeadDetail(
+              id: followups.isNotEmpty ? followups.first.leadId : widget.leadId,
+              leadNumber: '',
+              firstName: followups.isNotEmpty ? followups.first.leadName : 'Unnamed Lead',
+              lastName: '',
+              companyName: followups.isNotEmpty ? followups.first.companyName : '',
+              email: '',
+              phone: followups.isNotEmpty ? (followups.first.phoneNumber ?? '') : '',
+              status: followups.isNotEmpty ? followups.first.leadStatus : null,
+              priority: followups.isNotEmpty ? followups.first.priority : null,
+            );
 
             final fullName = '${leadDetails.firstName} ${leadDetails.lastName}'.trim();
             final displayName = fullName.isNotEmpty ? fullName : 'Unnamed Lead';

@@ -42,6 +42,50 @@ class ErrorHandler {
     }
   }
 
+  static String cleanErrorMessage(String rawMessage) {
+    if (rawMessage.trim().isEmpty) return 'An unexpected error occurred.';
+
+    final trimmed = rawMessage.trim();
+
+    // 1. Extract "message": "..." from embedded JSON strings
+    final messageRegex = RegExp(r'"message"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"');
+    final messageMatch = messageRegex.firstMatch(trimmed);
+    if (messageMatch != null && messageMatch.group(1) != null) {
+      final extracted = messageMatch.group(1)!.replaceAll(r'\"', '"').trim();
+      if (extracted.isNotEmpty) {
+        return extracted;
+      }
+    }
+
+    // 2. Extract "error": "..." from embedded JSON strings
+    final errorRegex = RegExp(r'"error"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"');
+    final errorMatch = errorRegex.firstMatch(trimmed);
+    if (errorMatch != null && errorMatch.group(1) != null) {
+      final extracted = errorMatch.group(1)!.replaceAll(r'\"', '"').trim();
+      if (extracted.isNotEmpty) {
+        return extracted;
+      }
+    }
+
+    // 3. Handle common HTTP / Feign Client 403 / 401 patterns
+    if (trimmed.contains('403') || trimmed.toLowerCase().contains('access denied')) {
+      return 'Access Denied: You do not have sufficient privileges.';
+    }
+    if (trimmed.contains('401') || trimmed.toLowerCase().contains('unauthorized')) {
+      return 'Session expired or unauthorized access. Please log in again.';
+    }
+
+    // 4. Strip technical Feign client log prefixes like [403] during [GET] to [http://...]:
+    if (trimmed.contains(']: ')) {
+      final afterColon = trimmed.split(']: ').last.trim();
+      if (afterColon.isNotEmpty && !afterColon.startsWith('[')) {
+        return afterColon;
+      }
+    }
+
+    return trimmed;
+  }
+
   static ApiException _handleStatusCode(int? statusCode, dynamic data) {
     String defaultMessage = 'Something went wrong';
     if (data is Map<String, dynamic>) {
@@ -53,8 +97,10 @@ class ErrorHandler {
         defaultMessage = data['detail'].toString().trim();
       }
     } else if (data is String && data.trim().isNotEmpty) {
-      defaultMessage = data.trim();
+      defaultMessage = cleanErrorMessage(data);
     }
+
+    defaultMessage = cleanErrorMessage(defaultMessage);
 
     final hasServerMessage = !defaultMessage.startsWith('Something went wrong');
 
@@ -64,7 +110,7 @@ class ErrorHandler {
       case 401:
         return ApiException(message: hasServerMessage ? defaultMessage : 'Unauthorized access', statusCode: 401);
       case 403:
-        return ApiException(message: hasServerMessage ? defaultMessage : 'Forbidden request', statusCode: 403);
+        return ApiException(message: hasServerMessage ? defaultMessage : 'Access Denied: You do not have sufficient privileges.', statusCode: 403);
       case 404:
         return ApiException(message: hasServerMessage ? defaultMessage : 'Resource not found', statusCode: 404);
       case 409:
@@ -88,10 +134,10 @@ class ErrorHandler {
 
   static Failure mapExceptionToFailure(Object e) {
     if (e is ApiException) {
-      return ServerFailure(e.message);
+      return ServerFailure(cleanErrorMessage(e.message));
     } else if (e is DioException) {
-      return ServerFailure(handle(e).message);
+      return ServerFailure(cleanErrorMessage(handle(e).message));
     }
-    return ServerFailure(e.toString());
+    return ServerFailure(cleanErrorMessage(e.toString()));
   }
 }

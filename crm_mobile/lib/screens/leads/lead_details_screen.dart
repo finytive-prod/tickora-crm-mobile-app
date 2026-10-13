@@ -1,3 +1,4 @@
+import 'package:crm_mobile/repositories/followups_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -22,7 +23,10 @@ import 'package:crm_mobile/screens/leads/add_lead_screen.dart';
 import 'package:crm_mobile/screens/followups/add_followup_screen.dart';
 import 'package:crm_mobile/screens/followups/edit_followup_screen.dart';
 import 'package:crm_mobile/models/follow_up.dart';
-import 'package:crm_mobile/repositories/followups_repository.dart';
+import 'package:crm_mobile/usecases/get_lead_sources_usecase.dart';
+import 'package:crm_mobile/usecases/get_staff_users_usecase.dart';
+import 'package:crm_mobile/usecases/get_lead_priorities_usecase.dart';
+import 'package:crm_mobile/models/staff_user.dart';
 import 'package:crm_mobile/screens/leads/widgets/lead_activities_tab.dart';
 import 'package:crm_mobile/screens/leads/widgets/lead_call_logs_tab.dart';
 import 'package:crm_mobile/screens/leads/widgets/lead_documents_tab.dart';
@@ -39,8 +43,7 @@ class LeadDetailsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
-      create: (_) => sl<LeadsBloc>()
-        ..add(FetchLeadDetails(leadId)),
+      create: (_) => sl<LeadsBloc>()..add(FetchLeadDetails(leadId)),
       child: LeadDetailsView(isActive: isActive),
     );
   }
@@ -59,10 +62,16 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
   int _activeTabIndex = 0;
   final List<String> _tabs = [
     'Overview',
+    'Follow-up',
     'Activities',
     'Call Logs',
     'Documents',
   ];
+  FollowUp? _leadFollowUp;
+  List<FollowUp> _allLeadFollowUps = [];
+  bool _isLoadingFollowUp = false;
+  String? _followUpError;
+  String _selectedFollowUpFilter = 'Today';
   final TextEditingController _noteController = TextEditingController();
   final Set<String> _expandedCallLogIds = {};
 
@@ -78,6 +87,16 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
   Future<List<dynamic>>? _callLogsFuture;
   bool _localRecordingsFetched = false;
   final Set<String> _scannedLeadIds = {};
+  LeadDetail? _lastLeadDetail;
+  LeadDetailsLoaded? _lastDetailsLoadedState;
+  bool _isRescheduleLoading = false;
+  String? _editingFieldKey;
+  final TextEditingController _inlineEditController = TextEditingController();
+  String? _selectedDropdownValue;
+
+  List<LeadSource> _availableSources = [];
+  List<StaffUser> _availableOwners = [];
+  List<String> _availablePriorities = ['HIGH', 'MEDIUM', 'LOW'];
 
   String _getResolvedCallType(LeadAudio audio, String phoneNumber) {
     if (_resolvedCallTypes.containsKey(audio.id)) {
@@ -229,9 +248,35 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _fetchLeadStatuses();
+    _loadDropdownData();
     StaffPhoneResolver.getOrFetchStaffPhone().then((phone) {
       if (mounted) setState(() {});
     });
+  }
+
+  void _loadDropdownData() async {
+    try {
+      if (sl.isRegistered<GetLeadSourcesUseCase>()) {
+        final res = await sl<GetLeadSourcesUseCase>()();
+        res.fold((_) {}, (sources) {
+          if (mounted) setState(() => _availableSources = sources);
+        });
+      }
+      if (sl.isRegistered<GetStaffUsersUseCase>()) {
+        final res = await sl<GetStaffUsersUseCase>()();
+        res.fold((_) {}, (owners) {
+          if (mounted) setState(() => _availableOwners = owners);
+        });
+      }
+      if (sl.isRegistered<GetLeadPrioritiesUseCase>()) {
+        final res = await sl<GetLeadPrioritiesUseCase>()();
+        res.fold((_) {}, (priorities) {
+          if (mounted && priorities.isNotEmpty) {
+            setState(() => _availablePriorities = priorities);
+          }
+        });
+      }
+    } catch (_) {}
   }
 
   @override
@@ -248,24 +293,30 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
       final blocState = context.read<LeadsBloc>().state;
       if (blocState is LeadDetailsLoaded) {
         final lead = blocState.leadDetail;
-        Future.delayed(const Duration(seconds: 3), () {
-          if (!mounted) return;
-          AutoCallRecordingUploader.autoScanAndUploadLeadRecordings(
-            context: context,
-            leadId: lead.id,
-            phoneNumber: lead.phone,
-            existingServerAudios: blocState.audios ?? [],
-            existingServerCallLogs: blocState.callLogs?.callHistory ?? [],
-            onUploadSuccess: () {
-              if (mounted) {
-                context.read<LeadsBloc>().add(FetchLeadAudios(lead.id));
-                context.read<LeadsBloc>().add(FetchLeadCallLogs(lead.id));
-                _fetchLocalRecordings(lead.phone);
-              }
-            },
-          );
-        });
+        _triggerFastResumeRecordingSync(lead, blocState);
       }
+    }
+  }
+
+  void _triggerFastResumeRecordingSync(LeadDetail lead, LeadDetailsLoaded blocState) {
+    for (final delayMs in [300, 1500, 3500]) {
+      Future.delayed(Duration(milliseconds: delayMs), () {
+        if (!mounted) return;
+        AutoCallRecordingUploader.autoScanAndUploadLeadRecordings(
+          context: context,
+          leadId: lead.id,
+          phoneNumber: lead.phone,
+          existingServerAudios: blocState.audios ?? [],
+          existingServerCallLogs: blocState.callLogs?.callHistory ?? [],
+          onUploadSuccess: () {
+            if (mounted) {
+              context.read<LeadsBloc>().add(FetchLeadAudios(lead.id));
+              context.read<LeadsBloc>().add(FetchLeadCallLogs(lead.id));
+              _fetchLocalRecordings(lead.phone);
+            }
+          },
+        );
+      });
     }
   }
 
@@ -585,9 +636,14 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
           actions: [
             BlocBuilder<LeadsBloc, LeadsState>(
               builder: (context, state) {
-                final leadPhone = state is LeadDetailsLoaded
-                    ? state.leadDetail.phone
-                    : '';
+                if (state is LeadDetailsLoaded) {
+                  _lastLeadDetail = state.leadDetail;
+                  _lastDetailsLoadedState = state;
+                }
+                final effectiveLead = state is LeadDetailsLoaded
+                    ? state.leadDetail
+                    : _lastLeadDetail;
+                final leadPhone = effectiveLead?.phone ?? '';
                 return Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -596,46 +652,53 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                         icon: const Icon(Icons.phone, color: AppColors.primary),
                         tooltip: 'Call Lead',
                         onPressed: () async {
-                          if (state is LeadDetailsLoaded) {
-                            final lead = state.leadDetail;
+                          if (effectiveLead != null && effectiveLead.phone.isNotEmpty) {
                             _lastCallTimestamp =
                                 DateTime.now().millisecondsSinceEpoch;
                             AutoCallRecordingUploader.makeCallAndAutoUpload(
                               context: context,
-                              leadId: lead.id,
-                              phoneNumber: lead.phone,
-                              leadName: '${lead.firstName} ${lead.lastName}',
+                              leadId: effectiveLead.id,
+                              phoneNumber: effectiveLead.phone,
+                              leadName: '${effectiveLead.firstName} ${effectiveLead.lastName}',
                               onUploadSuccess: () {
                                 if (context.mounted) {
                                   context.read<LeadsBloc>().add(
-                                    FetchLeadAudios(lead.id),
+                                    FetchLeadAudios(effectiveLead.id),
                                   );
-                                  _fetchLocalRecordings(lead.phone);
+                                  _fetchLocalRecordings(effectiveLead.phone);
                                 }
                               },
                             );
                           }
                         },
                       ),
+                    IconButton(
+                      icon: const Icon(
+                        Icons.edit_outlined,
+                        color: AppColors.textPrimary,
+                      ),
+                      tooltip: 'Edit Lead',
+                      onPressed: () {
+                        if (effectiveLead != null) {
+                          _navigateToEditForm(
+                            context,
+                            effectiveLead,
+                            targetFieldKey: null,
+                          );
+                        }
+                      },
+                    ),
                     PopupMenuButton<String>(
                       icon: const Icon(
                         Icons.more_horiz,
                         color: AppColors.textPrimary,
                       ),
                       onSelected: (value) {
-                        if (value == 'edit') {
-                          if (state is LeadDetailsLoaded) {
-                            _navigateToEditForm(
-                              context,
-                              state.leadDetail,
-                              targetFieldKey: null,
-                            );
-                          }
-                        } else if (value == 'toggle_status') {
-                          if (state is LeadDetailsLoaded) {
+                        if (value == 'toggle_status') {
+                          if (effectiveLead != null) {
                             context.read<LeadsBloc>().add(
                               UpdateLeadActiveStatus(
-                                leadId: state.leadDetail.id,
+                                leadId: effectiveLead.id,
                                 isActive: !widget.isActive,
                               ),
                             );
@@ -643,10 +706,6 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                         }
                       },
                       itemBuilder: (context) => [
-                        const PopupMenuItem(
-                          value: 'edit',
-                          child: Text('Edit Lead'),
-                        ),
                         PopupMenuItem(
                           value: 'toggle_status',
                           child: Text(
@@ -667,7 +726,14 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
           listener: (context, state) {
             if (state is LeadDetailsLoaded) {
               final leadId = state.leadDetail.id;
-              if (state.audios != null && state.callLogs != null && !_scannedLeadIds.contains(leadId)) {
+              if (_leadFollowUp == null &&
+                  !_isLoadingFollowUp &&
+                  _followUpError == null) {
+                _fetchFollowUpDetails(leadId);
+              }
+              if (state.audios != null &&
+                  state.callLogs != null &&
+                  !_scannedLeadIds.contains(leadId)) {
                 _scannedLeadIds.add(leadId);
                 AutoCallRecordingUploader.autoScanAndUploadLeadRecordings(
                   context: context,
@@ -690,10 +756,9 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                   backgroundColor: Colors.green,
                 ),
               );
-              Navigator.pop(
-                context,
-                true,
-              ); // Pop out when activated/deactivated successfully
+              if (state.message.toLowerCase().contains('activate')) {
+                Navigator.pop(context, true);
+              }
             } else if (state is LeadActionError) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
@@ -704,214 +769,190 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
             }
           },
           builder: (context, state) {
-            if (state is LeadDetailsLoading || state is LeadActionLoading) {
-              return const Center(child: SpinningLogo(size: 60));
-            } else if (state is LeadDetailsError) {
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      state.message,
-                      style: const TextStyle(color: AppColors.primary),
-                    ),
-                    const SizedBox(height: 12),
-                    ElevatedButton(
-                      onPressed: () {
-                        // Trigger retry
-                        Navigator.pop(context);
-                      },
-                      child: const Text('Go Back'),
-                    ),
-                  ],
-                ),
-              );
-            } else if (state is LeadDetailsLoaded) {
-              final lead = state.leadDetail;
-              final fullName = '${lead.firstName} ${lead.lastName}';
+            if (state is LeadDetailsLoaded) {
+              _lastLeadDetail = state.leadDetail;
+              _lastDetailsLoadedState = state;
+            }
 
-              final statusColor = lead.status?.color != null
-                  ? _hexToColor(lead.status!.color)
-                  : AppColors.primary;
+            final effectiveState = state is LeadDetailsLoaded
+                ? state
+                : _lastDetailsLoadedState;
 
-              final initials =
-                  (lead.firstName.isNotEmpty ? lead.firstName[0] : '') +
-                  (lead.lastName.isNotEmpty ? lead.lastName[0] : '');
-
-              return SafeArea(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // ─── PROFILE HEADER: AVATAR ON LEFT BELOW BACK BUTTON ───────
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16.0,
-                        vertical: 4.0,
+            if (_lastLeadDetail == null || effectiveState == null) {
+              if (state is LeadDetailsLoading || state is LeadActionLoading) {
+                return const Center(child: SpinningLogo(size: 60));
+              } else if (state is LeadDetailsError) {
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        state.message,
+                        style: const TextStyle(color: AppColors.primary),
                       ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          CircleAvatar(
-                            radius: 28,
-                            backgroundColor: statusColor,
-                            child: Text(
-                              initials.toUpperCase(),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                              ),
+                      const SizedBox(height: 12),
+                      ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                        },
+                        child: const Text('Go Back'),
+                      ),
+                    ],
+                  ),
+                );
+              }
+              return const Center(child: SpinningLogo(size: 60));
+            }
+
+            final lead = _lastLeadDetail!;
+            final fullName = '${lead.firstName} ${lead.lastName}';
+
+            final statusColor = lead.status?.color != null
+                ? _hexToColor(lead.status!.color)
+                : AppColors.primary;
+
+            final initials =
+                (lead.firstName.isNotEmpty ? lead.firstName[0] : '') +
+                (lead.lastName.isNotEmpty ? lead.lastName[0] : '');
+
+            return SafeArea(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // ─── PROFILE HEADER: AVATAR ON LEFT BELOW BACK BUTTON ───────
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16.0,
+                      vertical: 4.0,
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        CircleAvatar(
+                          radius: 28,
+                          backgroundColor: statusColor,
+                          child: Text(
+                            initials.toUpperCase(),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        fullName,
-                                        style: const TextStyle(
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.bold,
-                                          color: AppColors.textPrimary,
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(
-                                        Icons.edit_outlined,
-                                        size: 18,
-                                        color: AppColors.textHint,
-                                      ),
-                                      tooltip: 'Edit Name',
-                                      onPressed: () => _navigateToEditForm(
-                                        context,
-                                        lead,
-                                        targetFieldKey: 'name',
-                                      ),
-                                      constraints: const BoxConstraints(
-                                        minWidth: 32,
-                                        minHeight: 32,
-                                      ),
-                                      padding: const EdgeInsets.all(4),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 2),
-                                Row(
-                                  children: [
-                                    const Icon(
-                                      Icons.phone_outlined,
-                                      size: 13,
-                                      color: AppColors.textHint,
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      lead.phone.isNotEmpty
-                                          ? lead.phone
-                                          : 'No Phone',
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      fullName,
                                       style: const TextStyle(
-                                        fontSize: 13,
-                                        color: AppColors.textSecondary,
-                                        fontWeight: FontWeight.w500,
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        color: AppColors.textPrimary,
                                       ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
                                     ),
-                                    if (lead.phone.isNotEmpty) ...[
-                                      const SizedBox(width: 6),
-                                      InkWell(
-                                        onTap: () {
-                                          Clipboard.setData(
-                                            ClipboardData(text: lead.phone),
-                                          );
-                                          ScaffoldMessenger.of(
-                                            context,
-                                          ).showSnackBar(
-                                            const SnackBar(
-                                              content: Text(
-                                                'Phone number copied to clipboard',
-                                              ),
-                                              duration: Duration(seconds: 2),
-                                              backgroundColor:
-                                                  AppColors.primary,
-                                            ),
-                                          );
-                                        },
-                                        borderRadius: BorderRadius.circular(4),
-                                        child: const Padding(
-                                          padding: EdgeInsets.all(2.0),
-                                          child: Icon(
-                                            Icons.copy_rounded,
-                                            size: 14,
-                                            color: AppColors.primary,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                                if (lead.companyName.isNotEmpty) ...[
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    lead.companyName,
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: AppColors.primary,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
                                   ),
                                 ],
+                              ),
+                              const SizedBox(height: 2),
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.phone_outlined,
+                                    size: 13,
+                                    color: AppColors.textHint,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    lead.phone.isNotEmpty
+                                        ? lead.phone
+                                        : 'No Phone',
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      color: AppColors.textSecondary,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  if (lead.phone.isNotEmpty) ...[
+                                    const SizedBox(width: 6),
+                                    InkWell(
+                                      onTap: () {
+                                        Clipboard.setData(
+                                          ClipboardData(text: lead.phone),
+                                        );
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Phone number copied to clipboard',
+                                            ),
+                                            duration: Duration(seconds: 2),
+                                            backgroundColor: AppColors.primary,
+                                          ),
+                                        );
+                                      },
+                                      borderRadius: BorderRadius.circular(4),
+                                      child: const Padding(
+                                        padding: EdgeInsets.all(2.0),
+                                        child: Icon(
+                                          Icons.copy_rounded,
+                                          size: 14,
+                                          color: AppColors.primary,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                              if (lead.companyName.isNotEmpty) ...[
+                                const SizedBox(height: 2),
+                                Text(
+                                  lead.companyName,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.primary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ],
-                            ),
+                            ],
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 16),
+                  ),
+                  const SizedBox(height: 16),
 
-                    // ─── STATUS DROPDOWN & RESCHEDULE BUTTON ROW ────────────────
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                      child: Row(
-                        children: [
-                          // 1st: Status Dropdown
-                          Expanded(child: _buildStatusDropdown(context, lead)),
-                          const SizedBox(width: 10),
-                          // 2nd: Reschedule Button
-                          Expanded(
-                            child: _buildRescheduleButton(context, lead),
-                          ),
-                        ],
-                      ),
+
+                  // Tab Bar Headers
+                  _buildTabBar(effectiveState),
+
+                  // Active Tab Content
+                  Expanded(
+                    child: IndexedStack(
+                      index: _activeTabIndex,
+                      children: [
+                        _buildOverviewTab(lead),
+                        _buildFollowUpTab(lead),
+                        LeadActivitiesTab(state: effectiveState),
+                        LeadCallLogsTab(state: effectiveState),
+                        LeadDocumentsTab(state: effectiveState),
+                      ],
                     ),
-                    const SizedBox(height: 16),
-
-                    // Tab Bar Headers
-                    _buildTabBar(state),
-
-                    // Active Tab Content
-                    Expanded(
-                      child: IndexedStack(
-                        index: _activeTabIndex,
-                        children: [
-                          _buildOverviewTab(lead),
-                          LeadActivitiesTab(state: state),
-                          LeadCallLogsTab(state: state),
-                          LeadDocumentsTab(state: state),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }
-            return const SizedBox();
+                  ),
+                ],
+              ),
+            );
           },
         ),
       ),
@@ -1028,61 +1069,746 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
             borderRadius: BorderRadius.circular(10),
           ),
         ),
-        icon: const Icon(
-          Icons.event_repeat_rounded,
-          size: 18,
-          color: Colors.white,
-        ),
-        label: const Text(
-          'Reschedule',
-          style: TextStyle(
+        icon: _isRescheduleLoading
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  color: Colors.white,
+                  strokeWidth: 2,
+                ),
+              )
+            : const Icon(
+                Icons.event_repeat_rounded,
+                size: 18,
+                color: Colors.white,
+              ),
+        label: Text(
+          _isRescheduleLoading ? 'Loading...' : 'Reschedule',
+          style: const TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.bold,
             color: Colors.white,
           ),
         ),
-        onPressed: () async {
-          final repo = sl<FollowUpsRepository>();
-          final res = await repo.getLeadFollowUps(lead.id);
+        onPressed: _isRescheduleLoading
+            ? null
+            : () => _openRescheduleScreen(lead),
+      ),
+    );
+  }
 
-          FollowUp? targetFollowUp;
-          res.fold((_) {}, (leadFollowUps) {
-            if (leadFollowUps.followups.isNotEmpty) {
-              targetFollowUp = leadFollowUps.followups.first;
-            }
+  Future<void> _openRescheduleScreen(
+    LeadDetail lead, {
+    FollowUp? selectedFollowUp,
+  }) async {
+    setState(() {
+      _isRescheduleLoading = true;
+    });
+
+    try {
+      if (selectedFollowUp == null) {
+        if (!mounted) return;
+        _navigateToEditForm(context, lead, targetFieldKey: 'followup');
+        return;
+      }
+
+      FollowUp? targetFollowUp = selectedFollowUp;
+
+      final result = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => EditFollowUpScreen(
+            followUp: targetFollowUp!,
+            leadDetail: lead,
+            showOnlyLeadUpdate: true,
+          ),
+        ),
+      );
+
+      if (result == true && mounted) {
+        _wasEdited = true;
+        context.read<LeadsBloc>().add(FetchLeadDetails(lead.id));
+        context.read<LeadsBloc>().add(FetchLeadAuditLogs(lead.id));
+        _fetchFollowUpDetails(lead.id);
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isRescheduleLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _fetchFollowUpDetails(String leadId) async {
+    if (_isLoadingFollowUp) return;
+    setState(() {
+      _isLoadingFollowUp = true;
+      _followUpError = null;
+    });
+
+    try {
+      final repo = sl<FollowUpsRepository>();
+      final res = await repo.getLeadFollowUps(leadId);
+
+      if (!mounted) return;
+
+      res.fold(
+        (failure) {
+          setState(() {
+            _isLoadingFollowUp = false;
+            _followUpError = failure.message;
           });
-
-          targetFollowUp ??= FollowUp(
-            leadId: lead.id,
-            leadName: '${lead.firstName} ${lead.lastName}'.trim(),
-            companyName: lead.companyName ?? '',
-            phoneNumber: lead.phone,
-            leadTask: 'Follow up with lead',
-            followUpStatus: lead.status?.statusName ?? 'Fresh',
-            followUpDate: DateFormat('yyyy-MM-dd').format(DateTime.now()),
-            followUpTime: DateFormat('hh:mm a').format(DateTime.now()),
-            reminder: 'Push',
-            priority: lead.priority ?? 'LOW',
-          );
-
-          if (!context.mounted) return;
-
-          final result = await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => EditFollowUpScreen(
-                followUp: targetFollowUp!,
-                leadDetail: lead,
-                showOnlyLeadUpdate: true,
-              ),
-            ),
-          );
-
-          if (result == true && context.mounted) {
-            _wasEdited = true;
-            context.read<LeadsBloc>().add(FetchLeadDetails(lead.id));
-          }
         },
+        (leadFollowUps) {
+          final list = leadFollowUps.followups;
+          FollowUp? target;
+          if (list.isNotEmpty) {
+            final pendingList = list.where((f) {
+              final st = f.followUpStatus.toUpperCase();
+              return st != 'COMPLETED' && st != 'DONE';
+            }).toList();
+            target = pendingList.isNotEmpty ? pendingList.first : list.first;
+          }
+
+          setState(() {
+            _isLoadingFollowUp = false;
+            _allLeadFollowUps = list;
+            _leadFollowUp = target;
+            _selectedFollowUpFilter = 'Today';
+          });
+        },
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoadingFollowUp = false;
+          _followUpError = e.toString();
+        });
+      }
+    }
+  }
+
+  String _getFollowUpCategory(FollowUp f) {
+    final status = f.followUpStatus.toUpperCase();
+    if (status == 'COMPLETED' || status == 'DONE') return 'Completed';
+
+    if (f.followUpType != null && f.followUpType!.isNotEmpty) {
+      final type = f.followUpType!.toUpperCase();
+      if (type == 'MISSED') return 'Missed';
+      if (type == 'TODAY') return 'Today';
+      if (type == 'UPCOMING') return 'Upcoming';
+    }
+
+    final now = DateTime.now();
+    final todayDate = DateTime(now.year, now.month, now.day);
+    try {
+      final d = DateTime.parse(f.followUpDate);
+      final fDate = DateTime(d.year, d.month, d.day);
+      if (fDate.isBefore(todayDate)) return 'Missed';
+      if (fDate.isAtSameMomentAs(todayDate)) return 'Today';
+      if (fDate.isAfter(todayDate)) return 'Upcoming';
+    } catch (_) {}
+
+    return 'Upcoming';
+  }
+
+  List<FollowUp> _getFilteredFollowUps() {
+    if (_selectedFollowUpFilter == 'All') return _allLeadFollowUps;
+    return _allLeadFollowUps
+        .where((f) => _getFollowUpCategory(f) == _selectedFollowUpFilter)
+        .toList();
+  }
+
+  int _getCategoryCount(String category) {
+    if (category == 'All') return _allLeadFollowUps.length;
+    return _allLeadFollowUps
+        .where((f) => _getFollowUpCategory(f) == category)
+        .length;
+  }
+
+  String _formatFollowUpDate(String dateStr) {
+    if (dateStr.isEmpty) return 'Date not set';
+    try {
+      final parsed = DateTime.parse(dateStr);
+      return DateFormat('dd MMM yyyy').format(parsed);
+    } catch (_) {
+      return dateStr;
+    }
+  }
+
+  Widget _buildFollowUpTab(LeadDetail lead) {
+    if (_isLoadingFollowUp) {
+      return const Center(child: SpinningLogo(size: 40));
+    }
+
+    if (_followUpError != null && _allLeadFollowUps.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFFFF1F2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.event_note_rounded,
+                  size: 48,
+                  color: AppColors.primary,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Could Not Load Follow-ups',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                _followUpError!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: () => _fetchFollowUpDetails(lead.id),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    icon: const Icon(Icons.refresh_rounded, size: 18),
+                    label: const Text('Retry'),
+                  ),
+                  const SizedBox(width: 12),
+                  ElevatedButton.icon(
+                    onPressed: () => _navigateToEditForm(
+                      context,
+                      lead,
+                      targetFieldKey: 'followup',
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    icon: const Icon(
+                      Icons.add_task_rounded,
+                      color: Colors.white,
+                      size: 18,
+                    ),
+                    label: const Text(
+                      'Schedule Follow-up',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final categories = ['Missed', 'Today', 'Upcoming', 'Completed', 'All'];
+    final filteredFollowUps = _getFilteredFollowUps();
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ─── CATEGORY FILTER CHIPS ROW ──────────────────────────────────────
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: categories.map((cat) {
+                final isSelected = _selectedFollowUpFilter == cat;
+                final count = _getCategoryCount(cat);
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8.0),
+                  child: InkWell(
+                    onTap: () {
+                      setState(() {
+                        _selectedFollowUpFilter = cat;
+                      });
+                    },
+                    borderRadius: BorderRadius.circular(20),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? const Color(0xFFFFF1F2)
+                            : Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: isSelected
+                              ? const Color(0xFFFDA4AF)
+                              : AppColors.borderEnabled,
+                          width: isSelected ? 1.5 : 1.0,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            cat,
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: isSelected
+                                  ? FontWeight.bold
+                                  : FontWeight.w500,
+                              color: isSelected
+                                  ? const Color(0xFFE11D48)
+                                  : AppColors.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 7,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? const Color(0xFFE11D48)
+                                  : const Color(0xFFF1F5F9),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Text(
+                              '$count',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: isSelected
+                                    ? Colors.white
+                                    : AppColors.textSecondary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // ─── 3. FOLLOW-UPS ITEM LIST / EMPTY STATE ─────────────────────────────
+          if (filteredFollowUps.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(28.0),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.borderEnabled),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFF1F5F9),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.event_available_rounded,
+                      size: 36,
+                      color: AppColors.textHint,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    _selectedFollowUpFilter == 'All'
+                        ? 'No Follow-ups'
+                        : 'No $_selectedFollowUpFilter Follow-ups',
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _selectedFollowUpFilter == 'All'
+                        ? 'There are currently no follow-ups scheduled for this lead.'
+                        : 'There are currently no ${_selectedFollowUpFilter.toLowerCase()} follow-ups scheduled for this lead.',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton.icon(
+                    onPressed: () => _navigateToEditForm(
+                      context,
+                      lead,
+                      targetFieldKey: 'followup',
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 10,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    icon: const Icon(
+                      Icons.add_task_rounded,
+                      color: Colors.white,
+                      size: 16,
+                    ),
+                    label: const Text(
+                      'Schedule Follow-up',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: filteredFollowUps.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              itemBuilder: (context, index) {
+                final item = filteredFollowUps[index];
+                return _buildFollowUpItemCard(lead, item);
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFollowUpItemCard(LeadDetail lead, FollowUp item) {
+    final cat = _getFollowUpCategory(item);
+
+    Color catBg;
+    Color catFg;
+    if (cat == 'Today') {
+      catBg = const Color(0xFFFEF3C7);
+      catFg = const Color(0xFFD97706);
+    } else if (cat == 'Missed') {
+      catBg = const Color(0xFFFEE2E2);
+      catFg = const Color(0xFFDC2626);
+    } else if (cat == 'Upcoming') {
+      catBg = const Color(0xFFE0F2FE);
+      catFg = const Color(0xFF0284C7);
+    } else {
+      catBg = const Color(0xFFDCFCE7);
+      catFg = const Color(0xFF16A34A);
+    }
+
+    final formattedDate = _formatFollowUpDate(item.followUpDate);
+    final statusText = item.followUpStatus.isNotEmpty
+        ? item.followUpStatus
+        : (item.leadStatus?.statusName ?? 'ADDED TO FOLLOW UP');
+
+    return Container(
+      padding: const EdgeInsets.all(14.0),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.borderEnabled),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 4,
+            offset: const Offset(0, 1),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF1F2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.calendar_today_rounded,
+                  color: Color(0xFFE11D48),
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          formattedDate,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        if (item.followUpTime.isNotEmpty) ...[
+                          const SizedBox(width: 8),
+                          const Icon(
+                            Icons.access_time_rounded,
+                            size: 13,
+                            color: AppColors.textHint,
+                          ),
+                          const SizedBox(width: 3),
+                          Text(
+                            item.followUpTime,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: catBg,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            cat.toUpperCase(),
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: catFg,
+                            ),
+                          ),
+                        ),
+                        if (item.leadTask.isNotEmpty &&
+                            !item.leadTask.toLowerCase().contains(
+                              'no follow',
+                            ) &&
+                            item.leadTask.toLowerCase().trim() !=
+                                statusText.toLowerCase().trim())
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFE6FFFA),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: const Color(0xFF99F6E4),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 5,
+                                  height: 5,
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFF0D9488),
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  item.leadTask,
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF0D9488),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (item.reminder.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            const Divider(height: 1, color: AppColors.borderEnabled),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Icon(
+                  Icons.notifications_none_rounded,
+                  size: 14,
+                  color: AppColors.textHint,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  'Reminder: ${item.reminder}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: AppColors.borderEnabled),
+                ),
+                child: Text(
+                  statusText.toUpperCase(),
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ),
+              OutlinedButton.icon(
+                onPressed: () =>
+                    _openRescheduleScreen(lead, selectedFollowUp: item),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.textPrimary,
+                  side: const BorderSide(color: AppColors.borderEnabled),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                ),
+                icon: const Icon(
+                  Icons.sync_rounded,
+                  size: 14,
+                  color: AppColors.textSecondary,
+                ),
+                label: const Text(
+                  'Reschedule',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailTile({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.borderEnabled),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: AppColors.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: AppColors.textHint,
+                  ),
+                ),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1139,11 +1865,20 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                 setState(() {
                   _activeTabIndex = index;
                 });
-                if (index == 1 && state.auditLogs == null && !state.isAuditLogsLoading) {
+                if (index == 1) {
+                  setState(() {
+                    _selectedFollowUpFilter = 'Today';
+                  });
+                  if (_leadFollowUp == null && !_isLoadingFollowUp) {
+                    _fetchFollowUpDetails(state.leadDetail.id);
+                  }
+                } else if (index == 2 &&
+                    state.auditLogs == null &&
+                    !state.isAuditLogsLoading) {
                   context.read<LeadsBloc>().add(
                     FetchLeadAuditLogs(state.leadDetail.id),
                   );
-                } else if (index == 2) {
+                } else if (index == 3) {
                   _fetchLocalRecordings(state.leadDetail.phone);
                   if (state.callLogs == null && !state.isCallLogsLoading) {
                     context.read<LeadsBloc>().add(
@@ -1155,7 +1890,9 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                       FetchLeadAudios(state.leadDetail.id),
                     );
                   }
-                } else if (index == 3 && state.attachments == null && !state.isAttachmentsLoading) {
+                } else if (index == 4 &&
+                    state.attachments == null &&
+                    !state.isAttachmentsLoading) {
                   context.read<LeadsBloc>().add(
                     FetchLeadAttachments(state.leadDetail.id),
                   );
@@ -1231,15 +1968,15 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
               Icons.mail_outline,
               'Email',
               lead.email,
-              onEditTap: () =>
-                  _navigateToEditForm(context, lead, targetFieldKey: 'email'),
+              fieldKey: 'email',
+              lead: lead,
             ),
             _buildInfoRow(
               Icons.phone_outlined,
               'Phone',
               lead.phone,
-              onEditTap: () =>
-                  _navigateToEditForm(context, lead, targetFieldKey: 'phone'),
+              fieldKey: 'phone',
+              lead: lead,
               trailing: lead.phone.isNotEmpty
                   ? Row(
                       mainAxisSize: MainAxisSize.min,
@@ -1299,11 +2036,8 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                 Icons.phone_iphone_outlined,
                 'Alternate Phone',
                 lead.alternatePhone!,
-                onEditTap: () => _navigateToEditForm(
-                  context,
-                  lead,
-                  targetFieldKey: 'alternatePhone',
-                ),
+                fieldKey: 'alternatePhone',
+                lead: lead,
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -1363,11 +2097,8 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                 Icons.language_outlined,
                 'Website',
                 lead.website!,
-                onEditTap: () => _navigateToEditForm(
-                  context,
-                  lead,
-                  targetFieldKey: 'website',
-                ),
+                fieldKey: 'website',
+                lead: lead,
               ),
           ]),
           const SizedBox(height: 16),
@@ -1380,8 +2111,8 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
               lead.address ?? '',
               subvalue:
                   '${lead.city ?? ''}${lead.city != null && lead.state != null ? ", " : ""}${lead.state ?? ''} ${lead.postalCode ?? ''}\n${lead.country ?? ''}',
-              onEditTap: () =>
-                  _navigateToEditForm(context, lead, targetFieldKey: 'address'),
+              fieldKey: 'address',
+              lead: lead,
             ),
           ]),
           const SizedBox(height: 16),
@@ -1392,33 +2123,24 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
               Icons.person_outline,
               'Owner',
               lead.ownerUserName ?? 'Unassigned',
-              onEditTap: () => _navigateToEditForm(
-                context,
-                lead,
-                targetFieldKey: 'ownerUserId',
-              ),
+              fieldKey: 'ownerUserId',
+              lead: lead,
             ),
             if (lead.priority != null)
               _buildInfoRow(
                 Icons.flag_outlined,
                 'Priority',
                 lead.priority!,
-                onEditTap: () => _navigateToEditForm(
-                  context,
-                  lead,
-                  targetFieldKey: 'priority',
-                ),
+                fieldKey: 'priority',
+                lead: lead,
               ),
             if (lead.source?.name != null)
               _buildInfoRow(
                 Icons.share_outlined,
                 'Source',
                 lead.source!.name,
-                onEditTap: () => _navigateToEditForm(
-                  context,
-                  lead,
-                  targetFieldKey: 'sourceId',
-                ),
+                fieldKey: 'sourceId',
+                lead: lead,
               ),
             if (lead.createdAt != null)
               _buildInfoRow(
@@ -1433,11 +2155,8 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                 Icons.description_outlined,
                 'Description',
                 lead.description!,
-                onEditTap: () => _navigateToEditForm(
-                  context,
-                  lead,
-                  targetFieldKey: 'description',
-                ),
+                fieldKey: 'description',
+                lead: lead,
               ),
           ]),
 
@@ -1457,11 +2176,15 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                   icon,
                   field.label,
                   valStr.isNotEmpty ? valStr : '-',
-                  onEditTap: () => _navigateToEditForm(
-                    context,
-                    lead,
-                    targetFieldKey: 'customField_${field.fieldId}',
-                  ),
+                  fieldKey: isAttachment ? null : 'customField_${field.fieldId}',
+                  onEditTap: isAttachment
+                      ? () => _navigateToEditForm(
+                            context,
+                            lead,
+                            targetFieldKey: 'customField_${field.fieldId}',
+                          )
+                      : null,
+                  lead: lead,
                 );
               }).toList(),
             ),
@@ -1592,7 +2315,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => BlocProvider(
+        builder: (_) => BlocProvider<LeadsBloc>(
           create: (_) => sl<LeadsBloc>(),
           child: AddLeadScreen(
             leadToEdit: lead,
@@ -1604,8 +2327,248 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
       if (changed == true && context.mounted) {
         _wasEdited = true;
         context.read<LeadsBloc>().add(FetchLeadDetails(lead.id));
+        context.read<LeadsBloc>().add(FetchLeadAuditLogs(lead.id));
+        _fetchFollowUpDetails(lead.id);
       }
     });
+  }
+
+  void _startEditingField(
+    String fieldKey,
+    String currentValue,
+    LeadDetail? lead,
+  ) {
+    setState(() {
+      _editingFieldKey = fieldKey;
+      if (fieldKey == 'ownerUserId') {
+        _selectedDropdownValue =
+            lead?.ownerUserId ??
+            (_availableOwners.isNotEmpty
+                ? _availableOwners.first.userId
+                : null);
+      } else if (fieldKey == 'priority') {
+        final p = (lead?.priority ?? currentValue).toUpperCase();
+        _selectedDropdownValue =
+            _availablePriorities.map((x) => x.toUpperCase()).contains(p)
+            ? p
+            : (_availablePriorities.isNotEmpty
+                  ? _availablePriorities.first.toUpperCase()
+                  : 'LOW');
+      } else if (fieldKey == 'sourceId') {
+        _selectedDropdownValue =
+            lead?.source?.id ??
+            (_availableSources.isNotEmpty ? _availableSources.first.id : null);
+      } else {
+        _inlineEditController.text = currentValue;
+      }
+    });
+  }
+
+  String _getEditingValue(String fieldKey) {
+    if (fieldKey == 'ownerUserId' ||
+        fieldKey == 'priority' ||
+        fieldKey == 'sourceId') {
+      return _selectedDropdownValue ?? '';
+    }
+    return _inlineEditController.text;
+  }
+
+  Widget _buildInlineEditorWidget(String fieldKey, LeadDetail? lead) {
+    if (fieldKey == 'ownerUserId') {
+      return Container(
+        height: 40,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppColors.primary, width: 1.5),
+        ),
+        child: DropdownButtonHideUnderline(
+          child: DropdownButton<String>(
+            value:
+                _selectedDropdownValue != null &&
+                    _availableOwners.any(
+                      (o) => o.userId == _selectedDropdownValue,
+                    )
+                ? _selectedDropdownValue
+                : (_availableOwners.isNotEmpty
+                      ? _availableOwners.first.userId
+                      : null),
+            isExpanded: true,
+            isDense: true,
+            style: const TextStyle(fontSize: 14, color: AppColors.textPrimary),
+            onChanged: (val) {
+              if (val != null) setState(() => _selectedDropdownValue = val);
+            },
+            items: _availableOwners.map((owner) {
+              return DropdownMenuItem<String>(
+                value: owner.userId,
+                child: Text(owner.name, style: const TextStyle(fontSize: 14)),
+              );
+            }).toList(),
+          ),
+        ),
+      );
+    }
+
+    if (fieldKey == 'priority') {
+      return Container(
+        height: 40,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppColors.primary, width: 1.5),
+        ),
+        child: DropdownButtonHideUnderline(
+          child: DropdownButton<String>(
+            value:
+                _selectedDropdownValue != null &&
+                    _availablePriorities
+                        .map((p) => p.toUpperCase())
+                        .contains(_selectedDropdownValue!.toUpperCase())
+                ? _selectedDropdownValue!.toUpperCase()
+                : (_availablePriorities.isNotEmpty
+                      ? _availablePriorities.first.toUpperCase()
+                      : 'LOW'),
+            isExpanded: true,
+            isDense: true,
+            style: const TextStyle(fontSize: 14, color: AppColors.textPrimary),
+            onChanged: (val) {
+              if (val != null) setState(() => _selectedDropdownValue = val);
+            },
+            items: _availablePriorities.map((priority) {
+              final upper = priority.toUpperCase();
+              return DropdownMenuItem<String>(
+                value: upper,
+                child: Text(upper, style: const TextStyle(fontSize: 14)),
+              );
+            }).toList(),
+          ),
+        ),
+      );
+    }
+
+    if (fieldKey == 'sourceId') {
+      return Container(
+        height: 40,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppColors.primary, width: 1.5),
+        ),
+        child: DropdownButtonHideUnderline(
+          child: DropdownButton<String>(
+            value:
+                _selectedDropdownValue != null &&
+                    _availableSources.any((s) => s.id == _selectedDropdownValue)
+                ? _selectedDropdownValue
+                : (_availableSources.isNotEmpty
+                      ? _availableSources.first.id
+                      : null),
+            isExpanded: true,
+            isDense: true,
+            style: const TextStyle(fontSize: 14, color: AppColors.textPrimary),
+            onChanged: (val) {
+              if (val != null) setState(() => _selectedDropdownValue = val);
+            },
+            items: _availableSources.map((source) {
+              return DropdownMenuItem<String>(
+                value: source.id,
+                child: Text(source.name, style: const TextStyle(fontSize: 14)),
+              );
+            }).toList(),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      height: 40,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.primary, width: 1.5),
+      ),
+      child: TextField(
+        controller: _inlineEditController,
+        autofocus: true,
+        style: const TextStyle(fontSize: 14, color: AppColors.textPrimary),
+        decoration: const InputDecoration(
+          border: InputBorder.none,
+          isDense: true,
+          contentPadding: EdgeInsets.symmetric(vertical: 10),
+        ),
+      ),
+    );
+  }
+
+  void _saveInlineEdit(
+    BuildContext context,
+    LeadDetail lead,
+    String fieldKey,
+    String newValue,
+  ) {
+    final leadData = <String, dynamic>{
+      'firstName': lead.firstName,
+      'lastName': lead.lastName,
+      'companyName': lead.companyName,
+      'email': lead.email,
+      'phone': lead.phone,
+      'alternatePhone': lead.alternatePhone,
+      'sourceId': lead.source?.id,
+      'statusId': lead.status?.id,
+      'score': lead.score ?? 0,
+      'priority': lead.priority,
+      'industry': lead.industry,
+      'annualRevenue': lead.annualRevenue ?? 0.0,
+      'employeeSize': lead.employeeSize ?? 0,
+      'website': lead.website,
+      'country': lead.country,
+      'state': lead.state,
+      'city': lead.city,
+      'postalCode': lead.postalCode,
+      'address': lead.address,
+      'description': lead.description,
+      'ownerUserId': lead.ownerUserId,
+    };
+
+    if (fieldKey.startsWith('customField_')) {
+      final fieldId = fieldKey.replaceFirst('customField_', '');
+      final List<Map<String, dynamic>> updatedCustomFields = [];
+      for (final cf in lead.customFields) {
+        if (cf.fieldId == fieldId) {
+          updatedCustomFields.add({
+            'fieldId': cf.fieldId,
+            'label': cf.label,
+            'fieldType': cf.fieldType,
+            'value': newValue.trim(),
+          });
+        } else {
+          updatedCustomFields.add({
+            'fieldId': cf.fieldId,
+            'label': cf.label,
+            'fieldType': cf.fieldType,
+            'value': cf.value,
+          });
+        }
+      }
+      leadData['customFields'] = updatedCustomFields;
+    } else {
+      leadData[fieldKey] = newValue.trim();
+    }
+
+    leadData.removeWhere((key, value) => value == null);
+
+    context.read<LeadsBloc>().add(
+      UpdateLead(leadId: lead.id, leadData: leadData, filePaths: []),
+    );
+    setState(() {
+      _editingFieldKey = null;
+    });
+    _wasEdited = true;
   }
 
   Widget _buildInfoRow(
@@ -1614,8 +2577,12 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
     String value, {
     String? subvalue,
     Widget? trailing,
+    String? fieldKey,
+    LeadDetail? lead,
     VoidCallback? onEditTap,
   }) {
+    final bool isEditing = fieldKey != null && _editingFieldKey == fieldKey;
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1629,37 +2596,96 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                 label,
                 style: const TextStyle(fontSize: 12, color: AppColors.textHint),
               ),
-              const SizedBox(height: 2),
-              Text(
-                value.isNotEmpty ? value : '-',
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              if (subvalue != null && subvalue.trim().isNotEmpty) ...[
-                const SizedBox(height: 2),
+              const SizedBox(height: 4),
+              if (isEditing)
+                Row(
+                  children: [
+                    Expanded(child: _buildInlineEditorWidget(fieldKey, lead)),
+                    const SizedBox(width: 6),
+                    GestureDetector(
+                      onTap: () {
+                        if (lead != null && fieldKey != null) {
+                          _saveInlineEdit(
+                            context,
+                            lead,
+                            fieldKey,
+                            _getEditingValue(fieldKey),
+                          );
+                        }
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: const BoxDecoration(
+                          color: Colors.green,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.check,
+                          color: Colors.white,
+                          size: 16,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _editingFieldKey = null;
+                        });
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFE2E8F0),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.close,
+                          color: AppColors.textSecondary,
+                          size: 16,
+                        ),
+                      ),
+                    ),
+                  ],
+                )
+              else ...[
                 Text(
-                  subvalue,
+                  value.isNotEmpty ? value : '-',
                   style: const TextStyle(
-                    fontSize: 13,
-                    color: AppColors.textHint,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.textPrimary,
                   ),
                 ),
+                if (subvalue != null && subvalue.trim().isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    subvalue,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: AppColors.textHint,
+                    ),
+                  ),
+                ],
               ],
             ],
           ),
         ),
-        if (trailing != null) trailing,
-        if (onEditTap != null)
+        if (!isEditing && trailing != null) trailing,
+        if (!isEditing && (fieldKey != null || onEditTap != null))
           IconButton(
             icon: const Icon(
               Icons.edit_outlined,
               size: 18,
               color: AppColors.textHint,
             ),
-            onPressed: onEditTap,
+            onPressed: () {
+              if (fieldKey != null) {
+                _startEditingField(fieldKey, value, lead);
+              } else if (onEditTap != null) {
+                onEditTap();
+              }
+            },
             tooltip: 'Edit $label',
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
             padding: const EdgeInsets.symmetric(horizontal: 4),

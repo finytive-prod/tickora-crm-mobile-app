@@ -48,6 +48,9 @@ class MainActivity: FlutterActivity() {
                 "requestAllFilesAccess" -> {
                     result.success(true)
                 }
+                "isCallOngoing" -> {
+                    result.success(callRecordingManager.isCallOngoing())
+                }
                 "findLatestSystemRecording" -> {
                     val callTimestampArg = call.argument<Any>("callTimestamp")
                     val callTimestamp = callTimestampArg?.toString()?.toLongOrNull() ?: 0L

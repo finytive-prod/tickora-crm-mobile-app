@@ -3,11 +3,11 @@ import 'package:crm_mobile/models/lead_detail.dart';
 import 'package:crm_mobile/models/follow_up.dart';
 
 class LeadFollowUps extends Equatable {
-  final LeadDetail leadDetails;
+  final LeadDetail? leadDetails;
   final List<FollowUp> followups;
 
   const LeadFollowUps({
-    required this.leadDetails,
+    this.leadDetails,
     required this.followups,
   });
 
@@ -17,18 +17,48 @@ class LeadFollowUps extends Equatable {
 
 class LeadFollowUpsModel extends LeadFollowUps {
   const LeadFollowUpsModel({
-    required super.leadDetails,
+    super.leadDetails,
     required super.followups,
   });
 
-  factory LeadFollowUpsModel.fromJson(Map<String, dynamic> json) {
-    final leadDetails = LeadDetailModel.fromJson(json['leadDetails'] ?? {});
-    final List<dynamic> list = json['followups'] ?? [];
-    final followups = list.map((e) => FollowUpModel.fromJson(e)).toList();
+  factory LeadFollowUpsModel.fromJson(dynamic json) {
+    if (json is List) {
+      final followups = json.map((e) => FollowUpModel.fromJson(e as Map<String, dynamic>)).toList();
+      return LeadFollowUpsModel(
+        leadDetails: null,
+        followups: followups,
+      );
+    }
 
-    return LeadFollowUpsModel(
-      leadDetails: leadDetails,
-      followups: followups,
+    if (json is Map<String, dynamic>) {
+      LeadDetail? leadDetails;
+      if (json['leadDetails'] != null && json['leadDetails'] is Map<String, dynamic>) {
+        leadDetails = LeadDetailModel.fromJson(json['leadDetails']);
+      }
+
+      List<FollowUp> followups = [];
+      if (json['followups'] != null && json['followups'] is List) {
+        final List<dynamic> list = json['followups'];
+        followups = list
+            .map((e) => FollowUpModel.fromJson(e as Map<String, dynamic>))
+            .where((f) => f.isRealFollowUp)
+            .toList();
+      } else if (json.containsKey('id') || json.containsKey('leadId') || json.containsKey('followUpDate')) {
+        final f = FollowUpModel.fromJson(json);
+        if (f.isRealFollowUp) {
+          followups = [f];
+        }
+      }
+
+      return LeadFollowUpsModel(
+        leadDetails: leadDetails,
+        followups: followups,
+      );
+    }
+
+    return const LeadFollowUpsModel(
+      leadDetails: null,
+      followups: [],
     );
   }
 }

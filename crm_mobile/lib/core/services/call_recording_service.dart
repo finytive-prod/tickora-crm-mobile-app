@@ -43,6 +43,15 @@ class CallRecordingService {
     }
   }
 
+  Future<bool> isCallOngoing() async {
+    try {
+      final bool? result = await _channel.invokeMethod('isCallOngoing');
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
 
   Future<String?> findLatestSystemRecording({
     required int callTimestamp,

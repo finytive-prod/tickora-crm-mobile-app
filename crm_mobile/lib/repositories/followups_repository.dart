@@ -27,6 +27,74 @@ class FollowUpsRepositoryImpl implements FollowUpsRepository {
     try {
       final q = (searchQuery != null && searchQuery.trim().isNotEmpty) ? searchQuery.trim() : null;
 
+      if (q != null && q.isNotEmpty) {
+        try {
+          final globalResponse = await apiClient.post(
+            '$_leadsBaseUrl/leads/search/global',
+            queryParameters: {
+              'query': q,
+              'search': q,
+              'page': page,
+              'size': size,
+            },
+            data: {
+              'query': q,
+              'search': q,
+            },
+          );
+
+          final gBody = globalResponse.data;
+          if (gBody != null && (gBody['success'] == true || gBody['statusCode'] == 200) && gBody['data'] != null) {
+            List<dynamic> content = [];
+            if (gBody['data'] is Map && gBody['data']['content'] is List) {
+              content = gBody['data']['content'];
+            } else if (gBody['data'] is List) {
+              content = gBody['data'];
+            }
+
+            final followupItems = content.where((item) {
+              if (item is Map) {
+                final role = item['role']?.toString().toUpperCase() ?? '';
+                return role == 'FOLLOWUP' || role.isEmpty;
+              }
+              return false;
+            }).toList();
+
+            final followUpList = <FollowUp>[];
+            for (var item in followupItems) {
+              final id = item['id']?.toString();
+              if (id != null && id.isNotEmpty) {
+                try {
+                  final detailRes = await apiClient.get('$_leadsBaseUrl/leads/followups/$id');
+                  final dBody = detailRes.data;
+                  if (dBody != null && (dBody['success'] == true || dBody['statusCode'] == 200) && dBody['data'] != null) {
+                    final f = FollowUpModel.fromJson(dBody['data']);
+                    if (f.isRealFollowUp) {
+                      followUpList.add(f);
+                    }
+                  }
+                } catch (_) {}
+              }
+            }
+
+            return Right(FollowUpResponse(
+              summary: const FollowUpSummary(today: 0, upcoming: 0, missed: 0, completed: 0),
+              followUps: followUpList,
+              totalElements: followUpList.length,
+              totalPages: 1,
+              size: followUpList.length,
+              number: 0,
+              numberOfElements: followUpList.length,
+              first: true,
+              last: true,
+              empty: followUpList.isEmpty,
+            ));
+          }
+        } catch (_) {
+          // Fall back to standard search endpoint if global search throws
+        }
+      }
+
       final queryParams = <String, dynamic>{
         'category': category,
         'page': page,
@@ -79,12 +147,20 @@ class FollowUpsRepositoryImpl implements FollowUpsRepository {
   @override
   Future<Either<Failure, LeadFollowUps>> getLeadFollowUps(String leadId) async {
     try {
-      final response = await apiClient.get(
-        '$_leadsBaseUrl/leads/$leadId/followups',
-      );
+      dynamic body;
+      try {
+        final response = await apiClient.get(
+          '$_leadsBaseUrl/leads/followups/$leadId',
+        );
+        body = response.data;
+      } catch (_) {
+        final response = await apiClient.get(
+          '$_leadsBaseUrl/leads/$leadId/followups',
+        );
+        body = response.data;
+      }
 
-      final body = response.data;
-      if (body != null && body['success'] == true && body['data'] != null) {
+      if (body != null && (body['success'] == true || body['statusCode'] == 200) && body['data'] != null) {
         final leadFollowUps = LeadFollowUpsModel.fromJson(body['data']);
         return Right(leadFollowUps);
       } else {
