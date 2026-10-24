@@ -18,6 +18,7 @@ import 'package:crm_mobile/models/staff_user.dart';
 import 'package:crm_mobile/models/lead_filter_params.dart';
 import 'package:crm_mobile/core/utils/text_selection_utils.dart';
 import 'package:crm_mobile/core/utils/phone_number_utils.dart';
+import 'package:crm_mobile/core/services/auto_call_recording_uploader.dart';
 
 class LeadsScreen extends StatelessWidget {
   const LeadsScreen({super.key});
@@ -43,18 +44,63 @@ class LeadsScreenView extends StatefulWidget {
   State<LeadsScreenView> createState() => _LeadsScreenViewState();
 }
 
-class _LeadsScreenViewState extends State<LeadsScreenView> {
+class _LeadsScreenViewState extends State<LeadsScreenView>
+    with WidgetsBindingObserver {
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _scrollController.addListener(_onScroll);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _triggerAutoSync();
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _triggerAutoSync();
+    }
+  }
+
+  void _triggerAutoSync() {
+    if (!mounted) return;
+    final state = context.read<LeadsBloc>().state;
+    final currentLeads = state is LeadsLoaded ? state.leads : null;
+    AutoCallRecordingUploader.syncRecentCallsIfAvailable(
+      knownLeads: currentLeads,
+      onUploadSuccess: () {
+        _refreshLeadsList();
+      },
+    );
+  }
+
+  void _refreshLeadsList() {
+    if (!mounted) return;
+    final bloc = context.read<LeadsBloc>();
+    final state = bloc.state;
+    if (state is LeadsLoaded) {
+      bloc.add(
+        FetchLeads(
+          page: 0,
+          size: 15,
+          statusId: state.selectedStatusId,
+          isActive: state.selectedIsActive ?? true,
+          filterParams: state.filterParams,
+          searchQuery: _searchController.text.isNotEmpty
+              ? sanitizeLeadSearchQuery(_searchController.text)
+              : null,
+        ),
+      );
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _scrollController.dispose();
     _searchController.dispose();
     super.dispose();
@@ -64,35 +110,35 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
     if (!_scrollController.hasClients) return;
     final maxScroll = _scrollController.position.maxScrollExtent;
     final currentScroll = _scrollController.position.pixels;
-    if (maxScroll > 0 && currentScroll > 0 && (maxScroll - currentScroll <= 200)) {
+    if (maxScroll > 0 &&
+        currentScroll > 0 &&
+        (maxScroll - currentScroll <= 200)) {
       final bloc = context.read<LeadsBloc>();
       final state = bloc.state;
       if (state is LeadsLoaded && state.hasMoreLeads && !state.isLoadingMore) {
         final searchQuery = state.searchQuery;
         final filterParams = state.filterParams;
-        if (searchQuery != null && searchQuery.isNotEmpty) {
-          bloc.add(SearchLeads(
-            query: searchQuery,
-            page: state.currentPage + 1,
-            size: 15,
-            isLoadMore: true,
-            filterParams: filterParams,
-          ));
-        } else {
-          bloc.add(FetchLeads(
+        bloc.add(
+          FetchLeads(
             page: state.currentPage + 1,
             size: 15,
             statusId: state.selectedStatusId,
             isActive: state.selectedIsActive,
             isLoadMore: true,
             filterParams: filterParams,
-          ));
-        }
+            searchQuery: searchQuery,
+          ),
+        );
       }
     }
   }
 
-  void _onSearchChanged(String input, String? selectedStatusId, bool? selectedIsActive, LeadFilterParams? filterParams) {
+  void _onSearchChanged(
+    String input,
+    String? selectedStatusId,
+    bool? selectedIsActive,
+    LeadFilterParams? filterParams,
+  ) {
     final sanitized = sanitizeLeadSearchQuery(input);
     if (sanitized != input) {
       _searchController.value = TextEditingValue(
@@ -102,29 +148,24 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
     }
 
     final query = sanitized.trim();
-    if (query.isEmpty) {
-      context.read<LeadsBloc>().add(
-        FetchLeads(
-          page: 0,
-          size: 15,
-          statusId: selectedStatusId,
-          isActive: selectedIsActive ?? true,
-          filterParams: filterParams,
-          searchQuery: null,
-        ),
-      );
-    } else {
-      context.read<LeadsBloc>().add(
-        SearchLeads(query: query, page: 0, size: 15, filterParams: filterParams),
-      );
-    }
+    context.read<LeadsBloc>().add(
+      FetchLeads(
+        page: 0,
+        size: 15,
+        statusId: selectedStatusId,
+        isActive: selectedIsActive ?? true,
+        filterParams: filterParams,
+        searchQuery: query.isNotEmpty ? query : null,
+      ),
+    );
   }
-
 
   String _resolveAssigneeName(Lead lead, List<dynamic> owners) {
     if (lead.ownerUserName != null && lead.ownerUserName!.trim().isNotEmpty) {
       final name = lead.ownerUserName!.trim();
-      final isUuid = RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$').hasMatch(name);
+      final isUuid = RegExp(
+        r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+      ).hasMatch(name);
       if (!isUuid) {
         return name;
       }
@@ -186,24 +227,40 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
               current is LeadsError,
           builder: (context, state) {
             final statuses = state is LeadsLoaded ? state.statuses : [];
-            final selectedStatusId = state is LeadsLoaded ? state.selectedStatusId : null;
-            final selectedIsActive = state is LeadsLoaded ? state.selectedIsActive : null;
-            final activeFilter = state is LeadsLoaded ? state.filterParams : null;
+            final selectedStatusId = state is LeadsLoaded
+                ? state.selectedStatusId
+                : null;
+            final selectedIsActive = state is LeadsLoaded
+                ? state.selectedIsActive
+                : null;
+            final activeFilter = state is LeadsLoaded
+                ? state.filterParams
+                : null;
 
             return Column(
               children: [
                 // Header
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16.0,
+                    vertical: 12.0,
+                  ),
                   child: Row(
                     children: [
                       Text(
                         selectedIsActive == false ? 'Inactive Leads' : 'Leads',
-                        style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                        style: const TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.textPrimary,
+                        ),
                       ),
                       const Spacer(),
                       IconButton(
-                        icon: const Icon(Icons.refresh, color: AppColors.textPrimary),
+                        icon: const Icon(
+                          Icons.refresh,
+                          color: AppColors.textPrimary,
+                        ),
                         tooltip: 'Refresh Leads',
                         onPressed: () {
                           context.read<LeadsBloc>().add(
@@ -213,7 +270,11 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
                               statusId: selectedStatusId,
                               isActive: selectedIsActive ?? true,
                               filterParams: activeFilter,
-                              searchQuery: _searchController.text.isNotEmpty ? sanitizeLeadSearchQuery(_searchController.text) : null,
+                              searchQuery: _searchController.text.isNotEmpty
+                                  ? sanitizeLeadSearchQuery(
+                                      _searchController.text,
+                                    )
+                                  : null,
                             ),
                           );
                         },
@@ -224,11 +285,14 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
                           children: [
                             Icon(
                               Icons.tune_rounded,
-                              color: (activeFilter != null && activeFilter.hasActiveFilters)
+                              color:
+                                  (activeFilter != null &&
+                                      activeFilter.hasActiveFilters)
                                   ? AppColors.primary
                                   : AppColors.textPrimary,
                             ),
-                            if (activeFilter != null && activeFilter.hasActiveFilters)
+                            if (activeFilter != null &&
+                                activeFilter.hasActiveFilters)
                               Positioned(
                                 right: -2,
                                 top: -2,
@@ -238,18 +302,30 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
                                     color: AppColors.primary,
                                     shape: BoxShape.circle,
                                   ),
-                                  constraints: const BoxConstraints(minWidth: 8, minHeight: 8),
+                                  constraints: const BoxConstraints(
+                                    minWidth: 8,
+                                    minHeight: 8,
+                                  ),
                                 ),
                               ),
                           ],
                         ),
                         tooltip: 'Filter Leads',
                         onPressed: () async {
-                          final currentFilter = activeFilter ?? const LeadFilterParams();
-                          final currentStatuses = state is LeadsLoaded ? state.statuses : <LeadStatus>[];
-                          final currentSources = state is LeadsLoaded ? state.sources : <LeadSource>[];
-                          final currentPriorities = state is LeadsLoaded ? state.priorities : <String>[];
-                          final currentOwners = state is LeadsLoaded ? state.owners : <StaffUser>[];
+                          final currentFilter =
+                              activeFilter ?? const LeadFilterParams();
+                          final currentStatuses = state is LeadsLoaded
+                              ? state.statuses
+                              : <LeadStatus>[];
+                          final currentSources = state is LeadsLoaded
+                              ? state.sources
+                              : <LeadSource>[];
+                          final currentPriorities = state is LeadsLoaded
+                              ? state.priorities
+                              : <String>[];
+                          final currentOwners = state is LeadsLoaded
+                              ? state.owners
+                              : <StaffUser>[];
 
                           final newFilter = await LeadFilterSideSheet.show(
                             context,
@@ -268,14 +344,21 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
                                 statusId: selectedStatusId,
                                 isActive: selectedIsActive ?? true,
                                 filterParams: newFilter,
-                                searchQuery: _searchController.text.isNotEmpty ? sanitizeLeadSearchQuery(_searchController.text) : null,
+                                searchQuery: _searchController.text.isNotEmpty
+                                    ? sanitizeLeadSearchQuery(
+                                        _searchController.text,
+                                      )
+                                    : null,
                               ),
                             );
                           }
                         },
                       ),
                       PopupMenuButton<bool>(
-                        icon: const Icon(Icons.more_vert, color: AppColors.textPrimary),
+                        icon: const Icon(
+                          Icons.more_vert,
+                          color: AppColors.textPrimary,
+                        ),
                         onSelected: (bool showActive) {
                           context.read<LeadsBloc>().add(
                             FetchLeads(
@@ -284,29 +367,41 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
                               statusId: selectedStatusId,
                               isActive: showActive,
                               filterParams: activeFilter,
-                              searchQuery: _searchController.text.isNotEmpty ? sanitizeLeadSearchQuery(_searchController.text) : null,
+                              searchQuery: _searchController.text.isNotEmpty
+                                  ? sanitizeLeadSearchQuery(
+                                      _searchController.text,
+                                    )
+                                  : null,
                             ),
                           );
                         },
-                        itemBuilder: (BuildContext context) => <PopupMenuEntry<bool>>[
-                          PopupMenuItem<bool>(
-                            value: selectedIsActive == false ? true : false,
-                            child: Row(
-                              children: [
-                                Icon(
-                                  selectedIsActive == false ? Icons.check_circle_outline : Icons.pause_circle_outline,
-                                  size: 20,
-                                  color: AppColors.primary,
+                        itemBuilder: (BuildContext context) =>
+                            <PopupMenuEntry<bool>>[
+                              PopupMenuItem<bool>(
+                                value: selectedIsActive == false ? true : false,
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      selectedIsActive == false
+                                          ? Icons.check_circle_outline
+                                          : Icons.pause_circle_outline,
+                                      size: 20,
+                                      color: AppColors.primary,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      selectedIsActive == false
+                                          ? 'Active Leads'
+                                          : 'Inactive Leads',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  selectedIsActive == false ? 'Active Leads' : 'Inactive Leads',
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+                              ),
+                            ],
                       ),
                     ],
                   ),
@@ -325,22 +420,44 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
                       enableInteractiveSelection: true,
                       selectionControls: MaterialTextSelectionControls(),
                       contextMenuBuilder: buildAdaptiveContextMenu,
-                      onChanged: (query) => _onSearchChanged(query, selectedStatusId, selectedIsActive, activeFilter),
+                      onChanged: (query) => _onSearchChanged(
+                        query,
+                        selectedStatusId,
+                        selectedIsActive,
+                        activeFilter,
+                      ),
                       decoration: InputDecoration(
                         hintText: 'Search Leads',
-                        hintStyle: const TextStyle(color: AppColors.textHint, fontSize: 14),
-                        prefixIcon: const Icon(Icons.search, color: AppColors.textHint),
+                        hintStyle: const TextStyle(
+                          color: AppColors.textHint,
+                          fontSize: 14,
+                        ),
+                        prefixIcon: const Icon(
+                          Icons.search,
+                          color: AppColors.textHint,
+                        ),
                         suffixIcon: _searchController.text.isNotEmpty
                             ? IconButton(
-                                icon: const Icon(Icons.clear, color: AppColors.textHint, size: 18),
+                                icon: const Icon(
+                                  Icons.clear,
+                                  color: AppColors.textHint,
+                                  size: 18,
+                                ),
                                 onPressed: () {
                                   _searchController.clear();
-                                  _onSearchChanged('', selectedStatusId, selectedIsActive, activeFilter);
+                                  _onSearchChanged(
+                                    '',
+                                    selectedStatusId,
+                                    selectedIsActive,
+                                    activeFilter,
+                                  );
                                 },
                               )
                             : null,
                         border: InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                        contentPadding: const EdgeInsets.symmetric(
+                          vertical: 14,
+                        ),
                       ),
                     ),
                   ),
@@ -358,24 +475,37 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
                           'All Leads',
                           isSelected: selectedStatusId == null,
                           onTap: () {
-                            context.read<LeadsBloc>().add(FetchLeads(page: 0, size: 15, isActive: selectedIsActive ?? true));
+                            context.read<LeadsBloc>().add(
+                              FetchLeads(
+                                page: 0,
+                                size: 15,
+                                isActive: selectedIsActive ?? true,
+                              ),
+                            );
                           },
                         ),
-                        ...statuses.map((status) => _buildFilterChip(
-                              status.statusName,
-                              isSelected: selectedStatusId == status.id,
-                              onTap: () {
-                                context.read<LeadsBloc>().add(FetchLeads(page: 0, size: 15, statusId: status.id, isActive: selectedIsActive ?? true));
-                              },
-                            )),
+                        ...statuses.map(
+                          (status) => _buildFilterChip(
+                            status.statusName,
+                            isSelected: selectedStatusId == status.id,
+                            onTap: () {
+                              context.read<LeadsBloc>().add(
+                                FetchLeads(
+                                  page: 0,
+                                  size: 15,
+                                  statusId: status.id,
+                                  isActive: selectedIsActive ?? true,
+                                ),
+                              );
+                            },
+                          ),
+                        ),
                       ],
                     ),
                   ),
                 const SizedBox(height: 16),
                 // Leads List
-                Expanded(
-                  child: _buildLeadsContent(context, state),
-                ),
+                Expanded(child: _buildLeadsContent(context, state)),
               ],
             );
           },
@@ -389,7 +519,8 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
     if (state is LeadsLoading) {
       return const Center(child: SpinningLogo(size: 60));
     } else if (state is LeadsError) {
-      if (state.message.contains('503') || state.message.contains('Service Unavailable')) {
+      if (state.message.contains('503') ||
+          state.message.contains('Service Unavailable')) {
         return ServerError503Widget(
           onRetry: () => context.read<LeadsBloc>().add(
             const FetchLeads(page: 0, size: 15),
@@ -424,7 +555,10 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
       }
       final selectedIsActive = state.selectedIsActive;
       final bool showLoader = state.hasMoreLeads || state.isLoadingMore;
-      final totalItemCount = state.leads.length + (showLoader ? 1 : 0) + 1; // +1 for loader, +1 for FAB
+      final totalItemCount =
+          state.leads.length +
+          (showLoader ? 1 : 0) +
+          1; // +1 for loader, +1 for FAB
 
       return ListView.separated(
         controller: _scrollController,
@@ -434,10 +568,17 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
         itemBuilder: (context, index) {
           if (index < state.leads.length) {
             final lead = state.leads[index];
-            final String initials = (lead.firstName.isNotEmpty ? lead.firstName[0] : '') +
-                                    (lead.lastName.isNotEmpty ? lead.lastName[0] : '');
-            final statusColor = lead.status?.color != null 
-                ? _hexToColor(lead.status!.color) 
+            final fullName = '${lead.firstName} ${lead.lastName}'.trim();
+            final displayName = fullName.isNotEmpty
+                ? fullName
+                : (lead.companyName.trim().isNotEmpty
+                    ? lead.companyName.trim()
+                    : (lead.phone.isNotEmpty ? lead.phone : 'Unnamed Lead'));
+            final String initials =
+                (lead.firstName.isNotEmpty ? lead.firstName[0] : (displayName.isNotEmpty ? displayName[0] : 'L')) +
+                (lead.lastName.isNotEmpty ? lead.lastName[0] : '');
+            final statusColor = lead.status?.color != null
+                ? _hexToColor(lead.status!.color)
                 : Colors.grey;
 
             Color priorityColor = Colors.grey;
@@ -446,37 +587,56 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
             if (lead.priority == 'LOW') priorityColor = Colors.green;
 
             return GestureDetector(
+              behavior: HitTestBehavior.opaque,
               onTap: () async {
                 final wasEdited = await Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => LeadDetailsScreen(leadId: lead.id, isActive: selectedIsActive ?? true),
+                    builder: (context) => LeadDetailsScreen(
+                      leadId: lead.id,
+                      isActive: selectedIsActive ?? true,
+                    ),
                   ),
                 );
                 if (wasEdited == true && context.mounted) {
                   final currentState = context.read<LeadsBloc>().state;
-                  final currentStatusId = currentState is LeadsLoaded ? currentState.selectedStatusId : null;
-                  final currentIsActive = currentState is LeadsLoaded ? currentState.selectedIsActive : null;
-                  final searchQuery = currentState is LeadsLoaded ? currentState.searchQuery : null;
-                  
-                  if (searchQuery != null && searchQuery.isNotEmpty) {
-                    context.read<LeadsBloc>().add(SearchLeads(query: searchQuery, page: 0, size: 15));
-                  } else {
-                    context.read<LeadsBloc>().add(FetchLeads(page: 0, size: 15, statusId: currentStatusId, isActive: currentIsActive));
-                  }
+                  final currentStatusId = currentState is LeadsLoaded
+                      ? currentState.selectedStatusId
+                      : null;
+                  final currentIsActive = currentState is LeadsLoaded
+                      ? currentState.selectedIsActive
+                      : null;
+                  final searchQuery = currentState is LeadsLoaded
+                      ? currentState.searchQuery
+                      : null;
+
+                  context.read<LeadsBloc>().add(
+                    FetchLeads(
+                      page: 0,
+                      size: 15,
+                      statusId: currentStatusId,
+                      isActive: currentIsActive,
+                      searchQuery: searchQuery,
+                    ),
+                  );
                 }
               },
               child: LeadCard(
                 leadId: lead.id,
+                leadNumber: lead.leadNumber,
                 initials: initials.toUpperCase(),
                 avatarColor: const Color(0xFFFDE8E1),
                 avatarTextColor: const Color(0xFFD97706),
-                name: '${lead.firstName} ${lead.lastName}',
+                name: displayName,
                 company: lead.companyName,
+                email: lead.email,
+                source: lead.source?.name,
                 status: lead.status?.statusName ?? 'Unknown',
                 statusBgColor: statusColor.withValues(alpha: 0.15),
                 statusTextColor: statusColor,
-                priority: lead.priority != null ? '${lead.priority} Priority' : 'No Priority',
+                priority: lead.priority != null
+                    ? '${lead.priority} Priority'
+                    : 'No Priority',
                 priorityColor: priorityColor,
                 createdByName: lead.createdByName,
                 createdAt: lead.createdAt,
@@ -490,9 +650,7 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
           if (showLoader && index == state.leads.length) {
             return const Padding(
               padding: EdgeInsets.symmetric(vertical: 16.0),
-              child: Center(
-                child: SpinningLogo(size: 36),
-              ),
+              child: Center(child: SpinningLogo(size: 36)),
             );
           }
 
@@ -503,7 +661,11 @@ class _LeadsScreenViewState extends State<LeadsScreenView> {
     return const SizedBox();
   }
 
-  Widget _buildFilterChip(String label, {bool isSelected = false, required VoidCallback onTap}) {
+  Widget _buildFilterChip(
+    String label, {
+    bool isSelected = false,
+    required VoidCallback onTap,
+  }) {
     return GestureDetector(
       onTap: onTap,
       child: Container(

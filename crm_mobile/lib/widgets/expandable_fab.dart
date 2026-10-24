@@ -5,6 +5,8 @@ import 'package:crm_mobile/screens/leads/quick_invite_screen.dart';
 import 'package:crm_mobile/widgets/in_app_dialpad_bottom_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:crm_mobile/core/services/privilege_service.dart';
+import 'package:crm_mobile/injection/injection.dart';
 
 class ExpandableFab extends StatefulWidget {
   const ExpandableFab({super.key});
@@ -66,68 +68,78 @@ class _ExpandableFabState extends State<ExpandableFab> with SingleTickerProvider
 
   @override
   Widget build(BuildContext context) {
+    final priv = sl<PrivilegeService>();
+    final canCreateLead = priv.hasPrivilege('LEAD_CREATE');
+    final canUseDialer = priv.hasPrivilege('CALL_READ') || priv.hasPrivilege('DASHBOARD_READ') || priv.hasPrivilege('LEAD_READ');
+
+    if (!canCreateLead && !canUseDialer) {
+      return const SizedBox.shrink();
+    }
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        SizeTransition(
-          sizeFactor: _expandAnimation,
-          axisAlignment: 1.0, // Expand upwards from the bottom
-          child: Align(
-            alignment: Alignment.bottomRight,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                
-                const SizedBox(height: 12),
-                _buildActionItem(
-                  label: 'Quick Invite',
-                  icon: Icons.flash_on,
-                  color: Colors.orange,
-                  onTap: () => _navigateTo(const QuickInviteScreen()),
-                ),
-                const SizedBox(height: 12),
-                _buildActionItem(
-                  label: 'Add Single Lead',
-                  icon: Icons.person_add,
-                  color: AppColors.primary,
-                  onTap: () => _navigateTo(const AddLeadScreen()),
-                ),
-                const SizedBox(height: 16),
-              ],
+        if (canCreateLead) ...[
+          SizeTransition(
+            sizeFactor: _expandAnimation,
+            axisAlignment: 1.0, // Expand upwards from the bottom
+            child: Align(
+              alignment: Alignment.bottomRight,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  const SizedBox(height: 12),
+                  _buildActionItem(
+                    label: 'Quick Invite',
+                    icon: Icons.flash_on,
+                    color: Colors.orange,
+                    onTap: () => _navigateTo(const QuickInviteScreen()),
+                  ),
+                  const SizedBox(height: 12),
+                  _buildActionItem(
+                    label: 'Add Single Lead',
+                    icon: Icons.person_add,
+                    color: AppColors.primary,
+                    onTap: () => _navigateTo(const AddLeadScreen()),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
             ),
           ),
-        ),
-        FloatingActionButton(
-          heroTag: 'expandable_fab_main',
-          backgroundColor: AppColors.primary,
-          shape: const CircleBorder(),
-          onPressed: _toggle,
-          child: AnimatedIcon(
-            icon: AnimatedIcons.menu_close,
-            progress: _controller,
-            color: Colors.white,
+          FloatingActionButton(
+            heroTag: 'expandable_fab_main',
+            backgroundColor: AppColors.primary,
+            shape: const CircleBorder(),
+            onPressed: _toggle,
+            child: AnimatedIcon(
+              icon: AnimatedIcons.menu_close,
+              progress: _controller,
+              color: Colors.white,
+            ),
           ),
-        ),
-        const SizedBox(height: 12),
-        FloatingActionButton(
-          heroTag: 'dialer_fab_under_3_line',
-          backgroundColor: Colors.teal,
-          shape: const CircleBorder(),
-          onPressed: () {
-            final bloc = context.read<LeadsBloc>();
-            showModalBottomSheet(
-              context: context,
-              isScrollControlled: true,
-              backgroundColor: Colors.transparent,
-              builder: (modalContext) => BlocProvider<LeadsBloc>.value(
-                value: bloc,
-                child: const InAppDialpadBottomSheet(),
-              ),
-            );
-          },
-          child: const Icon(Icons.dialpad, color: Colors.white, size: 24),
-        ),
+          if (canUseDialer) const SizedBox(height: 12),
+        ],
+        if (canUseDialer)
+          FloatingActionButton(
+            heroTag: 'dialer_fab_under_3_line',
+            backgroundColor: Colors.teal,
+            shape: const CircleBorder(),
+            onPressed: () {
+              final bloc = context.read<LeadsBloc>();
+              showModalBottomSheet(
+                context: context,
+                isScrollControlled: true,
+                backgroundColor: Colors.transparent,
+                builder: (modalContext) => BlocProvider<LeadsBloc>.value(
+                  value: bloc,
+                  child: const InAppDialpadBottomSheet(),
+                ),
+              );
+            },
+            child: const Icon(Icons.dialpad, color: Colors.white, size: 24),
+          ),
       ],
     );
   }

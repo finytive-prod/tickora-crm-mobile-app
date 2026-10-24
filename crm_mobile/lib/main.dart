@@ -6,6 +6,7 @@ import 'injection/injection.dart' as di;
 import 'core/theme/app_colors.dart';
 import 'core/services/fcm_service.dart';
 
+import 'package:crm_mobile/core/services/call_recording_service.dart';
 import 'package:crm_mobile/core/utils/navigation_service.dart';
 import 'package:crm_mobile/screens/splash_screen.dart';
 
@@ -23,6 +24,9 @@ void main() async {
   
   // Initialize dependency injection
   await di.init();
+
+  // Initialize floating overlay listener
+  CallRecordingService.initializeOverlayListener();
   
   runApp(const MyApp());
 }

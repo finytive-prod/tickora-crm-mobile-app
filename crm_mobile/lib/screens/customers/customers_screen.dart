@@ -14,6 +14,8 @@ import 'package:crm_mobile/widgets/poor_internet_widget.dart';
 import 'package:crm_mobile/widgets/server_error_503_widget.dart';
 import 'package:crm_mobile/screens/customers/add_edit_customer_screen.dart';
 import 'package:crm_mobile/core/utils/text_selection_utils.dart';
+import 'package:crm_mobile/core/services/privilege_service.dart';
+import 'package:crm_mobile/widgets/confirmation_dialog.dart';
 
 class CustomerScreen extends StatelessWidget {
   const CustomerScreen({super.key});
@@ -54,26 +56,15 @@ class _CustomersViewState extends State<_CustomersView> {
   }
 
   void _handleDelete(BuildContext context, Customer customer) {
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Delete Customer'),
-        content: Text('Are you sure you want to delete ${customer.customerName}?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel', style: TextStyle(color: AppColors.textSecondary)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
-            onPressed: () {
-              Navigator.of(dialogContext).pop();
-              context.read<CustomerBloc>().add(DeleteCustomerEvent(customer.id));
-            },
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+    ConfirmationDialog.show(
+      context,
+      title: 'Delete Customer',
+      message: 'Are you sure you want to delete ${customer.customerName}?',
+      confirmLabel: 'Delete',
+      isDestructive: true,
+      onConfirm: () {
+        context.read<CustomerBloc>().add(DeleteCustomerEvent(customer.id));
+      },
     );
   }
 
@@ -184,19 +175,24 @@ class _CustomersViewState extends State<_CustomersView> {
                     separatorBuilder: (context, index) => const SizedBox(height: 12),
                     itemBuilder: (context, index) {
                       final customer = customers[index];
+                      final priv = sl<PrivilegeService>();
+                      final canUpdate = priv.hasPrivilege('CUSTOMER_UPDATE');
+                      final canDelete = priv.hasPrivilege('CUSTOMER_DELETE');
                       return CustomerCard(
                         customer: customer,
                         onTap: () {},
-                        onEdit: () async {
-                          final result = await Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (context) => AddEditCustomerScreen(customer: customer)),
-                          );
-                          if (result == true && context.mounted) {
-                            context.read<CustomerBloc>().add(FetchCustomers(searchQuery: _searchController.text));
-                          }
-                        },
-                        onDelete: () => _handleDelete(context, customer),
+                        onEdit: canUpdate
+                            ? () async {
+                                final result = await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (context) => AddEditCustomerScreen(customer: customer)),
+                                );
+                                if (result == true && context.mounted) {
+                                  context.read<CustomerBloc>().add(FetchCustomers(searchQuery: _searchController.text));
+                                }
+                              }
+                            : null,
+                        onDelete: canDelete ? () => _handleDelete(context, customer) : null,
                       );
                     },
                   );
@@ -226,19 +222,21 @@ class _CustomersViewState extends State<_CustomersView> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () async {
-          final result = await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const AddEditCustomerScreen()),
-          );
-          if (result == true && context.mounted) {
-            context.read<CustomerBloc>().add(FetchCustomers(searchQuery: _searchController.text));
-          }
-        },
-        backgroundColor: AppColors.primary,
-        child: const Icon(Icons.add, color: Colors.white),
-      ),
+      floatingActionButton: sl<PrivilegeService>().hasPrivilege('CUSTOMER_CREATE')
+          ? FloatingActionButton(
+              onPressed: () async {
+                final result = await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const AddEditCustomerScreen()),
+                );
+                if (result == true && context.mounted) {
+                  context.read<CustomerBloc>().add(FetchCustomers(searchQuery: _searchController.text));
+                }
+              },
+              backgroundColor: AppColors.primary,
+              child: const Icon(Icons.add, color: Colors.white),
+            )
+          : null,
       )
     );
   }

@@ -15,6 +15,7 @@ import 'package:crm_mobile/widgets/poor_internet_widget.dart';
 import 'package:crm_mobile/widgets/server_error_503_widget.dart';
 import 'package:crm_mobile/repositories/settings_repository.dart';
 import 'package:crm_mobile/core/utils/text_selection_utils.dart';
+import 'package:crm_mobile/core/services/privilege_service.dart';
 
 class StaffListScreen extends StatelessWidget {
   const StaffListScreen({super.key});
@@ -170,13 +171,15 @@ class _StaffListViewState extends State<_StaffListView> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _openAddStaffBottomSheet,
-        backgroundColor: AppColors.primary,
-        elevation: 4,
-        shape: const CircleBorder(),
-        child: const Icon(Icons.add, color: Colors.white, size: 28),
-      ),
+      floatingActionButton: sl<PrivilegeService>().hasPrivilege('STAFF_CREATE')
+          ? FloatingActionButton(
+              onPressed: _openAddStaffBottomSheet,
+              backgroundColor: AppColors.primary,
+              elevation: 4,
+              shape: const CircleBorder(),
+              child: const Icon(Icons.add, color: Colors.white, size: 28),
+            )
+          : null,
       body: BlocListener<StaffBloc, StaffState>(
         listener: (context, state) {
           if (state is StaffCreateSuccess) {

@@ -9,6 +9,7 @@ class DialpadLeadSearchResult {
   final String? statusName;
   final String? statusColor;
   final String? assignedToName;
+  final String? assignedToId;
   final String? assignedToRole;
   final String? assignedToInfo;
   final String? createdAt;
@@ -24,6 +25,7 @@ class DialpadLeadSearchResult {
     this.statusName,
     this.statusColor,
     this.assignedToName,
+    this.assignedToId,
     this.assignedToRole,
     this.assignedToInfo,
     this.createdAt,
@@ -32,7 +34,24 @@ class DialpadLeadSearchResult {
   factory DialpadLeadSearchResult.fromJson(Map<String, dynamic> json) {
     final data = json['data'];
     if (data != null && data is Map<String, dynamic>) {
-      final alreadyMapped = data['alreadyMapped'] == true || data['alreadyMapped'] == 'true';
+      final alreadyMapped = data['alreadyMapped'] == true ||
+          data['alreadyMapped'] == 'true' ||
+          (data['leadId'] != null && data['leadId'].toString().trim().isNotEmpty) ||
+          (data['id'] != null && data['id'].toString().trim().isNotEmpty);
+
+      String? assignedToId;
+      if (data['assignedToId'] != null && data['assignedToId'].toString().trim().isNotEmpty) {
+        assignedToId = data['assignedToId'].toString().trim();
+      } else if (data['ownerUserId'] != null && data['ownerUserId'].toString().trim().isNotEmpty) {
+        assignedToId = data['ownerUserId'].toString().trim();
+      } else if (data['assignedTo'] is Map && data['assignedTo']['id'] != null) {
+        assignedToId = data['assignedTo']['id'].toString().trim();
+      } else if (data['owner'] is Map && data['owner']['id'] != null) {
+        assignedToId = data['owner']['id'].toString().trim();
+      } else if (data['assignedTo'] is String && data['assignedTo'].toString().trim().isNotEmpty) {
+        final str = data['assignedTo'].toString().trim();
+        if (str.length > 20) assignedToId = str;
+      }
 
       String? assignedToName;
       if (data['assignedToName'] != null && data['assignedToName'].toString().trim().isNotEmpty) {
@@ -75,6 +94,7 @@ class DialpadLeadSearchResult {
         statusName: data['statusName']?.toString(),
         statusColor: data['statusColor']?.toString(),
         assignedToName: assignedToName,
+        assignedToId: assignedToId,
         assignedToRole: data['assignedToRole']?.toString(),
         assignedToInfo: data['assignedToInfo']?.toString(),
         createdAt: rawCreatedAt,

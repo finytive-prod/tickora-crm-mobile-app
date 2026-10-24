@@ -8,6 +8,8 @@ import 'package:crm_mobile/screens/pipeline/widgets/pipeline_column_widget.dart'
 import 'package:crm_mobile/screens/pipeline/widgets/pipeline_lead_card.dart';
 import 'package:crm_mobile/widgets/spinning_logo.dart';
 import 'package:crm_mobile/core/utils/text_selection_utils.dart';
+import 'package:crm_mobile/widgets/confirmation_dialog.dart';
+import 'package:crm_mobile/core/services/privilege_service.dart';
 
 class LeadPipelineScreen extends StatefulWidget {
   const LeadPipelineScreen({super.key});
@@ -126,6 +128,30 @@ class _LeadPipelineScreenState extends State<LeadPipelineScreen> {
 
     final sourceCol = _columns[sourceColIdx];
     final targetCol = _columns[targetColIdx];
+    final sourceStatus = sourceCol.status;
+
+    if (sourceStatus.level == 3 && targetStatus.level == 1) {
+      final isAdmin = sl<PrivilegeService>().isAdminOrSuperAdmin();
+      if (!isAdmin) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Only Admin and Super Admin can move a lead from Stage 3 to Stage 1.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+      final confirmed = await ConfirmationDialog.show(
+        context,
+        title: 'Confirm Status Change',
+        message: 'Are you sure you want to move "${lead.fullName}" from "${sourceStatus.statusName}" (Stage 3) to "${targetStatus.statusName}" (Stage 1)?',
+        confirmLabel: 'Move Lead',
+        isDestructive: false,
+      );
+      if (confirmed != true || !mounted) return;
+    }
 
     // Optimistic UI update
     setState(() {

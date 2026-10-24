@@ -17,6 +17,7 @@ import 'package:crm_mobile/models/staff_user.dart';
 import 'package:crm_mobile/usecases/get_staff_users_usecase.dart';
 import 'package:crm_mobile/repositories/leads_repository.dart';
 import 'package:crm_mobile/screens/leads/lead_details_screen.dart';
+import 'package:crm_mobile/core/services/privilege_service.dart';
 
 class QuickInviteScreen extends StatefulWidget {
   final String? initialPhoneNumber;
@@ -30,7 +31,7 @@ class QuickInviteScreen extends StatefulWidget {
 class _QuickInviteScreenState extends State<QuickInviteScreen> {
   final _formKey = GlobalKey<FormState>();
 
-  final _nameController = TextEditingController();
+  final _nameController = TextEditingController(text: 'quick call user');
   final _phoneController = TextEditingController();
   
 
@@ -203,10 +204,12 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
               _cachedOwners = users;
               if (_selectedAssignedUser == null) {
                 final currentUserList = users.where((s) => _currentUserId != null && s.userId == _currentUserId).toList();
-                final otherOwners = users.where((s) => !currentUserList.contains(s)).toList();
-                final orderedOwners = [...currentUserList, ...otherOwners];
-                if (orderedOwners.isNotEmpty) {
-                  _selectedAssignedUser = orderedOwners.first.userId;
+                if (currentUserList.isNotEmpty) {
+                  _selectedAssignedUser = currentUserList.first.userId;
+                } else {
+                  final sortedOwners = List<StaffUser>.from(users)
+                    ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+                  _selectedAssignedUser = sortedOwners.first.userId;
                 }
               }
             });
@@ -324,17 +327,45 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
                       ownersToUse.add(StaffUser(userId: _currentUserId!, name: userName));
                     }
 
+                    final canAssign = sl<PrivilegeService>().canAssignLeads();
+
                     if (ownersToUse.isNotEmpty) {
                       final currentUserList = ownersToUse.where((s) => _currentUserId != null && s.userId == _currentUserId).toList();
-                      final otherOwners = ownersToUse.where((s) => !currentUserList.contains(s)).toList();
                       
-                      // Remove duplicate user IDs to prevent Dropdown assertion errors
+                      // Remove duplicate user IDs and sort alphabetically
                       final Set<String> seenIds = {};
-                      final orderedOwners = [...currentUserList, ...otherOwners].where((s) {
+                      List<StaffUser> orderedOwners = ownersToUse.where((s) {
                         if (seenIds.contains(s.userId)) return false;
                         seenIds.add(s.userId);
                         return true;
-                      }).toList();
+                      }).toList()
+                        ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+                      if (!canAssign) {
+                        String ownerName = '';
+                        String ownerId = '';
+                        if (_isExistingLead && _existingAssignedTo != null && _existingAssignedTo!.trim().isNotEmpty && _existingAssignedTo!.trim().toLowerCase() != 'unassigned') {
+                          ownerName = _existingAssignedTo!.trim();
+                          final match = ownersToUse.where((s) => s.name.trim().toLowerCase() == ownerName.toLowerCase()).toList();
+                          ownerId = match.isNotEmpty ? match.first.userId : ownerName;
+                        } else if (!_isExistingLead) {
+                          if (currentUserList.isNotEmpty) {
+                            ownerId = currentUserList.first.userId;
+                            ownerName = currentUserList.first.name;
+                          } else {
+                            ownerId = _currentUserId ?? '';
+                            ownerName = sl.isRegistered<SharedPreferences>()
+                                ? (sl<SharedPreferences>().getString('userName') ?? 'Assigned Staff')
+                                : 'Assigned Staff';
+                          }
+                        } else {
+                          ownerName = _existingAssignedTo?.trim() ?? 'Unassigned';
+                          ownerId = ownerName;
+                        }
+                        final singleOwner = StaffUser(userId: ownerId, name: ownerName);
+                        orderedOwners = [singleOwner];
+                        _selectedAssignedUser = singleOwner.userId;
+                      }
 
                       assignedItems = orderedOwners
                           .map((s) => DropdownMenuItem(
@@ -349,8 +380,9 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
                       }
 
                       if (_selectedAssignedUser == null && orderedOwners.isNotEmpty) {
+                        final currentStaff = orderedOwners.where((s) => _currentUserId != null && s.userId == _currentUserId).toList();
+                        final defaultUserId = currentStaff.isNotEmpty ? currentStaff.first.userId : orderedOwners.first.userId;
                         // Use Future.microtask to avoid modifying state during build
-                        final defaultUserId = orderedOwners.first.userId;
                         Future.microtask(() {
                           if (mounted && _selectedAssignedUser != defaultUserId) {
                             setState(() {
@@ -609,9 +641,10 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
                           CustomDropdownField<String>(
                             label: 'Assigned To',
                             hintText: 'Select Staff Member',
+                            enabled: canAssign,
                             items: assignedItems,
                             value: _selectedAssignedUser,
-                            onChanged: (val) => setState(() => _selectedAssignedUser = val),
+                            onChanged: canAssign ? (val) => setState(() => _selectedAssignedUser = val) : null,
                           ),
 
                           const SizedBox(height: 28),

@@ -140,28 +140,25 @@ class LeadAudioModel extends LeadAudio {
 
   factory LeadAudioModel.fromJson(Map<String, dynamic> json) {
     int parsedDur = 0;
-    if (json['duration'] != null) {
-      final durVal = json['duration'];
-      if (durVal is num) {
-        parsedDur = durVal.toInt();
+    final rawDur = json['duration'] ?? json['durationSeconds'] ?? json['duration_seconds'];
+    if (rawDur != null) {
+      if (rawDur is num) {
+        parsedDur = rawDur.toInt();
       } else {
-        parsedDur = (num.tryParse(durVal.toString()) ?? int.tryParse(durVal.toString()))?.toInt() ?? 0;
-      }
-    }
-    if (parsedDur <= 0 && json['durationSeconds'] != null) {
-      final durVal = json['durationSeconds'];
-      if (durVal is num) {
-        parsedDur = durVal.toInt();
-      } else {
-        parsedDur = (num.tryParse(durVal.toString()) ?? int.tryParse(durVal.toString()))?.toInt() ?? 0;
-      }
-    }
-    if (parsedDur <= 0 && json['duration_seconds'] != null) {
-      final durVal = json['duration_seconds'];
-      if (durVal is num) {
-        parsedDur = durVal.toInt();
-      } else {
-        parsedDur = (num.tryParse(durVal.toString()) ?? int.tryParse(durVal.toString()))?.toInt() ?? 0;
+        final str = rawDur.toString().trim();
+        if (str.contains(':')) {
+          final parts = str.split(':');
+          if (parts.length == 3) {
+            parsedDur = (int.tryParse(parts[0]) ?? 0) * 3600 +
+                (int.tryParse(parts[1]) ?? 0) * 60 +
+                (int.tryParse(parts[2]) ?? 0);
+          } else if (parts.length == 2) {
+            parsedDur = (int.tryParse(parts[0]) ?? 0) * 60 +
+                (int.tryParse(parts[1]) ?? 0);
+          }
+        } else {
+          parsedDur = (num.tryParse(str) ?? int.tryParse(str))?.toInt() ?? 0;
+        }
       }
     }
 

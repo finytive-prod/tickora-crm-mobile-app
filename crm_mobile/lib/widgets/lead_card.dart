@@ -6,11 +6,14 @@ import 'package:crm_mobile/core/theme/app_colors.dart';
 
 class LeadCard extends StatelessWidget {
   final String? leadId;
+  final String? leadNumber;
   final String initials;
   final Color avatarColor;
   final Color avatarTextColor;
   final String name;
   final String company;
+  final String? email;
+  final String? source;
   final String status;
   final Color statusBgColor;
   final Color statusTextColor;
@@ -26,11 +29,14 @@ class LeadCard extends StatelessWidget {
   const LeadCard({
     super.key,
     this.leadId,
+    this.leadNumber,
     required this.initials,
     this.avatarColor = const Color(0xFFFDE8E1),
     this.avatarTextColor = const Color(0xFFD97706),
     required this.name,
     required this.company,
+    this.email,
+    this.source,
     required this.status,
     required this.statusBgColor,
     required this.statusTextColor,
@@ -67,9 +73,18 @@ class LeadCard extends StatelessWidget {
 
   Color _getCallStatusColor(String statusStr) {
     final s = statusStr.trim().toUpperCase();
-    if (s == 'MISSED') return Colors.red;
-    if (s == 'NOT_CONNECTED' || s == 'UNANSWERED' || s == 'REJECTED') return Colors.orange;
-    if (s == 'CONNECTED' || s == 'ANSWERED' || s == 'INCOMING' || s == 'OUTGOING') return Colors.green;
+    if (s == 'MISSED') {
+      return Colors.red;
+    }
+    if (s == 'NOT_CONNECTED' || s == 'UNANSWERED' || s == 'REJECTED') {
+      return Colors.orange;
+    }
+    if (s == 'CONNECTED' ||
+        s == 'ANSWERED' ||
+        s == 'INCOMING' ||
+        s == 'OUTGOING') {
+      return Colors.green;
+    }
     return AppColors.textPrimary;
   }
 
@@ -78,9 +93,13 @@ class LeadCard extends StatelessWidget {
     final hasCompany = company.trim().isNotEmpty && company.trim() != '-';
     final hasPhone = phone.trim().isNotEmpty && phone.trim() != '-';
 
-    final hasCreator = createdByName != null && createdByName!.trim().isNotEmpty;
-    final creatorNameStr = hasCreator ? createdByName!.trim() : (priority.trim().isNotEmpty ? priority : '-');
-    final assigneeNameStr = assignee.trim().isNotEmpty ? assignee.trim() : 'Unassigned';
+    final hasCreator =
+        createdByName != null && createdByName!.trim().isNotEmpty;
+    final creatorNameStr = hasCreator
+        ? createdByName!.trim()
+        : (priority.trim().isNotEmpty ? priority : '-');
+    final assigneeNameStr =
+        assignee.trim().isNotEmpty ? assignee.trim() : 'Unassigned';
     final createdAtStr = _formattedCreatedAt;
 
     return Container(
@@ -102,7 +121,11 @@ class LeadCard extends StatelessWidget {
                 radius: 18,
                 child: Text(
                   initials,
-                  style: const TextStyle(color: Color(0xFFD97706), fontWeight: FontWeight.bold, fontSize: 13),
+                  style: const TextStyle(
+                    color: Color(0xFFD97706),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
                 ),
               ),
               const SizedBox(width: 10),
@@ -113,14 +136,21 @@ class LeadCard extends StatelessWidget {
                   children: [
                     Text(
                       name,
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.textPrimary),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                        color: AppColors.textPrimary,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                     if (hasCompany)
                       Text(
                         company,
-                        style: const TextStyle(color: AppColors.textHint, fontSize: 12),
+                        style: const TextStyle(
+                          color: AppColors.textHint,
+                          fontSize: 12,
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -129,7 +159,11 @@ class LeadCard extends StatelessWidget {
                         padding: const EdgeInsets.only(top: 2),
                         child: Text(
                           phone,
-                          style: const TextStyle(color: AppColors.textHint, fontSize: 12, fontWeight: FontWeight.w500),
+                          style: const TextStyle(
+                            color: AppColors.textHint,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                       ),
                   ],
@@ -141,7 +175,10 @@ class LeadCard extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
                     decoration: BoxDecoration(
                       color: statusBgColor,
                       borderRadius: BorderRadius.circular(10),
@@ -158,32 +195,39 @@ class LeadCard extends StatelessWidget {
                   ),
                   if (hasPhone) ...[
                     const SizedBox(height: 6),
-                    InkWell(
-                      onTap: () async {
-                        if (leadId != null && leadId!.isNotEmpty) {
-                          AutoCallRecordingUploader.makeCallAndAutoUpload(
-                            context: context,
-                            leadId: leadId!,
-                            phoneNumber: phone,
-                            leadName: name,
-                          );
-                        } else {
-                          await DirectCallHelper.makeCall(phone);
-                        }
-                      },
-                      borderRadius: BorderRadius.circular(16),
-                      child: Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withValues(alpha: 0.1),
-                          shape: BoxShape.circle,
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox(width: 8),
+                        // Call Action
+                        InkWell(
+                          onTap: () async {
+                            if (leadId != null && leadId!.isNotEmpty) {
+                              AutoCallRecordingUploader.makeCallAndAutoUpload(
+                                context: context,
+                                leadId: leadId!,
+                                phoneNumber: phone,
+                                leadName: name,
+                              );
+                            } else {
+                              await DirectCallHelper.makeCall(phone);
+                            }
+                          },
+                          borderRadius: BorderRadius.circular(16),
+                          child: Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.1),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.phone,
+                              size: 18,
+                              color: AppColors.primary,
+                            ),
+                          ),
                         ),
-                        child: const Icon(
-                          Icons.phone,
-                          size: 18,
-                          color: AppColors.primary,
-                        ),
-                      ),
+                      ],
                     ),
                   ],
                 ],
@@ -267,7 +311,8 @@ class LeadCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       textAlign: TextAlign.end,
                     ),
-                    if (callStatus != null && callStatus!.trim().isNotEmpty) ...[
+                    if (callStatus != null &&
+                        callStatus!.trim().isNotEmpty) ...[
                       const SizedBox(height: 4),
                       Text.rich(
                         TextSpan(

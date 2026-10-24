@@ -154,17 +154,26 @@ class FollowUpsRepositoryImpl implements FollowUpsRepository {
         );
         body = response.data;
       } catch (_) {
-        final response = await apiClient.get(
-          '$_leadsBaseUrl/leads/$leadId/followups',
-        );
-        body = response.data;
+        try {
+          final response = await apiClient.get(
+            '$_leadsBaseUrl/leads/$leadId/followups',
+          );
+          body = response.data;
+        } catch (_) {
+          return const Right(LeadFollowUps(followups: []));
+        }
       }
 
-      if (body != null && (body['success'] == true || body['statusCode'] == 200) && body['data'] != null) {
-        final leadFollowUps = LeadFollowUpsModel.fromJson(body['data']);
-        return Right(leadFollowUps);
+      if (body != null && (body['success'] == true || body['statusCode'] == 200)) {
+        if (body['data'] != null) {
+          final leadFollowUps = LeadFollowUpsModel.fromJson(body['data']);
+          return Right(leadFollowUps);
+        }
+        return const Right(LeadFollowUps(followups: []));
+      } else if (body != null && (body['statusCode'] == 404 || body['data'] == null)) {
+        return const Right(LeadFollowUps(followups: []));
       } else {
-        throw ApiException(message: body?['message'] ?? 'Failed to load lead followups');
+        return const Right(LeadFollowUps(followups: []));
       }
     } on Exception catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));

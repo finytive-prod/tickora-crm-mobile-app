@@ -18,6 +18,8 @@ import 'package:crm_mobile/models/lead.dart';
 import 'package:crm_mobile/models/staff_user.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crm_mobile/injection/injection.dart';
+import 'package:crm_mobile/core/services/privilege_service.dart';
+import 'package:crm_mobile/repositories/followups_repository.dart';
 
 class AddLeadScreen extends StatefulWidget {
   final LeadDetail? leadToEdit;
@@ -81,8 +83,8 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
   final _repeatCycleController = TextEditingController();
   final _assignedAgentController = TextEditingController();
   final _agendaController = TextEditingController();
-  bool _emailAlert = false;
-  bool _pushNotification = false;
+  bool _emailAlert = true;
+  bool _pushNotification = true;
   bool _smsAlert = false;
   String _selectedPriorityLevel = 'Medium';
 
@@ -241,6 +243,9 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
 
     if (widget.leadToEdit != null) {
       final l = widget.leadToEdit!;
+      _emailAlert = true;
+      _pushNotification = true;
+      _fetchLeadFollowUp(l.id);
       _firstNameController.text = l.firstName;
       _lastNameController.text = l.lastName;
       _companyController.text = l.companyName;
@@ -262,7 +267,9 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
       _selectedSource = (l.source?.id != null && l.source!.id.isNotEmpty) ? l.source!.id : (l.source?.name);
       _selectedStatus = (l.status?.id != null && l.status!.id.isNotEmpty) ? l.status!.id : (l.status?.statusName);
       _selectedPriority = l.priority;
-      _selectedOwner = l.ownerUserId;
+      _selectedOwner = (l.ownerUserId != null && l.ownerUserId!.isNotEmpty)
+          ? l.ownerUserId
+          : (l.ownerUserName != null && l.ownerUserName!.isNotEmpty ? l.ownerUserName : null);
       
       _leadNameController.text = '${l.firstName} ${l.lastName}'.trim();
       
@@ -270,6 +277,48 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         _customFieldValues[cf.fieldId.toString()] = cf.value;
         _customFieldValues[cf.fieldId] = cf.value;
       }
+    }
+  }
+
+  Future<void> _fetchLeadFollowUp(String leadId) async {
+    try {
+      final repo = sl<FollowUpsRepository>();
+      final res = await repo.getLeadFollowUps(leadId);
+      res.fold((_) {}, (data) {
+        if (!mounted || data.followups.isEmpty) return;
+        final f = data.followups.first;
+        setState(() {
+          if (_reminderDateController.text.isEmpty && f.followUpDate.isNotEmpty) {
+            _reminderDateController.text = _formatDateForDisplay(f.followUpDate);
+          }
+          if (_reminderTimeController.text.isEmpty && f.followUpTime.isNotEmpty) {
+            _reminderTimeController.text = f.followUpTime;
+          }
+          if (_agendaController.text.isEmpty && f.leadTask.isNotEmpty) {
+            _agendaController.text = f.leadTask;
+          }
+          final rem = f.reminder.toLowerCase();
+          if (rem.isNotEmpty && rem != 'none') {
+            _emailAlert = rem.contains('email');
+            _pushNotification = rem.contains('push');
+            if (!_emailAlert && !_pushNotification) {
+              _emailAlert = true;
+              _pushNotification = true;
+            }
+          }
+        });
+      });
+    } catch (_) {}
+  }
+
+  String _formatDateForDisplay(String dateStr) {
+    if (dateStr.isEmpty) return '';
+    try {
+      final parsed = DateTime.parse(dateStr);
+      final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return '${months[parsed.month - 1]} ${parsed.day}, ${parsed.year}';
+    } catch (_) {
+      return dateStr;
     }
   }
 
@@ -959,9 +1008,50 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
     priorityItems = prioritiesToUse
         .map((p) => DropdownMenuItem(value: p, child: Text(p, overflow: TextOverflow.ellipsis)))
         .toList();
-    final currentUserList = ownersToUse.where((o) => _currentUserId != null && o.userId == _currentUserId).toList();
-    final otherOwners = ownersToUse.where((o) => !currentUserList.contains(o)).toList();
-    final orderedOwners = [...currentUserList, ...otherOwners];
+    final canAssign = sl<PrivilegeService>().canAssignLeads();
+    List<StaffUser> orderedOwners;
+
+    if (canAssign) {
+      final Set<String> seenIds = {};
+      orderedOwners = ownersToUse.where((o) {
+        if (seenIds.contains(o.userId)) return false;
+        seenIds.add(o.userId);
+        return true;
+      }).toList()
+        ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    } else {
+      String assignedId = widget.leadToEdit?.ownerUserId?.trim() ?? '';
+      String assignedName = widget.leadToEdit?.ownerUserName?.trim() ?? '';
+
+      if (assignedId.isEmpty && assignedName.isNotEmpty) {
+        final match = ownersToUse.where((o) => o.name.trim().toLowerCase() == assignedName.toLowerCase()).toList();
+        if (match.isNotEmpty) {
+          assignedId = match.first.userId;
+        } else {
+          assignedId = assignedName;
+        }
+      }
+
+      if (assignedName.isEmpty && assignedId.isNotEmpty) {
+        final match = ownersToUse.where((o) => o.userId.trim() == assignedId).toList();
+        if (match.isNotEmpty) assignedName = match.first.name;
+      }
+
+      if (widget.leadToEdit == null) {
+        if (assignedId.isEmpty) assignedId = _currentUserId ?? '';
+        if (assignedName.isEmpty) {
+          assignedName = sl.isRegistered<SharedPreferences>()
+              ? (sl<SharedPreferences>().getString('userName') ?? 'Assigned Staff')
+              : 'Assigned Staff';
+        }
+      }
+
+      if (assignedId.isEmpty) assignedId = assignedName.isNotEmpty ? assignedName : 'unassigned';
+      if (assignedName.isEmpty) assignedName = 'Unassigned';
+
+      _selectedOwner = assignedId;
+      orderedOwners = [StaffUser(userId: assignedId, name: assignedName)];
+    }
 
     ownerItems = orderedOwners
         .map((o) => DropdownMenuItem(value: o.userId, child: Text(o.name, overflow: TextOverflow.ellipsis)))
@@ -1078,16 +1168,16 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
           ownerItems.insert(0, DropdownMenuItem(value: _selectedOwner!, child: Text(name, overflow: TextOverflow.ellipsis)));
         }
       }
-    } else if (ownersToUse.isNotEmpty) {
+    } else if (orderedOwners.isNotEmpty && canAssign) {
       if (_currentUserId != null && _currentUserId!.isNotEmpty) {
-        final loggedInStaff = ownersToUse.where((o) => o.userId == _currentUserId).toList();
+        final loggedInStaff = orderedOwners.where((o) => o.userId == _currentUserId).toList();
         if (loggedInStaff.isNotEmpty) {
           _selectedOwner = loggedInStaff.first.userId;
         } else {
-          _selectedOwner = ownersToUse.first.userId;
+          _selectedOwner = orderedOwners.first.userId;
         }
       } else {
-        _selectedOwner = ownersToUse.first.userId;
+        _selectedOwner = orderedOwners.first.userId;
       }
     }
 
@@ -1283,10 +1373,10 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         return CustomDropdownField<String>(
           label: label,
           isRequired: req,
-          enabled: isEditable,
+          enabled: isEditable && canAssign,
           items: ownerItems,
           value: _selectedOwner,
-          onChanged: (val) => setState(() => _selectedOwner = val),
+          onChanged: canAssign ? (val) => setState(() => _selectedOwner = val) : null,
         );
       }
       return null;

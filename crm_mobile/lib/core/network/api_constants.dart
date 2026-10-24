@@ -13,7 +13,12 @@ class ApiUrl {
   ApiUrl._();
 
   static String get rawBaseUrl {
-    var url = dotenv.env['BASE_URL'] ?? 'http://50.117.0.165:8080';
+    var url = 'http://50.117.0.165:8080';
+    try {
+      if (dotenv.isInitialized) {
+        url = dotenv.env['BASE_URL'] ?? url;
+      }
+    } catch (_) {}
     url = url.trim();
     while (url.endsWith('/')) {
       url = url.substring(0, url.length - 1);

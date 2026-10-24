@@ -13,6 +13,8 @@ import 'package:crm_mobile/screens/dashboard/customize_dashboard_modal.dart';
 import 'package:crm_mobile/core/services/notification_service.dart';
 import 'package:crm_mobile/screens/notifications/notifications_screen.dart';
 import 'package:crm_mobile/widgets/animated_bell_icon.dart';
+import 'package:crm_mobile/models/owner_call_report.dart';
+import 'package:crm_mobile/repositories/leads_repository.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
@@ -35,15 +37,101 @@ class DashboardView extends StatefulWidget {
 
 class _DashboardViewState extends State<DashboardView> {
   String _trendPeriod = 'weekly';
+  List<OwnerCallReport> _callReports = [];
+  bool _isCallReportLoading = false;
+  String _selectedCallFilter = 'Today';
+  DateTime? _callStartDate;
+  DateTime? _callEndDate;
 
   @override
   void initState() {
     super.initState();
+    _applyCallQuickFilter('Today', fetch: false);
+    _fetchCallReport();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         context.read<DashboardBloc>().add(const FetchDashboardPreferences());
       }
     });
+  }
+
+  void _applyCallQuickFilter(String filter, {bool fetch = true}) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    setState(() {
+      _selectedCallFilter = filter;
+      if (filter == 'Today') {
+        _callStartDate = today;
+        _callEndDate = today;
+      } else if (filter == 'Yesterday') {
+        final yesterday = today.subtract(const Duration(days: 1));
+        _callStartDate = yesterday;
+        _callEndDate = yesterday;
+      } else if (filter == 'Last Week') {
+        _callStartDate = today.subtract(const Duration(days: 7));
+        _callEndDate = today;
+      } else if (filter == 'Last Month') {
+        _callStartDate = today.subtract(const Duration(days: 30));
+        _callEndDate = today;
+      } else if (filter == 'All Time') {
+        _callStartDate = null;
+        _callEndDate = null;
+      }
+    });
+
+    if (fetch) {
+      _fetchCallReport();
+    }
+  }
+
+  String _formatDate(DateTime date) {
+    final y = date.year.toString().padLeft(4, '0');
+    final m = date.month.toString().padLeft(2, '0');
+    final d = date.day.toString().padLeft(2, '0');
+    return '$y-$m-$d';
+  }
+
+  Future<void> _fetchCallReport() async {
+    if (mounted) {
+      setState(() {
+        _isCallReportLoading = true;
+      });
+    }
+
+    try {
+      final repo = sl<LeadsRepository>();
+      final startStr = _callStartDate != null ? _formatDate(_callStartDate!) : null;
+      final endStr = _callEndDate != null ? _formatDate(_callEndDate!) : null;
+
+      final result = await repo.getOwnerCallReport(
+        ownerIds: [],
+        startDate: startStr,
+        endDate: endStr,
+      );
+
+      if (mounted) {
+        result.fold(
+          (_) {
+            setState(() {
+              _isCallReportLoading = false;
+            });
+          },
+          (reports) {
+            setState(() {
+              _callReports = reports;
+              _isCallReportLoading = false;
+            });
+          },
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _isCallReportLoading = false;
+        });
+      }
+    }
   }
 
   void _openCustomizeModal(BuildContext context, List<String> currentWidgets) async {
@@ -133,7 +221,10 @@ class _DashboardViewState extends State<DashboardView> {
           IconButton(
             icon: const Icon(Icons.refresh_rounded, color: AppColors.textPrimary),
             tooltip: 'Refresh Dashboard',
-            onPressed: () => context.read<DashboardBloc>().add(const FetchDashboardPreferences()),
+            onPressed: () {
+              context.read<DashboardBloc>().add(const FetchDashboardPreferences());
+              _fetchCallReport();
+            },
           ),
           const SizedBox(width: 4),
         ],
@@ -186,6 +277,7 @@ class _DashboardViewState extends State<DashboardView> {
           return RefreshIndicator(
             onRefresh: () async {
               context.read<DashboardBloc>().add(const FetchDashboardPreferences());
+              await _fetchCallReport();
             },
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(16.0),
@@ -193,6 +285,10 @@ class _DashboardViewState extends State<DashboardView> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // ─── TOP GLOBAL CALL OVERVIEW (5 BOXES) ──────────────────────
+                  _buildGlobalCallSummarySection(),
+                  const SizedBox(height: 16),
+
                   // ─── 1. TOP 8 METRIC CARDS GRID ─────────────────────────────────
                   _buildStatCardsGrid(visibleWidgets, summaryMetrics),
                   if (_hasAnyStatCardVisible(visibleWidgets)) const SizedBox(height: 16),
@@ -496,6 +592,191 @@ class _DashboardViewState extends State<DashboardView> {
       DashboardWidgetKeys.conversionRate,
     ];
     return statKeys.any((key) => visibleWidgets.contains(key));
+  }
+
+  Widget _buildGlobalCallSummarySection() {
+    final int totalCalls = _callReports.fold(0, (sum, r) => sum + r.totalCallsCount);
+    final int totalIncoming = _callReports.fold(0, (sum, r) => sum + r.incomingCalls);
+    final int totalOutgoing = _callReports.fold(0, (sum, r) => sum + r.outgoingCalls);
+    final int totalConnected = _callReports.fold(0, (sum, r) => sum + r.connectedCallsCount);
+    final int totalNotConnected = _callReports.fold(0, (sum, r) => sum + r.notConnectedCallsCount);
+
+    final filterOptions = ['Today', 'Yesterday', 'Last Week', 'Last Month', 'All Time'];
+
+    return _buildCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.phone_in_talk_rounded, color: AppColors.primary, size: 20),
+                  SizedBox(width: 8),
+                  Text(
+                    'Global Call Overview',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                ],
+              ),
+              PopupMenuButton<String>(
+                initialValue: _selectedCallFilter,
+                onSelected: (val) => _applyCallQuickFilter(val),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _selectedCallFilter,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      const Icon(Icons.arrow_drop_down, color: AppColors.primary, size: 16),
+                    ],
+                  ),
+                ),
+                itemBuilder: (ctx) => filterOptions.map((opt) {
+                  return PopupMenuItem<String>(
+                    value: opt,
+                    child: Text(
+                      opt,
+                      style: TextStyle(
+                        fontWeight: _selectedCallFilter == opt ? FontWeight.bold : FontWeight.normal,
+                        color: _selectedCallFilter == opt ? AppColors.primary : AppColors.textPrimary,
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (_isCallReportLoading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 20),
+              child: Center(child: SpinningLogo(size: 32)),
+            )
+          else ...[
+            Row(
+              children: [
+                Expanded(
+                  child: _buildSummaryKpiCard(
+                    'Total Calls',
+                    totalCalls.toString(),
+                    Icons.phone,
+                    const Color(0xFF2563EB),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildSummaryKpiCard(
+                    'Connected',
+                    totalConnected.toString(),
+                    Icons.check_circle_outline,
+                    const Color(0xFF16A34A),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildSummaryKpiCard(
+                    'Not Connected',
+                    totalNotConnected.toString(),
+                    Icons.phone_missed_outlined,
+                    const Color(0xFFDC2626),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildSummaryKpiCard(
+                    'Incoming Calls',
+                    totalIncoming.toString(),
+                    Icons.call_received,
+                    const Color(0xFF0D9488),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildSummaryKpiCard(
+                    'Outgoing Calls',
+                    totalOutgoing.toString(),
+                    Icons.call_made,
+                    const Color(0xFFEA580C),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSummaryKpiCard(String title, String value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: color, size: 16),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                    height: 1.1,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+              color: AppColors.textSecondary,
+              height: 1.1,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildCard({required Widget child}) {

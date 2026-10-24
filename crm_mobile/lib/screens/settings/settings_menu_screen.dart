@@ -38,11 +38,14 @@ class SettingsMenuScreen extends StatelessWidget {
               ),
               const SizedBox(height: 24),
               
-              if (sl<PrivilegeService>().hasPrivilege('SETTINGS_READ')) ...[
-                _buildSectionTitle('CRM SETTINGS'),
-                _buildSectionContainer(
-                children: [
-                  _buildMenuItem(
+              () {
+                final priv = sl<PrivilegeService>();
+                final items = <Widget>[];
+
+                if (priv.hasPrivilege('LEAD_CUSTOM_FIELDS_READ') ||
+                    priv.hasPrivilege('LEAD_CUSTOM_FORM_READ') ||
+                    priv.hasPrivilege('CUSTOM_FIELDS_READ')) {
+                  items.add(_buildMenuItem(
                     context: context,
                     icon: Icons.list_alt_rounded,
                     title: 'Lead Custom Form',
@@ -52,9 +55,12 @@ class SettingsMenuScreen extends StatelessWidget {
                         MaterialPageRoute(builder: (context) => const LeadCustomFormScreen()),
                       );
                     },
-                  ),
-                  _buildDivider(),
-                  _buildMenuItem(
+                  ));
+                }
+
+                if (priv.hasPrivilege('LEAD_STATUS_READ') ||
+                    priv.hasPrivilege('LEAD_STATUSES_READ')) {
+                  items.add(_buildMenuItem(
                     context: context,
                     icon: Icons.settings_outlined,
                     title: 'Lead Status',
@@ -64,16 +70,12 @@ class SettingsMenuScreen extends StatelessWidget {
                         MaterialPageRoute(builder: (context) => const LeadStatusesScreen()),
                       );
                     },
-                  ),
-                  _buildDivider(),
-                  // _buildMenuItem(
-                  //   context: context,
-                  //   icon: Icons.show_chart_outlined,
-                  //   title: 'Pipeline Stages',
-                  //   onTap: () => _showComingSoon(context, 'Pipeline Stages'),
-                  // ),
-                  _buildDivider(),
-                  _buildMenuItem(
+                  ));
+                }
+
+                if (priv.hasPrivilege('LEAD_SOURCES_READ') ||
+                    priv.hasPrivilege('LEAD_SOURCE_READ')) {
+                  items.add(_buildMenuItem(
                     context: context,
                     icon: Icons.people_alt_outlined,
                     title: 'Lead Sources',
@@ -83,9 +85,14 @@ class SettingsMenuScreen extends StatelessWidget {
                         MaterialPageRoute(builder: (context) => const LeadSourcesScreen()),
                       );
                     },
-                  ),
-  _buildDivider(),
-                  _buildMenuItem(
+                  ));
+                }
+
+                if (priv.hasPrivilege('PERMISSIONS_READ') ||
+                    priv.hasPrivilege('PERMISSION_READ') ||
+                    priv.hasPrivilege('ROLES_READ') ||
+                    priv.hasPrivilege('ROLE_READ')) {
+                  items.add(_buildMenuItem(
                     context: context,
                     icon: Icons.admin_panel_settings_outlined,
                     title: 'Roles & Permissions',
@@ -95,12 +102,37 @@ class SettingsMenuScreen extends StatelessWidget {
                         MaterialPageRoute(builder: (context) => const RolesPermissionsScreen()),
                       );
                     },
-                  ),
+                  ));
+                }
 
-                ],
-              ),
-              // const SizedBox(height: 24),
-              ],
+                if (items.isEmpty) {
+                  return const Padding(
+                    padding: EdgeInsets.only(top: 40.0),
+                    child: Center(
+                      child: Text(
+                        'No settings available',
+                        style: TextStyle(color: Color(0xFF6B7280), fontSize: 16),
+                      ),
+                    ),
+                  );
+                }
+
+                final containerChildren = <Widget>[];
+                for (int i = 0; i < items.length; i++) {
+                  containerChildren.add(items[i]);
+                  if (i < items.length - 1) {
+                    containerChildren.add(_buildDivider());
+                  }
+                }
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildSectionTitle('CRM SETTINGS'),
+                    _buildSectionContainer(children: containerChildren),
+                  ],
+                );
+              }(),
 
             ],
           ),
@@ -181,15 +213,6 @@ class SettingsMenuScreen extends StatelessWidget {
       height: 1,
       thickness: 1,
       color: AppColors.borderEnabled,
-    );
-  }
-
-  void _showComingSoon(BuildContext context, String pageName) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$pageName coming soon.'),
-        duration: const Duration(seconds: 2),
-      ),
     );
   }
 }

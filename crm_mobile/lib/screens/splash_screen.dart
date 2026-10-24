@@ -9,6 +9,7 @@ import 'package:crm_mobile/screens/home_screen.dart';
 import 'package:crm_mobile/screens/auth/login_screen.dart';
 import 'package:crm_mobile/core/services/call_recording_service.dart';
 import 'package:crm_mobile/core/services/app_update_service.dart';
+import 'package:crm_mobile/core/utils/navigation_service.dart';
 import '../../error_handling_img/force_update_screen.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -29,22 +30,23 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
       duration: const Duration(seconds: 2),
     )..repeat();
 
+    _runStartupBackgroundTasks();
     _navigateNext();
   }
 
   void _runStartupBackgroundTasks() async {
-    try {
-      await sl<PrivilegeService>().fetchPrivileges();
-    } catch (e) {
-      debugPrint('Error fetching privileges on startup: $e');
-    }
     try {
       await FcmService.instance.initialize();
     } catch (e) {
       debugPrint('Error initializing FCM on startup: $e');
     }
     try {
-      await CallRecordingService().requestPermissionsSequentially();
+      final callService = CallRecordingService();
+      await callService.requestPermissionsSequentially();
+      final hasScreening = await callService.hasCallScreeningRole();
+      if (!hasScreening) {
+        await callService.requestCallScreeningRole();
+      }
     } catch (e) {
       debugPrint('Error requesting permissions on startup: $e');
     }
@@ -74,6 +76,12 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     final isLoggedIn = token != null && token.isNotEmpty;
 
     if (isLoggedIn) {
+      try {
+        await sl<PrivilegeService>().fetchPrivileges().timeout(
+          const Duration(seconds: 2),
+          onTimeout: () {},
+        );
+      } catch (_) {}
       _runStartupBackgroundTasks();
     }
 
@@ -90,6 +98,10 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
         builder: (context) => isLoggedIn ? const HomeScreen() : const LoginScreen(),
       ),
     );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      NavigationService.markAppReady();
+    });
   }
 
   @override

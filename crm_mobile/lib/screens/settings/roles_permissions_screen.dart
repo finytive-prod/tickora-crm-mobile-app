@@ -184,7 +184,10 @@ class _RolesPermissionsViewState extends State<RolesPermissionsView> {
     return BlocConsumer<SettingsBloc, SettingsState>(
       listener: (context, state) {
         if (state is PermissionModulesLoaded) {
-          _modules = state.modules;
+          _modules = List.from(state.modules);
+          if (!_modules.any((m) => m.module.toUpperCase() == 'BLOCKLIST')) {
+            _modules.add(const PermissionModule(module: 'BLOCKLIST', displayName: 'Blocklist'));
+          }
           _hasLoadedData = true;
           _isLocalLoading = false;
         } else if (state is RolesDropdownLoaded) {
@@ -624,7 +627,9 @@ class _RolesPermissionsViewState extends State<RolesPermissionsView> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 DropdownButtonFormField<RoleDropdownItem>(
-                  value: _selectedRole,
+                  initialValue: (_selectedRole != null && _rolesDropdown.any((r) => r.id == _selectedRole!.id))
+                      ? _rolesDropdown.firstWhere((r) => r.id == _selectedRole!.id)
+                      : (_rolesDropdown.isNotEmpty ? _rolesDropdown.first : null),
                   decoration: const InputDecoration(
                     labelText: 'Select Role',
                     labelStyle: TextStyle(color: AppColors.textLabel, fontWeight: FontWeight.bold),
@@ -791,7 +796,7 @@ class _RoleFormRightPanelState extends State<RoleFormRightPanel> {
   final _priorityController = TextEditingController();
   final _descController = TextEditingController();
 
-  Map<String, Map<String, bool>> _createPermissionsMap = {};
+  final Map<String, Map<String, bool>> _createPermissionsMap = {};
   bool _isEditing = false;
 
   @override

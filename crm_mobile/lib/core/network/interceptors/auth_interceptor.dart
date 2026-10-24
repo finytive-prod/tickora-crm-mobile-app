@@ -48,7 +48,12 @@ class AuthInterceptor extends Interceptor {
 
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) async {
-    if (err.response?.statusCode == 401) {
+    final path = err.requestOptions.path.toLowerCase();
+    final isAuthEndpoint = path.contains('/auth/login') ||
+        path.contains('/auth/verify-mail') ||
+        path.contains('/auth/reset-password');
+
+    if (err.response?.statusCode == 401 && !isAuthEndpoint) {
       await _sharedPreferences.remove('token');
       onSessionExpired();
     }

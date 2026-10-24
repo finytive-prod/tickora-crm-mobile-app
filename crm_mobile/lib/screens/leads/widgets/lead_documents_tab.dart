@@ -16,6 +16,7 @@ import 'package:crm_mobile/blocs/leads_state.dart';
 import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/core/network/api_client.dart';
 import 'package:crm_mobile/core/network/api_constants.dart';
+import 'package:crm_mobile/repositories/leads_repository.dart';
 
 class LeadDocumentsTab extends StatelessWidget {
   final LeadDetailsLoaded state;
@@ -189,19 +190,38 @@ class LeadDocumentsTab extends StatelessWidget {
     }
 
     if (allDocuments.isEmpty) {
-      return const Center(
-        child: Text(
-          'No documents uploaded yet.',
-          style: TextStyle(color: AppColors.textHint, fontSize: 14),
+      return RefreshIndicator(
+        color: AppColors.primary,
+        onRefresh: () async {
+          context.read<LeadsBloc>().add(FetchLeadAttachments(state.leadDetail.id));
+        },
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: const Center(
+                child: Text(
+                  'No documents uploaded yet.',
+                  style: TextStyle(color: AppColors.textHint, fontSize: 14),
+                ),
+              ),
+            ),
+          ),
         ),
       );
     }
 
-    return ListView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: allDocuments.length,
-      itemBuilder: (context, index) {
+    return RefreshIndicator(
+      color: AppColors.primary,
+      onRefresh: () async {
+        context.read<LeadsBloc>().add(FetchLeadAttachments(state.leadDetail.id));
+      },
+      child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.only(bottom: 8.0),
+        itemCount: allDocuments.length,
+        itemBuilder: (context, index) {
         final doc = allDocuments[index];
         
         // Define file type icon
@@ -283,11 +303,97 @@ class LeadDocumentsTab extends StatelessWidget {
                     tooltip: 'Download',
                     onPressed: () => _downloadAttachment(context, doc),
                   ),
+                  if (!doc.id.startsWith('cf_'))
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 22),
+                      tooltip: 'Delete',
+                      onPressed: () => _confirmDeleteAttachment(context, doc),
+                    ),
                 ],
               ),
             ),
           ),
         );
+      },
+    ),
+  );
+}
+
+  void _confirmDeleteAttachment(BuildContext context, Attachment doc) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.delete_outline_rounded, color: Colors.red, size: 24),
+            SizedBox(width: 8),
+            Text(
+              'Delete Document',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+            ),
+          ],
+        ),
+        content: Text(
+          'Are you sure you want to delete "${doc.fileName}"? This action cannot be undone.',
+          style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('CANCEL', style: TextStyle(color: AppColors.textHint)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _deleteAttachment(context, doc);
+            },
+            child: const Text('DELETE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deleteAttachment(BuildContext context, Attachment doc) async {
+    final repo = sl<LeadsRepository>();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
+            const SizedBox(width: 12),
+            Expanded(child: Text('Deleting "${doc.fileName}"...')),
+          ],
+        ),
+        duration: const Duration(seconds: 1),
+      ),
+    );
+
+    final result = await repo.deleteLeadAttachment(doc.id);
+    if (!context.mounted) return;
+
+    result.fold(
+      (failure) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to delete: ${failure.message}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      },
+      (_) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Document deleted successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        context.read<LeadsBloc>().add(FetchLeadAttachments(doc.leadId));
       },
     );
   }

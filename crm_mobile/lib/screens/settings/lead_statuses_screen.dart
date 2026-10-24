@@ -9,6 +9,8 @@ import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/widgets/spinning_logo.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:crm_mobile/core/utils/form_validator_utils.dart';
+import 'package:crm_mobile/widgets/confirmation_dialog.dart';
+import 'package:crm_mobile/core/services/privilege_service.dart';
 
 class LeadStatusesScreen extends StatelessWidget {
   const LeadStatusesScreen({super.key});
@@ -86,6 +88,34 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
   }
 
   Future<void> _deleteStatus(LeadStatus status) async {
+    if (status.level == 1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Stage 1 status is fixed and cannot be deleted.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    if (status.level == 3) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Stage 3 status is managed by the system and cannot be deleted.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final confirmed = await ConfirmationDialog.show(
+      context,
+      title: 'Delete Status',
+      message: 'Are you sure you want to delete status "${status.statusName}"?',
+      confirmLabel: 'Delete',
+      isDestructive: true,
+    );
+    if (confirmed != true) return;
+
     setState(() {
       _isLocalLoading = true;
     });
@@ -236,18 +266,56 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
                             physics: const NeverScrollableScrollPhysics(),
                             buildDefaultDragHandles: false,
                             itemCount: _statuses.length,
-                            onReorder: (oldIndex, newIndex) {
+                            onReorder: (oldIndex, newIndex) async {
                               if (_isLocalLoading) return;
-                              setState(() {
-                                if (newIndex > oldIndex) {
-                                  newIndex -= 1;
+                              final item = _statuses[oldIndex];
+                              var targetIdx = newIndex;
+                              if (targetIdx > oldIndex) {
+                                targetIdx -= 1;
+                              }
+                              if (oldIndex == targetIdx) return;
+
+                              // Stage 1 (level 1) is fixed at the first position
+                              if (item.level == 1 || targetIdx == 0) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Stage 1 status is fixed at the first position and cannot be changed.'),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                                return;
+                              }
+
+                              final targetItem = _statuses[targetIdx];
+                              // Moving from Stage 3 to Stage 1 check
+                              if (item.level == 3 && targetItem.level == 1) {
+                                final isAdmin = sl<PrivilegeService>().isAdminOrSuperAdmin();
+                                if (!isAdmin) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Only Admin and Super Admin can move a status from Stage 3 to Stage 1.'),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
+                                  return;
                                 }
-                                final item = _statuses.removeAt(oldIndex);
-                                _statuses.insert(newIndex, item);
+                                final confirmed = await ConfirmationDialog.show(
+                                  context,
+                                  title: 'Confirm Status Reorder',
+                                  message: 'Are you sure you want to move "${item.statusName}" from Stage 3 to Stage 1?',
+                                  confirmLabel: 'Move',
+                                  isDestructive: false,
+                                );
+                                if (confirmed != true) return;
+                              }
+
+                              setState(() {
+                                final moved = _statuses.removeAt(oldIndex);
+                                _statuses.insert(targetIdx, moved);
 
                                 // Trigger PATCH reorder API
                                 context.read<SettingsBloc>().add(
-                                      ReorderLeadStatus(item.id, newIndex + 1),
+                                      ReorderLeadStatus(moved.id, targetIdx + 1),
                                     );
                               });
 
@@ -265,6 +333,24 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
                             itemBuilder: (context, index) {
                               final status = _statuses[index];
                               final color = _hexToColor(status.color);
+                              final isStage1 = status.level == 1;
+                              final isStage3 = status.level == 3;
+
+                              final String stageText = isStage1
+                                  ? 'Stage 1 (Fixed)'
+                                  : isStage3
+                                      ? 'Stage 3 (Closed)'
+                                      : 'Stage 2 (Customizable)';
+                              final Color stageBg = isStage1
+                                  ? const Color(0xFFEFF6FF)
+                                  : isStage3
+                                      ? const Color(0xFFFEF2F2)
+                                      : const Color(0xFFF5F3FF);
+                              final Color stageColor = isStage1
+                                  ? const Color(0xFF2563EB)
+                                  : isStage3
+                                      ? const Color(0xFFDC2626)
+                                      : const Color(0xFF7C3AED);
 
                               return ListTile(
                                 key: ValueKey(status.id),
@@ -276,9 +362,29 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
                                     shape: BoxShape.circle,
                                   ),
                                 ),
-                                title: Text(
-                                  status.statusName,
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary),
+                                title: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        status.statusName,
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: stageBg,
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        stageText,
+                                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: stageColor),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                                 subtitle: Text(
                                   'Order: ${status.displayOrder}',
@@ -288,7 +394,7 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     GestureDetector(
-                                      onTap: _isLocalLoading
+                                      onTap: (_isLocalLoading || isStage1)
                                           ? null
                                           : () {
                                               context
@@ -297,18 +403,24 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
                                             },
                                       child: status.isDefault
                                           ? const Icon(Icons.star, color: Colors.amber, size: 22)
-                                          : const Icon(Icons.star_border, color: Colors.grey, size: 22),
+                                          : (isStage1 ? const SizedBox(width: 22) : const Icon(Icons.star_border, color: Colors.grey, size: 22)),
                                     ),
                                     const SizedBox(width: 16),
-                                    GestureDetector(
-                                      onTap: _isLocalLoading ? null : () => _deleteStatus(status),
-                                      child: const Icon(Icons.delete_outline, color: AppColors.primary, size: 20),
-                                    ),
+                                    if (!isStage1 && !isStage3)
+                                      GestureDetector(
+                                        onTap: _isLocalLoading ? null : () => _deleteStatus(status),
+                                        child: const Icon(Icons.delete_outline, color: AppColors.primary, size: 20),
+                                      )
+                                    else
+                                      const SizedBox(width: 20),
                                     const SizedBox(width: 12),
-                                    ReorderableDragStartListener(
-                                      index: index,
-                                      child: const Icon(Icons.drag_handle, color: Colors.grey, size: 20),
-                                    ),
+                                    if (!isStage1)
+                                      ReorderableDragStartListener(
+                                        index: index,
+                                        child: const Icon(Icons.drag_handle, color: Colors.grey, size: 20),
+                                      )
+                                    else
+                                      const SizedBox(width: 20),
                                   ],
                                 ),
                                 contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),

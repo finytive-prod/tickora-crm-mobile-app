@@ -154,7 +154,7 @@ class SettingsRepositoryImpl implements SettingsRepository {
   Future<Either<Failure, List<LeadStatus>>> getLeadStatuses() async {
     try {
       final leadsBaseUrl = _leadsBaseUrl;
-      final response = await apiClient.get('$leadsBaseUrl/lead-settings/statuses');
+      final response = await apiClient.get('$leadsBaseUrl/lead-settings/statuses?isActive=true');
       final body = response.data;
       if (body['success'] == true && body['data'] != null) {
         final List<dynamic> content = body['data'];

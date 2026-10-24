@@ -32,46 +32,76 @@ class AppValidators {
     return null;
   }
 
-  /// Validates standard email addresses and rejects emojis
+  /// Validates standard email addresses and rejects emojis, spaces, and invalid domains
   static String? validateEmail(String? value, {bool isRequired = false}) {
     if (value == null || value.trim().isEmpty) {
-      return isRequired ? 'Email is required' : null;
+      return isRequired ? 'Email address is required' : null;
     }
 
-    if (hasEmoji(value)) {
+    final email = value.trim();
+
+    if (hasEmoji(email)) {
       return 'Email cannot contain emojis';
     }
-    
-    // Validates standard email addresses
+
+    if (email.contains(' ')) {
+      return 'Email cannot contain spaces';
+    }
+
+    if (email.contains('..')) {
+      return 'Please enter a valid email address';
+    }
+
+    // Validates standard email addresses (user@domain.tld)
     final emailRegExp = RegExp(
-      r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
+      r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9]+([.-][a-zA-Z0-9]+)*\.[a-zA-Z]{2,}$',
       caseSensitive: false,
     );
 
-    if (!emailRegExp.hasMatch(value.trim())) {
+    if (!emailRegExp.hasMatch(email)) {
       return 'Please enter a valid email address';
     }
+
+    final parts = email.split('@');
+    if (parts.length != 2) return 'Please enter a valid email address';
+    final localPart = parts[0];
+    if (localPart.startsWith('.') || localPart.endsWith('.')) {
+      return 'Please enter a valid email address';
+    }
+
     return null;
   }
 
   /// Validates 10-digit mobile numbers and rejects emojis
-  static String? validateMobile(String? value, {bool isRequired = false}) {
+  static String? validateMobile(
+    String? value, {
+    bool isRequired = false,
+    String fieldName = 'Phone number',
+  }) {
     if (value == null || value.trim().isEmpty) {
-      return isRequired ? 'Mobile number is required' : null;
+      return isRequired ? '$fieldName is required' : null;
     }
 
     if (hasEmoji(value)) {
-      return 'Mobile number cannot contain emojis';
+      return '$fieldName cannot contain emojis';
     }
     
     final phone = value.trim();
+
+    if (!RegExp(r'^\d+$').hasMatch(phone)) {
+      return '$fieldName must contain only digits';
+    }
     
     if (phone.length != 10) {
-      return 'Mobile number must be exactly 10 digits';
+      return '$fieldName must be exactly 10 digits';
     }
     
     if (!phone.startsWith(RegExp(r'[6-9]'))) {
-      return 'Mobile number must start with 6, 7, 8, or 9';
+      return '$fieldName must start with 6, 7, 8, or 9';
+    }
+
+    if (RegExp(r'^(\d)\1{9}$').hasMatch(phone)) {
+      return 'Please enter a valid $fieldName';
     }
     
     return null;
