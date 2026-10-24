@@ -65,7 +65,8 @@ class CallHistoryStorage {
         
         if (phoneMatch) {
           final diff = (entry.startTime - startTimeMs).abs();
-          if (diff < 60000) { // 1 minute tolerance
+          final isOut = entry.callType.toUpperCase() == 'OUTGOING';
+          if (diff < (isOut ? 20000 : 3500)) { // 20s for outgoing (dial latency), 3.5s for incoming
             list[i] = entry.copyWith(isSynced: true);
             updated = true;
           }

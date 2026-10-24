@@ -23,6 +23,7 @@ import 'package:crm_mobile/usecases/update_lead_usecase.dart';
 import 'package:crm_mobile/usecases/quick_invite_lead_usecase.dart';
 import 'package:crm_mobile/blocs/leads_event.dart';
 import 'package:crm_mobile/blocs/leads_state.dart';
+import 'package:crm_mobile/core/services/notification_service.dart';
 
 class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
   final GetLeadsUseCase getLeadsUseCase;
@@ -253,6 +254,8 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
           owners: finalOwners.cast(),
           customFields: finalCustomFields,
           fixedFields: finalFixedFields,
+          selectedStatusId: currentState is LeadsLoaded ? currentState.selectedStatusId : null,
+          selectedIsActive: currentState is LeadsLoaded ? currentState.selectedIsActive : true,
           isLeadsLoaded: true,
           currentPage: event.page,
           hasMoreLeads: hasMore,
@@ -494,6 +497,7 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
     result.fold(
       (failure) => emit(LeadActionError(failure.message)),
       (_) {
+        NotificationService.instance.recordSelfLeadCreated();
         emit(const LeadActionSuccess("Lead created successfully."));
         add(const FetchLeads());
       },
@@ -510,6 +514,7 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
     result.fold(
       (failure) => emit(LeadActionError(failure.message)),
       (_) {
+        NotificationService.instance.recordSelfLeadCreated();
         emit(const LeadActionSuccess("Lead invited successfully."));
         add(const FetchLeads());
       },

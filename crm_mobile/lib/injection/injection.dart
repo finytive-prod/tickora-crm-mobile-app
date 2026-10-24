@@ -30,6 +30,7 @@ import 'package:crm_mobile/blocs/customer_bloc.dart';
 import 'package:crm_mobile/blocs/dashboard_bloc.dart';
 import 'package:crm_mobile/repositories/settings_repository.dart';
 import 'package:crm_mobile/repositories/calendar_repository.dart';
+import 'package:crm_mobile/repositories/staff_personal_numbers_repository.dart';
 
 // Usecase Imports
 import 'package:crm_mobile/usecases/login_usecase.dart';
@@ -296,5 +297,9 @@ Future<void> init() async {
 
   sl.registerLazySingleton<CalendarRepository>(
     () => CalendarRepositoryImpl(apiClient: sl()),
+  );
+
+  sl.registerLazySingleton<StaffPersonalNumbersRepository>(
+    () => StaffPersonalNumbersRepositoryImpl(apiClient: sl()),
   );
 }

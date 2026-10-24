@@ -9,12 +9,10 @@ import 'package:crm_mobile/core/theme/app_colors.dart';
 import 'package:crm_mobile/widgets/spinning_logo.dart';
 import 'package:crm_mobile/models/lead_audio.dart';
 import 'package:crm_mobile/models/lead_call_log.dart';
-import 'package:crm_mobile/models/call_history.dart';
 import 'package:crm_mobile/blocs/leads_bloc.dart';
 import 'package:crm_mobile/blocs/leads_event.dart';
 import 'package:crm_mobile/blocs/leads_state.dart';
 import 'package:crm_mobile/core/services/call_recording_service.dart';
-import 'package:crm_mobile/core/services/call_history_storage.dart';
 import 'package:crm_mobile/core/services/auto_call_recording_uploader.dart';
 import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/core/network/api_client.dart';
@@ -31,50 +29,71 @@ class LeadCallLogsTab extends StatefulWidget {
 
 class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
   final Set<String> _expandedCallLogIds = {};
-  bool _localRecordingsFetched = false;
   final Map<String, String> _resolvedCallTypes = {};
   final Set<String> _pendingAsyncResolutions = {};
   final Map<String, int> _resolvedAudioDurations = {};
   String? _loadingAudioId;
+  int _selectedSubTabIndex = 0;
+  bool _isRefreshing = false;
+
+  Future<void> _handleRefresh() async {
+    if (_isRefreshing) return;
+    setState(() => _isRefreshing = true);
+    try {
+      AutoCallRecordingUploader.autoScanAndUploadLeadRecordings(
+        context: context,
+        leadId: widget.state.leadDetail.id,
+        phoneNumber: widget.state.leadDetail.phone,
+        existingServerAudios: widget.state.audios,
+        existingServerCallLogs: widget.state.callLogs?.callHistory,
+        onUploadSuccess: () {
+          if (mounted) {
+            context.read<LeadsBloc>().add(FetchLeadCallLogs(widget.state.leadDetail.id));
+            context.read<LeadsBloc>().add(FetchLeadAudios(widget.state.leadDetail.id));
+          }
+        },
+      );
+      context.read<LeadsBloc>().add(FetchLeadCallLogs(widget.state.leadDetail.id));
+      context.read<LeadsBloc>().add(FetchLeadAudios(widget.state.leadDetail.id));
+      await Future.delayed(const Duration(milliseconds: 600));
+    } finally {
+      if (mounted) {
+        setState(() => _isRefreshing = false);
+      }
+    }
+  }
 
   @override
   void initState() {
     super.initState();
-    _fetchLocalRecordings(widget.state.leadDetail.phone);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        if (widget.state.audios == null && !widget.state.isAudiosLoading) {
+          context.read<LeadsBloc>().add(FetchLeadAudios(widget.state.leadDetail.id));
+        }
+        if (widget.state.callLogs == null && !widget.state.isCallLogsLoading) {
+          context.read<LeadsBloc>().add(FetchLeadCallLogs(widget.state.leadDetail.id));
+        }
+        AutoCallRecordingUploader.autoScanAndUploadLeadRecordings(
+          context: context,
+          leadId: widget.state.leadDetail.id,
+          phoneNumber: widget.state.leadDetail.phone,
+          existingServerAudios: widget.state.audios,
+          existingServerCallLogs: widget.state.callLogs?.callHistory,
+          onUploadSuccess: () {
+            if (mounted) {
+              context.read<LeadsBloc>().add(FetchLeadCallLogs(widget.state.leadDetail.id));
+              context.read<LeadsBloc>().add(FetchLeadAudios(widget.state.leadDetail.id));
+            }
+          },
+        );
+      }
+    });
   }
 
   @override
   void didUpdateWidget(covariant LeadCallLogsTab oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.state.leadDetail.id != oldWidget.state.leadDetail.id) {
-      _fetchLocalRecordings(widget.state.leadDetail.phone);
-    }
-  }
-
-  List<CallHistory> _localTrackedCalls = [];
-  List<Map<String, dynamic>> _systemCallLogs = [];
-
-  Future<void> _fetchLocalRecordings(String leadPhone) async {
-    try {
-      final localHistory = await CallHistoryStorage.loadCallHistory();
-      List<Map<String, dynamic>> sysLogs = [];
-      if (Platform.isAndroid && leadPhone.isNotEmpty) {
-        try {
-          sysLogs = await CallRecordingService().getSystemCallLogs(leadPhone);
-        } catch (e) {
-          debugPrint('Error fetching system call logs: $e');
-        }
-      }
-
-      if (mounted) {
-        setState(() {
-          _localTrackedCalls = localHistory;
-          _systemCallLogs = sysLogs;
-        });
-      }
-    } catch (e) {
-      debugPrint('Error fetching local call history: $e');
-    }
   }
 
   /// Returns true if [audio] represents a real uploaded audio file,
@@ -84,21 +103,15 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
   bool _audioHasRealFile(LeadAudio audio) {
     if (audio.size > 0) return true;
     final fn = (audio.fileName.isNotEmpty ? audio.fileName : audio.displayName).toLowerCase();
-    if (fn == 'missed_call.mp3' || fn.contains('dummy')) return false;
+    if (fn.isEmpty || fn == 'missed_call.mp3' || fn.contains('dummy')) return false;
     final cs = (audio.callStatus ?? '').toUpperCase();
     if ((cs == 'MISSED' || cs == 'UNANSWERED' || cs == 'NOT_CONNECTED') && audio.size <= 0) return false;
-    return audio.id.isNotEmpty;
+    return audio.id.isNotEmpty || fn.endsWith('.mp3') || fn.endsWith('.m4a') || fn.endsWith('.wav');
   }
 
-  int _parseDurationSeconds(String? durationStr) {
-    if (durationStr == null || durationStr.isEmpty) return 0;
-    final digits = durationStr.replaceAll(RegExp(r'[^\d]'), '');
-    return int.tryParse(digits) ?? 0;
-  }
-
-  bool _isMissedLog(LeadCallLog log) {
-    final statusUpper = log.callStatus.trim().toUpperCase();
-    if (statusUpper == 'MISSED' ||
+  bool _isNotConnectedStatus(String callStatus) {
+    final statusUpper = callStatus.trim().toUpperCase();
+    return statusUpper == 'MISSED' ||
         statusUpper == 'REJECTED' ||
         statusUpper == 'UNANSWERED' ||
         statusUpper == 'NOT_CONNECTED' ||
@@ -109,10 +122,19 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
         statusUpper == 'FAILED' ||
         statusUpper.contains('MISSED') ||
         statusUpper.contains('UNANSWERED') ||
-        statusUpper.contains('NOT_CONNECTED')) {
-      return true;
-    }
-    return false;
+        statusUpper.contains('NOT_CONNECTED');
+  }
+
+  bool _isMissedLog(LeadCallLog log, [String leadPhone = '', LeadAudio? matchedAudio]) {
+    if (matchedAudio != null && _audioHasRealFile(matchedAudio)) return false;
+    if (!_isNotConnectedStatus(log.callStatus)) return false;
+    return _resolveIsIncoming(log, leadPhone, matchedAudio);
+  }
+
+  bool _isUnansweredLog(LeadCallLog log, [String leadPhone = '', LeadAudio? matchedAudio]) {
+    if (matchedAudio != null && _audioHasRealFile(matchedAudio)) return false;
+    if (!_isNotConnectedStatus(log.callStatus)) return false;
+    return !_resolveIsIncoming(log, leadPhone, matchedAudio);
   }
 
   bool _resolveIsIncoming(LeadCallLog log, String leadPhone, LeadAudio? matchedAudio) {
@@ -223,82 +245,64 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
     } catch (_) {}
   }
 
-  int _getEffectiveTimestamp(LeadAudio audio) {
-    final combined = '${audio.fileName}_${audio.displayName}_${audio.id}';
-    
-    // 1. Try 13-digit epoch ms timestamp (e.g. 1791016205000)
-    final msMatch = RegExp(r'(\d{13})').firstMatch(combined);
-    if (msMatch != null) {
-      final val = int.tryParse(msMatch.group(1)!);
-      if (val != null && val > 1500000000000 && val < 2500000000000) {
-        return val;
-      }
-    }
-
-    // 2. Try 10-digit epoch seconds timestamp (e.g. 1791016205)
-    final secMatch = RegExp(r'(?:^|[^0-9])(1[5-9]\d{8})(?:$|[^0-9])').firstMatch(combined);
-    if (secMatch != null) {
-      final val = int.tryParse(secMatch.group(1)!);
-      if (val != null && val > 1500000000 && val < 2500000000) {
-        return val * 1000;
-      }
-    }
-
-    // 3. Try YYYYMMDD_HHMMSS or YYYY-MM-DD_HH-MM-SS pattern
-    final dateTimeMatch = RegExp(r'(?:^|[^0-9])(20[2-3]\d)[_\-]?(\d{2})[_\-]?(\d{2})[_\-]?(\d{2})[_\-]?(\d{2})[_\-]?(\d{2})(?:$|[^0-9])').firstMatch(combined);
-    if (dateTimeMatch != null) {
-      try {
-        final y = int.parse(dateTimeMatch.group(1)!);
-        final m = int.parse(dateTimeMatch.group(2)!);
-        final d = int.parse(dateTimeMatch.group(3)!);
-        final h = int.parse(dateTimeMatch.group(4)!);
-        final mi = int.parse(dateTimeMatch.group(5)!);
-        final s = int.parse(dateTimeMatch.group(6)!);
-        if (m >= 1 && m <= 12 && d >= 1 && d <= 31 && h >= 0 && h <= 23 && mi >= 0 && mi <= 59 && s >= 0 && s <= 59) {
-          return DateTime(y, m, d, h, mi, s).millisecondsSinceEpoch;
+  DateTime _parseAudioDateTime(LeadAudio audio) {
+    // 1. Authoritative: callDate + startTimeStr / createdAt from backend
+    final parsed = AutoCallRecordingUploader.parseCallDateTime(
+      audio.callDate,
+      audio.startTimeStr,
+      audio.createdAt?.toIso8601String(),
+    );
+    if (parsed != null && parsed.year >= 2020 && parsed.year <= 2030) {
+      if (parsed.hour == 0 && parsed.minute == 0 && parsed.second == 0) {
+        final timeFromFn = _extractDateTimeFromFileName(audio.displayName) ??
+            _extractDateTimeFromFileName(audio.fileName);
+        if (timeFromFn != null &&
+            timeFromFn.year == parsed.year &&
+            timeFromFn.month == parsed.month &&
+            timeFromFn.day == parsed.day) {
+          return timeFromFn;
         }
-      } catch (_) {}
-    }
-
-    // Extract actual call date from audio.callDate or audio.createdAt
-    String? resolvedDateStr;
-    if (audio.callDate != null && audio.callDate!.isNotEmpty) {
-      resolvedDateStr = audio.callDate!.trim();
-    } else if (audio.createdAt != null && audio.createdAt!.millisecondsSinceEpoch > 0) {
-      resolvedDateStr = DateFormat('yyyy-MM-dd').format(audio.createdAt!.toLocal());
-    }
-
-    // 4. Check audio.createdAt if non-midnight
-    if (audio.createdAt != null && audio.createdAt!.millisecondsSinceEpoch > 0) {
-      final dt = audio.createdAt!.toLocal();
-      if (dt.hour != 0 || dt.minute != 0 || dt.second != 0) {
-        return dt.millisecondsSinceEpoch;
       }
+      return parsed;
     }
 
-    // 5. Combine resolvedDateStr with audio.startTimeStr if startTimeStr exists
-    if (audio.startTimeStr != null && audio.startTimeStr!.isNotEmpty && audio.startTimeStr != 'null' && audio.startTimeStr != '--:--') {
-      final parsed = _parseTimeStringToMs(audio.startTimeStr, resolvedDateStr);
-      if (parsed > 0) {
-        return parsed;
-      }
+    // 2. Extract YYYYMMDDHHmmss pattern from filename
+    final fnDt = _extractDateTimeFromFileName(audio.displayName) ??
+        _extractDateTimeFromFileName(audio.fileName);
+    if (fnDt != null) return fnDt;
+
+    // 3. Fallback to createdAt
+    if (audio.createdAt != null && audio.createdAt!.year >= 2020 && audio.createdAt!.year <= 2030) {
+      return audio.createdAt!.toLocal();
     }
 
-    // 6. Fallback to createdAt
-    if (audio.createdAt != null && audio.createdAt!.millisecondsSinceEpoch > 0) {
-      return audio.createdAt!.millisecondsSinceEpoch;
-    }
-
-    // 7. Fallback to startTimeStr without known date
-    if (audio.startTimeStr != null && audio.startTimeStr!.isNotEmpty) {
-      final parsed = _parseTimeStringToMs(audio.startTimeStr);
-      if (parsed > 0) return parsed;
-    }
-
-    return 0;
+    return parsed ?? audio.createdAt ?? DateTime.now();
   }
 
-  int _parseTimeStringToMs(String? timeStr, [String? knownDateStr]) {
+  DateTime? _extractDateTimeFromFileName(String filename) {
+    if (filename.isEmpty) return null;
+    final m = RegExp(
+      r'(?:^|[^0-9])(20\d{2})[-_]?(0[1-9]|1[0-2])[-_]?(0[1-9]|[12]\d|3[01])[-_]?([01]\d|2[0-3])[-_]?([0-5]\d)[-_]?([0-5]\d)(?:$|[^0-9])',
+    ).firstMatch(filename);
+    if (m != null) {
+      try {
+        final y = int.parse(m.group(1)!);
+        final mo = int.parse(m.group(2)!);
+        final d = int.parse(m.group(3)!);
+        final h = int.parse(m.group(4)!);
+        final mi = int.parse(m.group(5)!);
+        final s = int.parse(m.group(6)!);
+        return DateTime(y, mo, d, h, mi, s);
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  int _getEffectiveTimestamp(LeadAudio audio) {
+    return _parseAudioDateTime(audio).millisecondsSinceEpoch;
+  }
+
+  int _parseTimeStringToMs(String? timeStr) {
     if (timeStr == null || timeStr.isEmpty || timeStr == 'null' || timeStr == '--:--') return 0;
     String clean = timeStr.trim();
     if (clean.contains(' - ')) {
@@ -308,36 +312,15 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
       if (clean.contains('T')) {
         return DateTime.parse(clean).toLocal().millisecondsSinceEpoch;
       }
-      var datePart = (knownDateStr != null && knownDateStr.isNotEmpty)
-          ? knownDateStr.trim()
-          : DateFormat('yyyy-MM-dd').format(DateTime.now());
-
-      if (datePart.toUpperCase() == 'TODAY') {
-        datePart = DateFormat('yyyy-MM-dd').format(DateTime.now());
-      } else if (datePart.toUpperCase() == 'YESTERDAY') {
-        datePart = DateFormat('yyyy-MM-dd').format(DateTime.now().subtract(const Duration(days: 1)));
-      }
-
-      final dateFormats = ['yyyy-MM-dd', 'dd-MM-yyyy', 'yyyy/MM/dd', 'dd/MM/yyyy'];
-      DateTime? parsedBaseDate;
-      for (final df in dateFormats) {
-        try {
-          parsedBaseDate = DateFormat(df).parse(datePart);
-          break;
-        } catch (_) {}
-      }
-      final normalizedDate = parsedBaseDate != null ? DateFormat('yyyy-MM-dd').format(parsedBaseDate) : datePart;
-
       final timeFormats = [
         'hh:mm:ss a',
         'hh:mm a',
         'HH:mm:ss',
         'HH:mm',
       ];
-
       for (final tf in timeFormats) {
         try {
-          final parsed = DateFormat('yyyy-MM-dd $tf').parse('$normalizedDate $clean');
+          final parsed = DateFormat('yyyy-MM-dd $tf').parse('2000-01-01 $clean');
           return parsed.millisecondsSinceEpoch;
         } catch (_) {}
       }
@@ -389,7 +372,7 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
 
   String _cleanAudioTitle(String title, {required bool isIncoming, required bool isUnanswered}) {
     if (isUnanswered) {
-      return isIncoming ? 'Missed Call' : 'Not Connected Call';
+      return isIncoming ? 'Missed Call' : 'Unanswered Call';
     }
     String cleaned = title.trim();
     if (cleaned.toLowerCase().startsWith('call_recording_')) {
@@ -415,7 +398,12 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
 
   String _formatDuration(dynamic seconds) {
     if (seconds == null) return '0s';
-    final int secs = seconds is int ? seconds : (int.tryParse(seconds.toString()) ?? 0);
+    final str = seconds.toString().trim();
+    if (str.isEmpty || str == 'null' || str == '--:--') return '0s';
+    if (str.contains(':')) {
+      return str;
+    }
+    final int secs = seconds is int ? seconds : (int.tryParse(str) ?? 0);
     if (secs <= 0) return '0s';
     final duration = Duration(seconds: secs);
     final hours = duration.inHours;
@@ -429,89 +417,7 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
   }
 
   DateTime? _parseCallLogDateTime(LeadCallLog log) {
-    // 1. Clean startTime
-    String cleanTime = log.startTime.trim();
-    if (cleanTime.contains(' - ')) {
-      cleanTime = cleanTime.split(' - ').first.trim();
-    }
-
-    if (cleanTime.contains('T') || RegExp(r'^\d{4}-\d{2}-\d{2}').hasMatch(cleanTime)) {
-      try {
-        final parsed = DateTime.parse(cleanTime).toLocal();
-        if (parsed.year > 2000) return parsed;
-      } catch (_) {}
-    }
-
-    // 2. Try combining callDate and cleanTime (actual call occurrence time)
-    if (log.callDate.isNotEmpty) {
-      var dateStr = log.callDate.trim();
-      if (dateStr.toUpperCase() == 'TODAY') {
-        dateStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
-      } else if (dateStr.toUpperCase() == 'YESTERDAY') {
-        dateStr = DateFormat('yyyy-MM-dd').format(DateTime.now().subtract(const Duration(days: 1)));
-      }
-
-      if (cleanTime.isNotEmpty && cleanTime != '--:--' && cleanTime != 'null') {
-        final combined = '$dateStr $cleanTime';
-        final formats = [
-          'yyyy-MM-dd hh:mm:ss a',
-          'yyyy-MM-dd hh:mm a',
-          'yyyy-MM-dd HH:mm:ss',
-          'yyyy-MM-dd HH:mm',
-          'dd-MM-yyyy hh:mm:ss a',
-          'dd-MM-yyyy hh:mm a',
-          'dd-MM-yyyy HH:mm:ss',
-          'dd-MM-yyyy HH:mm',
-          'yyyy/MM/dd hh:mm:ss a',
-          'yyyy/MM/dd HH:mm:ss',
-          'dd/MM/yyyy hh:mm:ss a',
-          'dd/MM/yyyy HH:mm:ss',
-        ];
-
-        for (final fmt in formats) {
-          try {
-            final parsed = DateFormat(fmt).parse(combined);
-            if (parsed.year > 2000) return parsed;
-          } catch (_) {}
-        }
-      }
-
-      // Try dateStr alone
-      try {
-        final parsed = DateTime.parse(dateStr).toLocal();
-        if (parsed.year > 2000) return parsed;
-      } catch (_) {}
-      try {
-        final parsed = DateFormat('yyyy-MM-dd').parse(dateStr);
-        if (parsed.year > 2000) return parsed;
-      } catch (_) {}
-      try {
-        final parsed = DateFormat('dd-MM-yyyy').parse(dateStr);
-        if (parsed.year > 2000) return parsed;
-      } catch (_) {}
-    }
-
-    // 3. Fallback to ISO createdAt if startTime & callDate are absent
-    if (log.createdAt.isNotEmpty) {
-      try {
-        final parsed = DateTime.parse(log.createdAt).toLocal();
-        if (parsed.year > 2000) return parsed;
-      } catch (_) {}
-    }
-
-    return null;
-  }
-
-  DateTime _getCallLogTimestamp(LeadCallLog log, LeadAudio? matchedAudio) {
-    if (matchedAudio != null) {
-      final audioMs = _getEffectiveTimestamp(matchedAudio);
-      if (audioMs > 0) {
-        return DateTime.fromMillisecondsSinceEpoch(audioMs);
-      }
-    }
-    final parsed = _parseCallLogDateTime(log);
-    if (parsed != null) return parsed;
-    return DateTime.now();
+    return AutoCallRecordingUploader.parseCallDateTime(log.callDate, log.startTime, log.createdAt);
   }
 
   int _parseDurationStringToSeconds(String? durStr) {
@@ -601,11 +507,12 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
   }
 
   _CallCardData _buildCallCardDataFromLog(LeadCallLog log, LeadAudio? matchedAudio, String leadPhone) {
-    bool isMissed = _isMissedLog(log);
-    if (matchedAudio != null && _audioHasRealFile(matchedAudio)) {
-      isMissed = false;
-    }
-    final isIncoming = _resolveIsIncoming(log, leadPhone, matchedAudio);
+    final bool hasRealAudio = matchedAudio != null && _audioHasRealFile(matchedAudio);
+    final logDurSec = _parseDurationStringToSeconds(log.duration);
+    final bool isNotConnected = !hasRealAudio && logDurSec <= 0 && _isNotConnectedStatus(log.callStatus);
+    final bool isIncoming = _resolveIsIncoming(log, leadPhone, matchedAudio);
+    final bool isMissed = isNotConnected && isIncoming;
+    final bool isUnanswered = isNotConnected && !isIncoming;
     
     final logDt = _parseCallLogDateTime(log);
     String dateStr = log.callDate;
@@ -615,22 +522,20 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
 
     final audioMs = matchedAudio != null ? _getEffectiveTimestamp(matchedAudio) : 0;
 
-    DateTime logTimestamp = logDt ?? DateTime.now();
-    if (matchedAudio != null && audioMs > 0) {
-      logTimestamp = DateTime.fromMillisecondsSinceEpoch(audioMs);
-    } else if (logDt == null || (logDt.hour == 0 && logDt.minute == 0 && logDt.second == 0)) {
-      if (audioMs > 0) {
-        logTimestamp = DateTime.fromMillisecondsSinceEpoch(audioMs);
-      }
-    }
+    final logHasValidTime = logDt != null && !(logDt.hour == 0 && logDt.minute == 0 && logDt.second == 0);
 
-    final trueDurSec = isMissed ? 0 : _resolveTrueDurationSeconds(audio: matchedAudio, log: log);
-    String durStr = isMissed ? '' : (trueDurSec > 0 ? _formatDuration(trueDurSec) : log.duration);
+    DateTime logTimestamp = logHasValidTime
+        ? logDt
+        : (audioMs > 0 ? DateTime.fromMillisecondsSinceEpoch(audioMs) : (logDt ?? DateTime.fromMillisecondsSinceEpoch(0)));
+
+    final trueDurSec = isNotConnected ? 0 : _resolveTrueDurationSeconds(audio: matchedAudio, log: log);
+    String durStr = isNotConnected ? '' : (trueDurSec > 0 ? _formatDuration(trueDurSec) : log.duration);
 
     String displayStartTime = _formatTimeString(log.startTime) ?? '--:--';
     String displayEndTime = _formatTimeString(log.endTime) ?? '--:--';
 
-    if (matchedAudio != null) {
+    // Only fallback to matchedAudio time strings if call log itself lacked valid times
+    if (matchedAudio != null && (displayStartTime == '--:--' || displayStartTime == 'null' || displayStartTime.startsWith('12:00:00 AM'))) {
       if (matchedAudio.startTimeStr != null &&
           matchedAudio.startTimeStr!.isNotEmpty &&
           matchedAudio.startTimeStr != 'null' &&
@@ -641,6 +546,8 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
           displayStartTime = formatted;
         }
       }
+    }
+    if (matchedAudio != null && (displayEndTime == '--:--' || displayEndTime == 'null' || displayEndTime.startsWith('12:00:00 AM'))) {
       if (matchedAudio.endTimeStr != null &&
           matchedAudio.endTimeStr!.isNotEmpty &&
           matchedAudio.endTimeStr != 'null' &&
@@ -653,38 +560,37 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
       }
     }
 
-    if (!isMissed) {
-      DateTime startDt = (logDt != null && !(logDt.hour == 0 && logDt.minute == 0 && logDt.second == 0))
-          ? logDt
-          : (audioMs > 0 ? DateTime.fromMillisecondsSinceEpoch(audioMs) : (logDt ?? DateTime.now()));
+    DateTime? startDt = logHasValidTime
+        ? logDt
+        : (audioMs > 0 ? DateTime.fromMillisecondsSinceEpoch(audioMs) : logDt);
 
-      if ((startDt.hour == 0 && startDt.minute == 0 && startDt.second == 0) && audioMs > 0) {
-        startDt = DateTime.fromMillisecondsSinceEpoch(audioMs);
-      }
-
-      if (audioMs > 0 || !(startDt.hour == 0 && startDt.minute == 0 && startDt.second == 0)) {
-        displayStartTime = DateFormat('hh:mm:ss a').format(startDt);
-        final endDt = startDt.add(Duration(seconds: trueDurSec > 0 ? trueDurSec : 1));
-        displayEndTime = DateFormat('hh:mm:ss a').format(endDt);
-      }
+    if (startDt != null && !(startDt.hour == 0 && startDt.minute == 0 && startDt.second == 0)) {
+      displayStartTime = DateFormat('hh:mm:ss a').format(startDt);
+      final endDt = isNotConnected
+          ? startDt
+          : startDt.add(Duration(seconds: trueDurSec > 0 ? trueDurSec : 1));
+      displayEndTime = DateFormat('hh:mm:ss a').format(endDt);
     }
 
     String sizeStr = 'No Audio';
-    if (!isMissed && matchedAudio != null && matchedAudio.size > 0) {
+    if (!isNotConnected && matchedAudio != null && matchedAudio.size > 0) {
       final kb = matchedAudio.size / 1024;
       final mb = kb / 1024;
       sizeStr = mb >= 1 ? '${mb.toStringAsFixed(1)} MB' : '${kb.toStringAsFixed(0)} KB';
     }
 
     final title = isMissed 
-        ? (isIncoming ? 'Missed Call' : 'Not Connected Call')
-        : (matchedAudio != null ? _cleanAudioTitle(matchedAudio.displayName, isIncoming: isIncoming, isUnanswered: isMissed) : (isIncoming ? 'Incoming Call' : 'Outgoing Call'));
+        ? 'Missed Call'
+        : (isUnanswered
+            ? 'Unanswered Call'
+            : (matchedAudio != null ? _cleanAudioTitle(matchedAudio.displayName, isIncoming: isIncoming, isUnanswered: false) : (isIncoming ? 'Incoming Call' : 'Outgoing Call')));
 
     return _CallCardData(
-      audio: (matchedAudio != null && _audioHasRealFile(matchedAudio)) ? matchedAudio : null,
+      audio: hasRealAudio ? matchedAudio : null,
       timestamp: logTimestamp,
       isIncoming: isIncoming,
-      isUnanswered: isMissed,
+      isMissed: isMissed,
+      isUnanswered: isUnanswered,
       title: title,
       fromPhone: log.fromNumber.isNotEmpty ? log.fromNumber : (isIncoming ? leadPhone : 'Me'),
       toPhone: log.toNumber.isNotEmpty ? log.toNumber : (isIncoming ? 'Me' : leadPhone),
@@ -706,8 +612,6 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
       return 'Today';
     } else if (itemDate == yesterday) {
       return 'Yesterday';
-    } else if (today.difference(itemDate).inDays < 7 && today.difference(itemDate).inDays > 0) {
-      return DateFormat('EEEE').format(dt);
     } else {
       return DateFormat('MMM dd, yyyy').format(dt);
     }
@@ -723,685 +627,803 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
     return log.callDate.isNotEmpty ? log.callDate : 'Unknown Date';
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final state = widget.state;
-    if (!_localRecordingsFetched) {
-      _localRecordingsFetched = true;
-      _fetchLocalRecordings(state.leadDetail.phone);
-    }
+  String _formatAudioSize(int bytes) {
+    if (bytes <= 0) return '0 KB';
+    final kb = bytes / 1024;
+    final mb = kb / 1024;
+    return mb >= 1 ? '${mb.toStringAsFixed(1)} MB' : '${kb.toStringAsFixed(0)} KB';
+  }
 
-    if (state.callLogs == null && state.isCallLogsLoading) {
-      return const Center(child: SpinningLogo(size: 40));
-    }
-
-    if (state.callLogsError != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text('Failed to load call logs', style: TextStyle(color: AppColors.primary)),
-            TextButton(
-              onPressed: () {
-                context.read<LeadsBloc>().add(FetchLeadCallLogs(state.leadDetail.id));
-              },
-              child: const Text('Retry'),
-            ),
-          ],
-        ),
-      );
-    }
-
-    final callLogs = state.callLogs!;
-    final List<LeadCallLog> rawServerHistory = List.from(callLogs.callHistory);
-
-    // Merge server audio recordings (both connected & missed/unanswered) that don't have a matching server call log
-    if (state.audios != null && state.audios!.isNotEmpty) {
-      for (final audio in state.audios!) {
-        bool matchesExistingServerLog = false;
-        final audioMs = _getEffectiveTimestamp(audio);
-
-        for (final log in rawServerHistory) {
-          if (log.id == audio.id || log.id == 'audio_connected_${audio.id}' || log.id == 'audio_missed_${audio.id}') {
-            matchesExistingServerLog = true;
-            break;
-          }
-          final logDt = _parseCallLogDateTime(log);
-          if (logDt != null && audioMs > 0) {
-            final diffMs = (audioMs - logDt.millisecondsSinceEpoch).abs();
-            if (diffMs < 180000) {
-              final audioType = _getResolvedCallType(audio, state.leadDetail.phone).toUpperCase();
-              final bUpper = (audio.bound ?? '').toUpperCase().trim();
-              final isAudioIncoming = audioType == 'INBOUND' ||
-                  audioType == 'IN' ||
-                  audioType == 'INCOMING' ||
-                  bUpper == 'IN' ||
-                  bUpper.startsWith('INC');
-              final isLogIncoming = _resolveIsIncoming(log, state.leadDetail.phone, null);
-              if (isAudioIncoming == isLogIncoming) {
-                matchesExistingServerLog = true;
-                break;
-              }
-            }
-          }
-        }
-
-        if (!matchesExistingServerLog) {
-          final audioMs = _getEffectiveTimestamp(audio);
-          final dt = audioMs > 0 ? DateTime.fromMillisecondsSinceEpoch(audioMs) : (audio.createdAt ?? DateTime.now());
-          final timeStr = DateFormat('HH:mm:ss').format(dt);
-          final dateStr = DateFormat('yyyy-MM-dd').format(dt);
-          final audioType = _getResolvedCallType(audio, state.leadDetail.phone).toUpperCase();
-          final bUpper = (audio.bound ?? '').toUpperCase().trim();
-          final isIncoming = audioType == 'INBOUND' ||
-              audioType == 'IN' ||
-              audioType == 'INCOMING' ||
-              bUpper == 'IN' ||
-              bUpper == 'INBOUND' ||
-              bUpper == 'INCOMING' ||
-              bUpper.startsWith('INC') ||
-              bUpper.startsWith('INB');
-          final targetBound = isIncoming ? 'IN' : 'OUT';
-
-          final isAudioMissed = !_audioHasRealFile(audio);
-
-          final String statusFinal;
-          if (isAudioMissed) {
-            statusFinal = isIncoming ? 'MISSED' : 'NOT_CONNECTED';
-          } else {
-            statusFinal = isIncoming ? 'INCOMING' : 'OUTGOING';
-          }
-
-          rawServerHistory.add(LeadCallLog(
-            id: 'audio_${isAudioMissed ? "missed" : "connected"}_${audio.id}',
-            leadId: state.leadDetail.id,
-            bound: targetBound,
-            startTime: audio.startTimeStr ?? timeStr,
-            endTime: audio.endTimeStr ?? timeStr,
-            fromNumber: audio.fromNumber ?? (isIncoming ? state.leadDetail.phone : 'Me'),
-            toNumber: audio.toNumber ?? (isIncoming ? 'Me' : state.leadDetail.phone),
-            duration: audio.durationSeconds > 0 ? '${audio.durationSeconds}s' : '0s',
-            callDate: dateStr,
-            callStatus: statusFinal,
-            createdAt: dt.toIso8601String(),
-          ));
-        }
-      }
-    }
-
-    // Merge local tracked call history matching lead's phone number
-    if (_localTrackedCalls.isNotEmpty) {
-      final cleanLeadPhone = state.leadDetail.phone.replaceAll(RegExp(r'\D'), '');
-      final leadLast10 = cleanLeadPhone.length >= 10 ? cleanLeadPhone.substring(cleanLeadPhone.length - 10) : cleanLeadPhone;
-
-      if (leadLast10.isNotEmpty) {
-        for (final localCall in _localTrackedCalls) {
-          final hPhoneDigits = localCall.phoneNumber.replaceAll(RegExp(r'\D'), '');
-          final hLast10 = hPhoneDigits.length >= 10 ? hPhoneDigits.substring(hPhoneDigits.length - 10) : hPhoneDigits;
-
-          if (hLast10 == leadLast10 || hPhoneDigits.contains(leadLast10)) {
-            final callStMs = localCall.startTime > 0 ? localCall.startTime : localCall.timestamp;
-            bool matched = false;
-
-            final isIncoming = localCall.callType.toUpperCase() == 'INCOMING' || localCall.callType.toUpperCase() == 'MISSED';
-            final isLocalMissed = localCall.callStatus.toUpperCase() == 'MISSED' ||
-                localCall.callStatus.toUpperCase() == 'UNANSWERED' ||
-                localCall.callStatus.toUpperCase() == 'REJECTED' ||
-                localCall.durationSeconds == 0;
-            final localBoundStr = isIncoming ? 'IN' : 'OUT';
-
-            for (final sLog in rawServerHistory) {
-              final logDt = _parseCallLogDateTime(sLog);
-              final sMs = logDt?.millisecondsSinceEpoch ?? 0;
-              if (sMs > 0 && (sMs - callStMs).abs() < 30000) {
-                final isServerBoundMatch = AutoCallRecordingUploader.checkBoundMatch(localBoundStr, sLog.bound);
-                final isServerMissed = _isMissedLog(sLog);
-                if (isServerBoundMatch && (isLocalMissed == isServerMissed)) {
-                  matched = true;
-                  break;
-                }
-              }
-            }
-
-            if (!matched && state.audios != null) {
-              for (final sAudio in state.audios!) {
-                final audioMs = _getEffectiveTimestamp(sAudio);
-                if (audioMs > 0 && (audioMs - callStMs).abs() < 30000) {
-                  final serverBound = sAudio.bound ?? '';
-                  final isServerBoundMatch = AutoCallRecordingUploader.checkBoundMatch(localBoundStr, serverBound);
-                  final isAudioMissed = !_audioHasRealFile(sAudio);
-                  if (isServerBoundMatch && (isLocalMissed == isAudioMissed)) {
-                    matched = true;
-                    break;
-                  }
-                }
-              }
-            }
-
-            if (!matched) {
-              final dt = DateTime.fromMillisecondsSinceEpoch(callStMs);
-              final timeStr = DateFormat('HH:mm:ss').format(dt);
-              final dateStr = DateFormat('yyyy-MM-dd').format(dt);
-              final isIncoming = localCall.callType.toUpperCase() == 'INCOMING' || localCall.callType.toUpperCase() == 'MISSED';
-              final isMissed = localCall.callStatus.toUpperCase() == 'MISSED' ||
-                  localCall.callStatus.toUpperCase() == 'UNANSWERED' ||
-                  localCall.callStatus.toUpperCase() == 'REJECTED' ||
-                  localCall.durationSeconds == 0;
-
-              final String statusFinal;
-              if (isMissed) {
-                statusFinal = isIncoming ? 'MISSED' : 'NOT_CONNECTED';
-              } else {
-                statusFinal = isIncoming ? 'INCOMING' : 'OUTGOING';
-              }
-
-              rawServerHistory.add(LeadCallLog(
-                id: 'local_history_${localCall.id}',
-                leadId: state.leadDetail.id,
-                bound: isIncoming ? 'IN' : 'OUT',
-                startTime: timeStr,
-                endTime: timeStr,
-                fromNumber: (localCall.appUserPhone != null && localCall.appUserPhone!.isNotEmpty) ? localCall.appUserPhone! : (isIncoming ? state.leadDetail.phone : 'Me'),
-                toNumber: isIncoming ? 'Me' : state.leadDetail.phone,
-                duration: localCall.durationSeconds > 0 ? '${localCall.durationSeconds}s' : '0s',
-                callDate: dateStr,
-                callStatus: statusFinal,
-                createdAt: dt.toIso8601String(),
-              ));
-            }
-          }
-        }
-      }
-    }
-
-    // Merge Android system call logs (including incoming missed calls & unanswered calls)
-    if (_systemCallLogs.isNotEmpty) {
-      for (final sysCall in _systemCallLogs) {
-        final st = sysCall['startTime'] as int? ?? 0;
-        if (st <= 0) continue;
-
-        final dur = sysCall['durationSeconds'] as int? ?? 0;
-        final cType = (sysCall['callType'] as String? ?? '').toUpperCase();
-        final cStatus = (sysCall['callStatus'] as String? ?? '').toUpperCase();
-        final isIncoming = cType == 'INCOMING' || cType == 'MISSED' || cType == 'REJECTED' || cStatus == 'MISSED';
-        final isMissed = cStatus == 'MISSED' || cStatus == 'UNANSWERED' || cStatus == 'REJECTED' || dur == 0;
-        final sysBound = isIncoming ? 'IN' : 'OUT';
-
-        bool matched = false;
-        for (final sLog in rawServerHistory) {
-          final logDt = _parseCallLogDateTime(sLog);
-          final sMs = logDt?.millisecondsSinceEpoch ?? 0;
-          if (sMs > 0 && (sMs - st).abs() < 60000) {
-            final isServerBoundMatch = AutoCallRecordingUploader.checkBoundMatch(sysBound, sLog.bound);
-            final isServerMissed = _isMissedLog(sLog);
-            if (isServerBoundMatch && (isMissed == isServerMissed)) {
-              matched = true;
-              break;
-            }
-          }
-        }
-
-        if (!matched && state.audios != null) {
-          for (final sAudio in state.audios!) {
-            final audioMs = _getEffectiveTimestamp(sAudio);
-            if (audioMs > 0 && (audioMs - st).abs() < 60000) {
-              final serverBound = sAudio.bound ?? '';
-              final isServerBoundMatch = AutoCallRecordingUploader.checkBoundMatch(sysBound, serverBound);
-              final isAudioMissed = !_audioHasRealFile(sAudio);
-              if (isServerBoundMatch && (isMissed == isAudioMissed)) {
-                matched = true;
-                break;
-              }
-            }
-          }
-        }
-
-        if (!matched) {
-          final dt = DateTime.fromMillisecondsSinceEpoch(st);
-          final timeStr = DateFormat('HH:mm:ss').format(dt);
-          final dateStr = DateFormat('yyyy-MM-dd').format(dt);
-          final statusFinal = isMissed ? (isIncoming ? 'MISSED' : 'NOT_CONNECTED') : (isIncoming ? 'INCOMING' : 'OUTGOING');
-
-          rawServerHistory.add(LeadCallLog(
-            id: 'sys_log_${st}_$sysBound',
-            leadId: state.leadDetail.id,
-            bound: sysBound,
-            startTime: timeStr,
-            endTime: timeStr,
-            fromNumber: sysCall['fromNumber']?.toString() ?? (isIncoming ? state.leadDetail.phone : 'Me'),
-            toNumber: sysCall['toNumber']?.toString() ?? (isIncoming ? 'Me' : state.leadDetail.phone),
-            duration: dur > 0 ? '${dur}s' : '0s',
-            callDate: dateStr,
-            callStatus: statusFinal,
-            createdAt: dt.toIso8601String(),
-          ));
-        }
-      }
-    }
-
-    final List<LeadCallLog> effectiveCallHistory = [];
-
-    for (final log in rawServerHistory) {
-      if (effectiveCallHistory.any((e) => e.id == log.id)) continue;
-
-      final dtLog = _parseCallLogDateTime(log);
-      final logMs = dtLog?.millisecondsSinceEpoch ?? 0;
-      final logBound = log.bound.toUpperCase();
-
-      bool isDuplicate = false;
-      for (int i = 0; i < effectiveCallHistory.length; i++) {
-        final existing = effectiveCallHistory[i];
-        if (existing.id == log.id) {
-          isDuplicate = true;
-          break;
-        }
-
-        final existingDt = _parseCallLogDateTime(existing);
-        final existingMs = existingDt?.millisecondsSinceEpoch ?? 0;
-        final existingBound = existing.bound.toUpperCase();
-
-        final isBoundMatch = AutoCallRecordingUploader.checkBoundMatch(logBound, existingBound);
-        final isTimeMatch = (logMs > 0 && existingMs > 0 && (logMs - existingMs).abs() < 60000);        if (isBoundMatch && isTimeMatch) {
-          final existingIsMissed = _isMissedLog(existing);
-          final logIsMissed = _isMissedLog(log);
-          final sameStatus = (existingIsMissed == logIsMissed);
-
-          if (sameStatus) {
-            isDuplicate = true;
-
-            final existingIsSynthetic = existing.id.startsWith('local_history_') ||
-                existing.id.startsWith('sys_log_') ||
-                existing.id.startsWith('audio_');
-            final logIsSynthetic = log.id.startsWith('local_history_') ||
-                log.id.startsWith('sys_log_') ||
-                log.id.startsWith('audio_');
-
-            if (existingIsSynthetic && !logIsSynthetic) {
-              effectiveCallHistory[i] = log;
-            } else if (!existingIsSynthetic && logIsSynthetic) {
-              // Keep existing real server log
-            } else {
-              final existingDur = _parseDurationSeconds(existing.duration);
-              final logDur = _parseDurationSeconds(log.duration);
-              if (logDur > existingDur) {
-                effectiveCallHistory[i] = log;
-              }
-            }
-            break;
-          } else if (existingIsMissed && !logIsMissed) {
-            effectiveCallHistory[i] = log;
-            isDuplicate = true;
-            break;
-          } else if (!existingIsMissed && logIsMissed) {
-            isDuplicate = true;
-            break;
-          }
-        }
-      }
-
-      if (!isDuplicate) {
-        effectiveCallHistory.add(log);
-      }
-    }
-
-    // Build 1-to-1 mapping from LeadCallLog -> LeadAudio (no double-claiming of audio recordings)
-    final Map<String, LeadAudio?> logToAudioMap = {};
-    final Set<String> claimedAudioIds = {};
-
-    if (state.audios != null && state.audios!.isNotEmpty) {
-      // Pass 1: Pair REAL server call logs (from API) FIRST with unclaimed LeadAudio
-      for (final log in effectiveCallHistory) {
-        if (log.id.startsWith('audio_connected_') || log.id.startsWith('audio_missed_')) continue;
-
-        final logDt = _parseCallLogDateTime(log);
-        final logBoundUpper = log.bound.toUpperCase();
-
-        LeadAudio? bestMatch;
-        int minDiffMs = 1000 * 60 * 360; // 6 hour tolerance (handles UTC vs local time zone shifts)
-
-        for (final audio in state.audios!) {
-          final hasRealFile = _audioHasRealFile(audio);
-          if (!hasRealFile) continue;
-          if (claimedAudioIds.contains(audio.id)) continue;
-
-          final audioMs = _getEffectiveTimestamp(audio);
-
-          if (logDt != null && audioMs > 0) {
-            final diffMs = (audioMs - logDt.millisecondsSinceEpoch).abs();
-            final audioType = _getResolvedCallType(audio, state.leadDetail.phone).toUpperCase();
-            final audioBound = (audio.bound ?? '').toUpperCase();
-
-            bool isDirectionMatch = true;
-            if (logBoundUpper == 'IN') {
-              isDirectionMatch = audioBound.contains('IN') || audioType == 'INBOUND' || audioType == 'IN';
-            } else if (logBoundUpper == 'OUT') {
-              isDirectionMatch = audioBound.contains('OUT') || audioType == 'OUTBOUND' || audioType == 'OUT';
-            }
-
-            if (isDirectionMatch && diffMs < minDiffMs) {
-              minDiffMs = diffMs;
-              bestMatch = audio;
-            }
-          }
-        }
-
-        if (bestMatch != null) {
-          logToAudioMap[log.id] = bestMatch;
-          claimedAudioIds.add(bestMatch.id);
-          if (logBoundUpper == 'OUT' || logBoundUpper == 'OUTBOUND') {
-            _resolvedCallTypes[bestMatch.id] = 'outbound';
-          } else if (logBoundUpper == 'IN' || logBoundUpper == 'INBOUND') {
-            _resolvedCallTypes[bestMatch.id] = 'inbound';
-          }
-        }
-      }
-
-      // Pass 1.5: Fallback matching for any remaining unclaimed LeadAudio with unmapped non-missed call logs
-      for (final audio in state.audios!) {
-        if (claimedAudioIds.contains(audio.id)) continue;
-        if (!_audioHasRealFile(audio)) continue;
-
-        final audioMs = _getEffectiveTimestamp(audio);
-        if (audioMs <= 0) continue;
-
-        LeadCallLog? bestLogMatch;
-        int minDiffMs = 1000 * 60 * 360;
-
-        for (final log in effectiveCallHistory) {
-          if (logToAudioMap[log.id] != null) continue;
-          if (_isMissedLog(log)) continue;
-
-          final logDt = _parseCallLogDateTime(log);
-          if (logDt != null) {
-            final diffMs = (audioMs - logDt.millisecondsSinceEpoch).abs();
-            if (diffMs < minDiffMs) {
-              minDiffMs = diffMs;
-              bestLogMatch = log;
-            }
-          }
-        }
-
-        if (bestLogMatch != null) {
-          logToAudioMap[bestLogMatch.id] = audio;
-          claimedAudioIds.add(audio.id);
-        }
-      }
-
-      // Pass 2: Direct matches for remaining synthetic logs where audio was not claimed by a real server log
-      for (final log in effectiveCallHistory) {
-        if (log.id.startsWith('audio_connected_') || log.id.startsWith('audio_missed_')) {
-          final audioId = log.id.replaceFirst('audio_connected_', '').replaceFirst('audio_missed_', '');
-          if (claimedAudioIds.contains(audioId)) continue;
-
-          LeadAudio? matched;
-          for (final a in state.audios!) {
-            if (a.id == audioId) {
-              matched = a;
-              break;
-            }
-          }
-          if (matched != null) {
-            logToAudioMap[log.id] = matched;
-            claimedAudioIds.add(matched.id);
-          }
-        }
-      }
-
-      // Prune any synthetic audio_connected_ logs or spurious sys_log_/local_history_ duplicates near matching real server logs
-      effectiveCallHistory.removeWhere((log) {
-        if (log.id.startsWith('audio_connected_') || log.id.startsWith('audio_missed_')) {
-          final audioId = log.id.replaceFirst('audio_connected_', '').replaceFirst('audio_missed_', '');
-          return claimedAudioIds.contains(audioId) && logToAudioMap[log.id] == null;
-        }
-        if (log.id.startsWith('sys_log_') || log.id.startsWith('local_history_')) {
-          final logDt = _parseCallLogDateTime(log);
-          if (logDt != null) {
-            for (final realLog in effectiveCallHistory) {
-              if (realLog != log && !realLog.id.startsWith('sys_log_') && !realLog.id.startsWith('local_history_') && !realLog.id.startsWith('audio_')) {
-                final rDt = _parseCallLogDateTime(realLog);
-                if (rDt != null && (rDt.millisecondsSinceEpoch - logDt.millisecondsSinceEpoch).abs() < 120000) {
-                  final sameBound = AutoCallRecordingUploader.checkBoundMatch(log.bound, realLog.bound);
-                  final sameStatus = _isMissedLog(log) == _isMissedLog(realLog);
-                  if (sameBound && sameStatus) {
-                    return true;
-                  }
-                }
-              }
-            }
-          }
-        }
-        return false;
-      });
-    }
-
-    // Final post-processing deduplication pass: purge any residual duplicate call cards matching bound, status, and time (within 2 min)
-    final List<LeadCallLog> finalHistoryList = [];
-    for (final log in effectiveCallHistory) {
-      final dtLog = _parseCallLogDateTime(log);
-      final logMs = dtLog?.millisecondsSinceEpoch ?? 0;
-
-      bool isDup = false;
-      for (int i = 0; i < finalHistoryList.length; i++) {
-        final existing = finalHistoryList[i];
-        final dtExisting = _parseCallLogDateTime(existing);
-        final existingMs = dtExisting?.millisecondsSinceEpoch ?? 0;
-
-        final sameBound = AutoCallRecordingUploader.checkBoundMatch(log.bound, existing.bound);
-        final sameStatus = _isMissedLog(log) == _isMissedLog(existing);
-        final timeDiff = (logMs > 0 && existingMs > 0) ? (logMs - existingMs).abs() : 999999;
-
-        if (sameBound && sameStatus && timeDiff < 120000) {
-          isDup = true;
-          if (logToAudioMap[log.id] != null && logToAudioMap[existing.id] == null) {
-            finalHistoryList[i] = log;
-          }
-          break;
-        }
-      }
-      if (!isDup) {
-        finalHistoryList.add(log);
-      }
-    }
-
-    finalHistoryList.sort((a, b) {
-      final dtA = _getCallLogTimestamp(a, logToAudioMap[a.id]);
-      final dtB = _getCallLogTimestamp(b, logToAudioMap[b.id]);
-      return dtB.compareTo(dtA);
-    });
-
-    if (finalHistoryList.isEmpty) {
-      return RefreshIndicator(
-        onRefresh: () async {
-          _fetchLocalRecordings(state.leadDetail.phone);
-          context.read<LeadsBloc>().add(FetchLeadCallLogs(state.leadDetail.id));
-          context.read<LeadsBloc>().add(FetchLeadAudios(state.leadDetail.id));
-        },
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          child: SizedBox(
-            height: MediaQuery.of(context).size.height * 0.5,
-            child: const Center(
-              child: Text(
-                'No call logs found for this lead.',
-                style: TextStyle(color: AppColors.textHint, fontSize: 16),
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    final totalCallsCount = finalHistoryList.length;
-    final totalInboundCount = finalHistoryList.where((l) => _resolveIsIncoming(l, state.leadDetail.phone, logToAudioMap[l.id])).length;
-    final totalOutboundCount = finalHistoryList.where((l) => !_resolveIsIncoming(l, state.leadDetail.phone, logToAudioMap[l.id])).length;
-    final totalMissedCount = finalHistoryList.where(_isMissedLog).length;
-
-    return RefreshIndicator(
-      onRefresh: () async {
-        _fetchLocalRecordings(state.leadDetail.phone);
-        context.read<LeadsBloc>().add(FetchLeadCallLogs(state.leadDetail.id));
-        context.read<LeadsBloc>().add(FetchLeadAudios(state.leadDetail.id));
-      },
-      child: SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildSubTabBar({
+    required int callLogsCount,
+    required int audiosCount,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.borderEnabled),
+      ),
+      child: Row(
         children: [
-          // Summary Cards
-          Row(
-            children: [
-              Expanded(
-                child: _buildCallLogSummaryCard(
-                  'Total Calls',
-                  totalCallsCount.toString(),
-                  Icons.phone,
-                  Colors.blue,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: _buildCallLogSummaryCard(
-                  'Duration',
-                  _formatDuration(callLogs.totalDuration),
-                  Icons.timer,
-                  Colors.purple,
-                ),
-              ),
-            ],
+          Expanded(
+            child: _buildSubTabItem(
+              title: 'Call Logs',
+              count: callLogsCount,
+              icon: Icons.phone_in_talk_rounded,
+              isSelected: _selectedSubTabIndex == 0,
+              onTap: () => setState(() => _selectedSubTabIndex = 0),
+            ),
           ),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              Expanded(
-                child: _buildCallLogSummaryCard(
-                  'Inbound',
-                  totalInboundCount.toString(),
-                  Icons.call_received,
-                  Colors.green,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: _buildCallLogSummaryCard(
-                  'Outbound',
-                  totalOutboundCount.toString(),
-                  Icons.call_made,
-                  Colors.orange,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: _buildCallLogSummaryCard(
-                  'Missed',
-                  totalMissedCount.toString(),
-                  Icons.call_missed,
-                  Colors.red,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Call History',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.refresh, color: AppColors.primary),
-                tooltip: 'Refresh Call Logs',
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Refreshing call logs...'),
-                      duration: Duration(seconds: 1),
-                      backgroundColor: AppColors.primary,
-                    ),
-                  );
-
-                  _fetchLocalRecordings(widget.state.leadDetail.phone);
-                  context.read<LeadsBloc>().add(FetchLeadCallLogs(widget.state.leadDetail.id));
+          Expanded(
+            child: _buildSubTabItem(
+              title: 'Audio Recordings',
+              count: audiosCount,
+              icon: Icons.graphic_eq_rounded,
+              isSelected: _selectedSubTabIndex == 1,
+              onTap: () {
+                setState(() => _selectedSubTabIndex = 1);
+                if (widget.state.audios == null && !widget.state.isAudiosLoading) {
                   context.read<LeadsBloc>().add(FetchLeadAudios(widget.state.leadDetail.id));
-                },
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-
-          Builder(
-            builder: (context) {
-              // Group call logs by relative date header (Today, Yesterday, Date)
-              final Map<String, List<LeadCallLog>> groupedLogs = {};
-              for (final log in finalHistoryList) {
-                final dt = _getCallLogTimestamp(log, logToAudioMap[log.id]);
-                final headerKey = _getRelativeDateHeader(dt);
-                groupedLogs.putIfAbsent(headerKey, () => []).add(log);
-              }
-
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: groupedLogs.entries.map((group) {
-                  final headerKey = group.key;
-                  final groupList = group.value;
-
-                  groupList.sort((a, b) {
-                    final dtA = _getCallLogTimestamp(a, logToAudioMap[a.id]);
-                    final dtB = _getCallLogTimestamp(b, logToAudioMap[b.id]);
-                    return dtB.compareTo(dtA);
-                  });
-
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.only(top: 10.0, bottom: 8.0),
-                        child: Row(
-                          children: [
-                            Text(
-                              headerKey.toUpperCase(),
-                              style: const TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.primary,
-                                letterSpacing: 0.8,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            const Expanded(
-                              child: Divider(height: 1, color: AppColors.borderEnabled),
-                            ),
-                          ],
-                        ),
-                      ),
-                      ListView.separated(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: groupList.length,
-                        separatorBuilder: (context, index) => const SizedBox(height: 8),
-                        itemBuilder: (context, index) {
-                          final log = groupList[index];
-                          final matchedAudio = logToAudioMap[log.id];
-                          return _buildCallLogListItem(log, matchedAudio, state);
-                        },
-                      ),
-                      const SizedBox(height: 4),
-                    ],
-                  );
-                }).toList(),
-              );
-            },
+                }
+              },
+            ),
           ),
         ],
       ),
-    ),
-  );
-}
+    );
+  }
+
+  Widget _buildSubTabItem({
+    required String title,
+    required int count,
+    required IconData icon,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(9),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(vertical: 9),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.white : Colors.transparent,
+          borderRadius: BorderRadius.circular(9),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.06),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  )
+                ]
+              : null,
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              size: 16,
+              color: isSelected ? AppColors.primary : AppColors.textSecondary,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                color: isSelected ? AppColors.primary : AppColors.textSecondary,
+              ),
+            ),
+            const SizedBox(width: 5),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? AppColors.primary.withValues(alpha: 0.12)
+                    : Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                count.toString(),
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: isSelected ? AppColors.primary : AppColors.textSecondary,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAudioListItem(LeadAudio audio, LeadDetailsLoaded state) {
+    final b = (audio.bound ?? '').toUpperCase();
+    final isIncoming = b == 'IN' || b == 'INBOUND' || audio.callType == 'inbound';
+    final iconColor = isIncoming ? const Color(0xFF059669) : const Color(0xFFE11D48);
+    final iconBgColor = isIncoming ? const Color(0xFFD1FAE5) : const Color(0xFFFFE4E6);
+    final cardIcon = isIncoming ? Icons.call_received_rounded : Icons.call_made_rounded;
+
+    final displayTitle = audio.originalFileName.isNotEmpty
+        ? audio.originalFileName
+        : (audio.displayName.isNotEmpty ? audio.displayName : 'Call Recording');
+
+    final fromPhone = (audio.fromNumber?.isNotEmpty == true) ? audio.fromNumber! : (isIncoming ? state.leadDetail.phone : 'Me');
+    final toPhone = (audio.toNumber?.isNotEmpty == true) ? audio.toNumber! : (isIncoming ? 'Me' : state.leadDetail.phone);
+
+    final durSec = audio.durationSeconds;
+    final durStr = durSec > 0 ? '${durSec}s' : '0s';
+    final sizeStr = _formatAudioSize(audio.size);
+
+    final dt = _parseAudioDateTime(audio);
+    final displayDate = DateFormat('MMM dd, yyyy • hh:mm a').format(dt);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8.0),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.borderEnabled),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: iconBgColor,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(cardIcon, color: iconColor, size: 18),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      displayTitle,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$fromPhone ➔ $toPhone',
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        color: AppColors.textHint,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFECFDF5),
+                  borderRadius: BorderRadius.circular(5),
+                  border: Border.all(color: const Color(0xFF6EE7B7)),
+                ),
+                child: Text(
+                  audio.callStatus?.toUpperCase() ?? 'CONNECTED',
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: Color(0xFF059669),
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const Divider(height: 1, color: AppColors.borderEnabled),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _buildMetaItem('Date & Time', displayDate),
+              _buildMetaItem('Duration', durStr),
+              _buildMetaItem('Audio Size', sizeStr),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const Divider(height: 1, color: AppColors.borderEnabled),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              // Play Button
+              InkWell(
+                onTap: _loadingAudioId == audio.id ? null : () => _playLeadAudio(audio),
+                borderRadius: BorderRadius.circular(6),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_loadingAudioId == audio.id) ...[
+                        const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        const Text('Loading...', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                      ] else ...[
+                        const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 18),
+                        const SizedBox(width: 4),
+                        const Text('Play', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              // Download Button
+              InkWell(
+                onTap: () => _downloadLeadAudio(context, audio),
+                borderRadius: BorderRadius.circular(6),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppColors.white,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: AppColors.primary),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.download_rounded, color: AppColors.primary, size: 16),
+                      SizedBox(width: 4),
+                      Text('Download', style: TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = widget.state;
+
+    final isEitherLoading = (state.callLogs == null && state.isCallLogsLoading) || (state.audios == null && state.isAudiosLoading);
+    if (state.callLogs == null && state.audios == null) {
+      if (isEitherLoading) {
+        return const Center(child: SpinningLogo(size: 40));
+      }
+      if (state.callLogsError != null || state.audiosError != null) {
+        return Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text('Failed to load call data', style: TextStyle(color: AppColors.primary)),
+              TextButton(
+                onPressed: () {
+                  context.read<LeadsBloc>().add(FetchLeadCallLogs(state.leadDetail.id));
+                  context.read<LeadsBloc>().add(FetchLeadAudios(state.leadDetail.id));
+                },
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        );
+      }
+    }
+
+    final callLogs = state.callLogs;
+    final List<LeadCallLog> rawHistory = callLogs != null ? List<LeadCallLog>.from(callLogs.callHistory) : [];
+
+    // Filter server audios to real audio files for the Audios tab
+    final List<LeadAudio> realAudios = (state.audios ?? [])
+        .where(_audioHasRealFile)
+        .toList();
+
+    rawHistory.sort((a, b) {
+      final dtA = _parseCallLogDateTime(a) ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final dtB = _parseCallLogDateTime(b) ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return dtB.compareTo(dtA);
+    });
+
+    // Deduplicate only identical records or true jitter collisions (<3.5s with same status, or <45s for outgoing)
+    final List<LeadCallLog> serverHistory = [];
+    for (final log in rawHistory) {
+      final logDt = _parseCallLogDateTime(log);
+      final logTimeMs = logDt?.millisecondsSinceEpoch ?? 0;
+      final logBound = log.bound.toUpperCase();
+
+      bool isDuplicate = false;
+      for (int i = 0; i < serverHistory.length; i++) {
+        final existing = serverHistory[i];
+        if (existing.id.isNotEmpty && existing.id == log.id) {
+          isDuplicate = true;
+          break;
+        }
+        final exBound = existing.bound.toUpperCase();
+        final sameBound = (logBound.startsWith('IN') && exBound.startsWith('IN')) ||
+            (logBound.startsWith('OUT') && exBound.startsWith('OUT'));
+        if (!sameBound) continue;
+
+        final exDt = _parseCallLogDateTime(existing);
+        final exTimeMs = exDt?.millisecondsSinceEpoch ?? 0;
+        final isOutgoing = logBound.startsWith('OUT');
+        final tolerance = isOutgoing ? 45000 : 3500;
+        final sameStatus = existing.callStatus.toUpperCase() == log.callStatus.toUpperCase() ||
+            (existing.callStatus.toUpperCase().contains('CONN') && log.callStatus.toUpperCase().contains('ANS')) ||
+            (existing.callStatus.toUpperCase().contains('ANS') && log.callStatus.toUpperCase().contains('CONN'));
+
+        if (logTimeMs > 0 && exTimeMs > 0 && (logTimeMs - exTimeMs).abs() < tolerance) {
+          if (isOutgoing) {
+            final logDur = int.tryParse(log.duration.replaceAll(RegExp(r'\D'), '')) ?? 0;
+            final exDur = int.tryParse(existing.duration.replaceAll(RegExp(r'\D'), '')) ?? 0;
+            final logConnected = log.callStatus.toUpperCase().contains('CONN') || log.callStatus.toUpperCase().contains('ANS') || logDur > 0;
+            final exConnected = existing.callStatus.toUpperCase().contains('CONN') || existing.callStatus.toUpperCase().contains('ANS') || exDur > 0;
+            if (logConnected && !exConnected) {
+              serverHistory[i] = log;
+            } else if (logDur > exDur) {
+              serverHistory[i] = log;
+            }
+            isDuplicate = true;
+            break;
+          } else if (sameStatus) {
+            isDuplicate = true;
+            break;
+          }
+        }
+      }
+      if (!isDuplicate) {
+        serverHistory.add(log);
+      }
+    }
+
+    realAudios.sort((a, b) {
+      final dtA = _parseAudioDateTime(a);
+      final dtB = _parseAudioDateTime(b);
+      return dtB.compareTo(dtA);
+    });
+
+    // Call logs summary metrics from /call-logs endpoint
+    final totalCallsCount = callLogs?.totalCalls ?? serverHistory.length;
+    final totalDurationSec = callLogs?.totalDuration ?? 0;
+    final totalInboundCount = callLogs?.totalInboundCalls ?? serverHistory.where((l) {
+      final b = l.bound.toUpperCase();
+      return b == 'IN' || b == 'INBOUND' || b.startsWith('IN');
+    }).length;
+    final totalOutboundCount = callLogs?.totalOutboundCalls ?? serverHistory.where((l) {
+      final b = l.bound.toUpperCase();
+      return b == 'OUT' || b == 'OUTBOUND' || b.startsWith('OUT');
+    }).length;
+    final totalMissedCount = (callLogs != null && callLogs.totalMissedCalls > 0)
+        ? callLogs.totalMissedCalls
+        : serverHistory.where((l) => _isMissedLog(l, state.leadDetail.phone)).length;
+    final totalUnansweredCount = (callLogs != null && callLogs.totalUnansweredCalls > 0)
+        ? callLogs.totalUnansweredCalls
+        : serverHistory.where((l) => _isUnansweredLog(l, state.leadDetail.phone)).length;
+
+    // Audio recordings summary metrics from /audios endpoint
+    final totalAudiosCount = realAudios.length;
+    final inboundAudiosCount = realAudios.where((a) {
+      final b = (a.bound ?? '').toUpperCase();
+      return b == 'IN' || b == 'INBOUND' || a.callType == 'inbound';
+    }).length;
+    final outboundAudiosCount = realAudios.where((a) {
+      final b = (a.bound ?? '').toUpperCase();
+      return b == 'OUT' || b == 'OUTBOUND' || a.callType == 'outbound';
+    }).length;
+    final totalAudioBytes = realAudios.fold<int>(0, (sum, a) => sum + a.size);
+
+    return RefreshIndicator(
+      onRefresh: _handleRefresh,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Sub-Tab Switcher: Call Logs vs Audio Recordings
+            _buildSubTabBar(
+              callLogsCount: serverHistory.length,
+              audiosCount: realAudios.length,
+            ),
+            const SizedBox(height: 12),
+
+            if (_selectedSubTabIndex == 0) ...[
+              // === TAB 0: CALL LOGS (from /call-logs) ===
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildCallLogSummaryCard(
+                      'Total Calls',
+                      totalCallsCount.toString(),
+                      Icons.phone,
+                      Colors.blue,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: _buildCallLogSummaryCard(
+                      'Duration',
+                      (callLogs != null && callLogs.totalDurationFormatted.isNotEmpty)
+                          ? callLogs.totalDurationFormatted
+                          : _formatDuration(totalDurationSec),
+                      Icons.timer,
+                      Colors.purple,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildCallLogSummaryCard(
+                      'Inbound',
+                      totalInboundCount.toString(),
+                      Icons.call_received,
+                      Colors.green,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: _buildCallLogSummaryCard(
+                      'Outbound',
+                      totalOutboundCount.toString(),
+                      Icons.call_made,
+                      Colors.orange,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildCallLogSummaryCard(
+                      'Missed',
+                      totalMissedCount.toString(),
+                      Icons.phone_missed_rounded,
+                      Colors.red,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: _buildCallLogSummaryCard(
+                      'Unanswered',
+                      totalUnansweredCount.toString(),
+                      Icons.call_missed_outgoing_rounded,
+                      const Color(0xFFD97706),
+                    ),
+                  ),
+                ],
+              ),
+              if (callLogs != null && (callLogs.ownerCallCount > 0 || callLogs.otherCallCount > 0)) ...[
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildCallLogSummaryCard(
+                        'Owner Calls',
+                        callLogs.ownerCallCount.toString(),
+                        Icons.person,
+                        Colors.teal,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: _buildCallLogSummaryCard(
+                        'Other Calls',
+                        callLogs.otherCallCount.toString(),
+                        Icons.people_outline,
+                        Colors.indigo,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Call History (${serverHistory.length})',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  IconButton(
+                    icon: (_isRefreshing || state.isCallLogsLoading)
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                          )
+                        : const Icon(Icons.refresh, color: AppColors.primary),
+                    tooltip: 'Refresh Call Logs',
+                    onPressed: (_isRefreshing || state.isCallLogsLoading) ? null : _handleRefresh,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+
+              if (serverHistory.isEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 40),
+                  alignment: Alignment.center,
+                  child: const Text(
+                    'No call logs found for this lead.',
+                    style: TextStyle(color: AppColors.textHint, fontSize: 15),
+                  ),
+                )
+              else
+                Builder(
+                  builder: (context) {
+                    final Map<String, List<LeadCallLog>> groupedLogs = {};
+                    for (final log in serverHistory) {
+                      final dt = _parseCallLogDateTime(log) ?? DateTime.now();
+                      final headerKey = _getRelativeDateHeader(dt);
+                      groupedLogs.putIfAbsent(headerKey, () => []).add(log);
+                    }
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: groupedLogs.entries.map((group) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.only(top: 10.0, bottom: 8.0),
+                              child: Row(
+                                children: [
+                                  Text(
+                                    group.key.toUpperCase(),
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.primary,
+                                      letterSpacing: 0.8,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  const Expanded(
+                                    child: Divider(height: 1, color: AppColors.borderEnabled),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            ListView.separated(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: group.value.length,
+                              separatorBuilder: (context, index) => const SizedBox(height: 8),
+                              itemBuilder: (context, index) {
+                                final log = group.value[index];
+                                LeadAudio? matchedAudio;
+                                final logDt = _parseCallLogDateTime(log);
+                                final logMs = logDt?.millisecondsSinceEpoch ?? 0;
+                                if (logMs > 0 && realAudios.isNotEmpty) {
+                                  for (final a in realAudios) {
+                                    final aDt = _parseAudioDateTime(a);
+                                    final aMs = aDt.millisecondsSinceEpoch;
+                                    if ((aMs - logMs).abs() < 5000) {
+                                      matchedAudio = a;
+                                      break;
+                                    }
+                                  }
+                                }
+                                return _buildCallLogListItem(log, matchedAudio, state);
+                              },
+                            ),
+                            const SizedBox(height: 4),
+                          ],
+                        );
+                      }).toList(),
+                    );
+                  },
+                ),
+            ] else ...[
+              // === TAB 1: AUDIO RECORDINGS (from /audios) ===
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildCallLogSummaryCard(
+                      'Total Audios',
+                      totalAudiosCount.toString(),
+                      Icons.audiotrack,
+                      Colors.indigo,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: _buildCallLogSummaryCard(
+                      'Total Size',
+                      _formatAudioSize(totalAudioBytes),
+                      Icons.storage,
+                      Colors.teal,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildCallLogSummaryCard(
+                      'Inbound Audio',
+                      inboundAudiosCount.toString(),
+                      Icons.call_received,
+                      Colors.green,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: _buildCallLogSummaryCard(
+                      'Outbound Audio',
+                      outboundAudiosCount.toString(),
+                      Icons.call_made,
+                      Colors.orange,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Audio Recordings (${realAudios.length})',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  IconButton(
+                    icon: (_isRefreshing || state.isAudiosLoading)
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                          )
+                        : const Icon(Icons.refresh, color: AppColors.primary),
+                    tooltip: 'Refresh Audio Recordings',
+                    onPressed: (_isRefreshing || state.isAudiosLoading) ? null : _handleRefresh,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+
+              if (state.isAudiosLoading && realAudios.isEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 40),
+                  alignment: Alignment.center,
+                  child: const SpinningLogo(size: 40),
+                )
+              else if (state.audiosError != null && realAudios.isEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 30),
+                  alignment: Alignment.center,
+                  child: Column(
+                    children: [
+                      Text(
+                        'Failed to load audio recordings: ${state.audiosError}',
+                        style: const TextStyle(color: AppColors.primary, fontSize: 13),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 8),
+                      TextButton.icon(
+                        icon: const Icon(Icons.refresh, size: 16),
+                        label: const Text('Retry'),
+                        onPressed: _handleRefresh,
+                      ),
+                    ],
+                  ),
+                )
+              else if (realAudios.isEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 40),
+                  alignment: Alignment.center,
+                  child: const Text(
+                    'No audio recordings found for this lead.',
+                    style: TextStyle(color: AppColors.textHint, fontSize: 15),
+                  ),
+                )
+              else
+                Builder(
+                  builder: (context) {
+                    final Map<String, List<LeadAudio>> groupedAudios = {};
+                    for (final audio in realAudios) {
+                      final dt = _parseAudioDateTime(audio);
+                      final headerKey = _getRelativeDateHeader(dt);
+                      groupedAudios.putIfAbsent(headerKey, () => []).add(audio);
+                    }
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: groupedAudios.entries.map((group) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.only(top: 10.0, bottom: 8.0),
+                              child: Row(
+                                children: [
+                                  Text(
+                                    group.key.toUpperCase(),
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.primary,
+                                      letterSpacing: 0.8,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  const Expanded(
+                                    child: Divider(height: 1, color: AppColors.borderEnabled),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            ListView.separated(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: group.value.length,
+                              separatorBuilder: (context, index) => const SizedBox(height: 8),
+                              itemBuilder: (context, index) {
+                                final audio = group.value[index];
+                                return _buildAudioListItem(audio, state);
+                              },
+                            ),
+                            const SizedBox(height: 4),
+                          ],
+                        );
+                      }).toList(),
+                    );
+                  },
+                ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _buildCallLogSummaryCard(String title, String value, IconData icon, Color color) {
     return Container(
@@ -1454,7 +1476,8 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
   Widget _buildCallLogListItem(LeadCallLog log, LeadAudio? matchedAudio, LeadDetailsLoaded state) {
     final isExpanded = _expandedCallLogIds.contains(log.id);
     final cardData = _buildCallCardDataFromLog(log, matchedAudio, state.leadDetail.phone);
-    final isMissed = cardData.isUnanswered;
+    final isMissed = cardData.isMissed;
+    final isUnanswered = cardData.isUnanswered;
     final isIncoming = cardData.isIncoming;
     
     IconData icon;
@@ -1462,6 +1485,9 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
     
     if (isMissed) {
       icon = Icons.phone_missed_rounded;
+      iconColor = const Color(0xFFDC2626);
+    } else if (isUnanswered) {
+      icon = Icons.call_missed_outgoing_rounded;
       iconColor = const Color(0xFFD97706);
     } else if (isIncoming) {
       icon = Icons.call_received_rounded;
@@ -1482,17 +1508,15 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
     final Color statusPillBorderColor;
 
     if (isMissed) {
-      if (isIncoming) {
-        statusPillText = 'MISSED';
-        statusPillTextColor = const Color(0xFFDC2626);
-        statusPillBgColor = const Color(0xFFFEF2F2);
-        statusPillBorderColor = const Color(0xFFFCA5A5);
-      } else {
-        statusPillText = 'NOT CONNECTED';
-        statusPillTextColor = const Color(0xFFD97706);
-        statusPillBgColor = const Color(0xFFFFFBEB);
-        statusPillBorderColor = const Color(0xFFFCD34D);
-      }
+      statusPillText = 'MISSED';
+      statusPillTextColor = const Color(0xFFDC2626);
+      statusPillBgColor = const Color(0xFFFEF2F2);
+      statusPillBorderColor = const Color(0xFFFCA5A5);
+    } else if (isUnanswered) {
+      statusPillText = 'UNANSWERED';
+      statusPillTextColor = const Color(0xFFD97706);
+      statusPillBgColor = const Color(0xFFFFFBEB);
+      statusPillBorderColor = const Color(0xFFFCD34D);
     } else {
       statusPillText = 'CONNECTED';
       statusPillTextColor = const Color(0xFF059669);
@@ -1547,7 +1571,13 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
                           children: [
                             Expanded(
                               child: Text(
-                                isIncoming ? log.fromNumber : log.toNumber,
+                                isIncoming
+                                    ? (cardData.fromPhone.isNotEmpty && cardData.fromPhone != 'Lead' && cardData.fromPhone != 'Me'
+                                        ? cardData.fromPhone
+                                        : (log.fromNumber.isNotEmpty ? log.fromNumber : state.leadDetail.phone))
+                                    : (cardData.toPhone.isNotEmpty && cardData.toPhone != 'Lead' && cardData.toPhone != 'Me'
+                                        ? cardData.toPhone
+                                        : (log.toNumber.isNotEmpty ? log.toNumber : state.leadDetail.phone)),
                                 style: const TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 14.5,
@@ -1649,14 +1679,19 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
 
   Widget _buildAudioCallCardWidget(_CallCardData data) {
     final hasAudio = data.audio != null;
+    final isMissed = data.isMissed;
     final isUnanswered = data.isUnanswered;
 
     Color iconBgColor;
     Color iconColor;
     IconData cardIcon;
 
-    if (isUnanswered) {
-      cardIcon = Icons.call_missed_rounded;
+    if (isMissed) {
+      cardIcon = Icons.phone_missed_rounded;
+      iconBgColor = const Color(0xFFFEE2E2);
+      iconColor = const Color(0xFFDC2626);
+    } else if (isUnanswered) {
+      cardIcon = Icons.call_missed_outgoing_rounded;
       iconBgColor = const Color(0xFFFEF3C7);
       iconColor = const Color(0xFFD97706);
     } else if (data.isIncoming) {
@@ -2290,6 +2325,7 @@ class _CallCardData {
   final LeadAudio? audio;
   final DateTime timestamp;
   final bool isIncoming;
+  final bool isMissed;
   final bool isUnanswered;
   final String title;
   final String fromPhone;
@@ -2304,7 +2340,8 @@ class _CallCardData {
     this.audio,
     required this.timestamp,
     required this.isIncoming,
-    required this.isUnanswered,
+    this.isMissed = false,
+    this.isUnanswered = false,
     required this.title,
     required this.fromPhone,
     required this.toPhone,

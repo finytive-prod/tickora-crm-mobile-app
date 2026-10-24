@@ -14,6 +14,7 @@ import 'package:crm_mobile/blocs/leads_state.dart';
 import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/widgets/custom_text_field.dart';
 import 'package:crm_mobile/widgets/custom_dropdown_field.dart';
+import 'package:crm_mobile/repositories/followups_repository.dart';
 
 class EditFollowUpScreen extends StatelessWidget {
   final FollowUp followUp;
@@ -92,10 +93,13 @@ class _EditFollowUpViewState extends State<EditFollowUpView> {
 
   DateTime? _selectedDateObj;
   TimeOfDay? _selectedTimeObj;
+  String? _currentFollowUpId;
 
   @override
   void initState() {
     super.initState();
+    _currentFollowUpId = widget.followUp.id;
+
     // Pre-populate values from current followUp
     _leadTaskController.text = widget.followUp.leadTask;
     _dateController.text = widget.followUp.followUpDate;
@@ -107,13 +111,65 @@ class _EditFollowUpViewState extends State<EditFollowUpView> {
         : widget.leadDetail.priority?.toUpperCase();
     _selectedAgentId = widget.followUp.assignedUser?.id ?? widget.leadDetail.ownerUserId;
 
-    // Parse notification channels
+    // Parse notification channels: default both selected if empty, none, or not set
     final reminderStr = widget.followUp.reminder.toLowerCase();
-    _emailAlert = reminderStr.contains('email');
-    _pushNotification = reminderStr.contains('push');
+    if (reminderStr.isEmpty || reminderStr == 'none') {
+      _emailAlert = true;
+      _pushNotification = true;
+    } else {
+      _emailAlert = reminderStr.contains('email');
+      _pushNotification = reminderStr.contains('push');
+      if (!_emailAlert && !_pushNotification) {
+        _emailAlert = true;
+        _pushNotification = true;
+      }
+    }
 
     _selectedDateObj = DateTime.tryParse(widget.followUp.followUpDate);
     _selectedTimeObj = _parseTime(widget.followUp.followUpTime);
+
+    _fetchCurrentFollowUpDetails();
+  }
+
+  Future<void> _fetchCurrentFollowUpDetails() async {
+    try {
+      final repo = sl<FollowUpsRepository>();
+      final res = await repo.getLeadFollowUps(widget.leadDetail.id);
+      res.fold((_) {}, (data) {
+        if (!mounted || data.followups.isEmpty) return;
+        final f = data.followups.first;
+        setState(() {
+          _currentFollowUpId = f.id ?? _currentFollowUpId;
+          if (f.leadTask.isNotEmpty) _leadTaskController.text = f.leadTask;
+          if (f.followUpDate.isNotEmpty) {
+            _dateController.text = f.followUpDate;
+            _selectedDateObj = DateTime.tryParse(f.followUpDate) ?? _selectedDateObj;
+          }
+          if (f.followUpTime.isNotEmpty) {
+            _timeController.text = f.followUpTime;
+            _selectedTimeObj = _parseTime(f.followUpTime) ?? _selectedTimeObj;
+          }
+          if (f.leadStatus?.id != null && f.leadStatus!.id.isNotEmpty) {
+            _selectedStatusId = f.leadStatus!.id;
+          }
+          if (f.priority.isNotEmpty) {
+            _selectedPriority = f.priority.toUpperCase();
+          }
+          if (f.assignedUser?.id != null && f.assignedUser!.id.isNotEmpty) {
+            _selectedAgentId = f.assignedUser!.id;
+          }
+          final rem = f.reminder.toLowerCase();
+          if (rem.isNotEmpty && rem != 'none') {
+            _emailAlert = rem.contains('email');
+            _pushNotification = rem.contains('push');
+            if (!_emailAlert && !_pushNotification) {
+              _emailAlert = true;
+              _pushNotification = true;
+            }
+          }
+        });
+      });
+    } catch (_) {}
   }
 
   @override
@@ -233,9 +289,10 @@ class _EditFollowUpViewState extends State<EditFollowUpView> {
       "remarks": _remarksController.text.trim(),
     };
 
-    if (widget.followUp.id != null && widget.followUp.id!.isNotEmpty) {
+    final effectiveId = _currentFollowUpId ?? widget.followUp.id;
+    if (effectiveId != null && effectiveId.isNotEmpty) {
       context.read<FollowUpsBloc>().add(
-            UpdateFollowUp(followupId: widget.followUp.id!, updateData: updateData),
+            UpdateFollowUp(followupId: effectiveId, updateData: updateData),
           );
     } else {
       context.read<FollowUpsBloc>().add(
@@ -256,9 +313,10 @@ class _EditFollowUpViewState extends State<EditFollowUpView> {
       "remarks": _completeRemarksController.text.trim(),
     };
 
-    if (widget.followUp.id != null && widget.followUp.id!.isNotEmpty) {
+    final effectiveId = _currentFollowUpId ?? widget.followUp.id;
+    if (effectiveId != null && effectiveId.isNotEmpty) {
       context.read<FollowUpsBloc>().add(
-            UpdateFollowUp(followupId: widget.followUp.id!, updateData: updateData),
+            UpdateFollowUp(followupId: effectiveId, updateData: updateData),
           );
     }
   }
@@ -274,9 +332,10 @@ class _EditFollowUpViewState extends State<EditFollowUpView> {
       "remarks": _activityRemarksController.text.trim(),
     };
 
-    if (widget.followUp.id != null && widget.followUp.id!.isNotEmpty) {
+    final effectiveId = _currentFollowUpId ?? widget.followUp.id;
+    if (effectiveId != null && effectiveId.isNotEmpty) {
       context.read<FollowUpsBloc>().add(
-            UpdateFollowUp(followupId: widget.followUp.id!, updateData: updateData),
+            UpdateFollowUp(followupId: effectiveId, updateData: updateData),
           );
     }
   }

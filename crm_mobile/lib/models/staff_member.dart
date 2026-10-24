@@ -20,6 +20,9 @@ class StaffMember extends Equatable {
   final List<String> roles;
   final String? roleId;
   final bool? isDefault;
+  final String? reportingManagerId;
+  final int? callTarget;
+  final String? callTimeTarget;
 
   const StaffMember({
     required this.id,
@@ -41,6 +44,9 @@ class StaffMember extends Equatable {
     required this.roles,
     this.roleId,
     this.isDefault,
+    this.reportingManagerId,
+    this.callTarget,
+    this.callTimeTarget,
   });
 
   bool get isSuperAdmin {
@@ -89,6 +95,9 @@ class StaffMember extends Equatable {
         roles,
         roleId,
         isDefault,
+        reportingManagerId,
+        callTarget,
+        callTimeTarget,
       ];
 }
 
@@ -113,6 +122,9 @@ class StaffMemberModel extends StaffMember {
     required super.roles,
     super.roleId,
     super.isDefault,
+    super.reportingManagerId,
+    super.callTarget,
+    super.callTimeTarget,
   });
 
   static String _parseAccountStatus(Map<String, dynamic> json, List<String> parsedRoles) {
@@ -216,6 +228,9 @@ class StaffMemberModel extends StaffMember {
       roles: parsedRoles,
       roleId: json['roleId'],
       isDefault: json['isDefault'] == true,
+      reportingManagerId: json['reportingManagerId']?.toString(),
+      callTarget: (json['callTarget'] as num?)?.toInt(),
+      callTimeTarget: json['callTimeTarget']?.toString(),
     );
   }
 }

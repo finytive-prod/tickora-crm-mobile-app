@@ -10,6 +10,8 @@ import 'package:crm_mobile/models/user.dart';
 import 'package:crm_mobile/core/network/api_constants.dart';
 import 'package:crm_mobile/core/utils/staff_phone_resolver.dart';
 import 'package:crm_mobile/core/services/fcm_service.dart';
+import 'package:crm_mobile/core/services/privilege_service.dart';
+import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/models/user_profile.dart';
 
 abstract class LoginRepository {
@@ -110,22 +112,49 @@ class LoginRepositoryImpl implements LoginRepository {
 
         await sharedPreferences.setString('userName', name);
         await sharedPreferences.setString('userEmail', userEmail);
-        String userRole =
-            (decoded['roles'] != null
-                ? (decoded['roles'] is List
-                      ? (decoded['roles'] as List).join(', ')
-                      : decoded['roles'].toString())
-                : decoded['role']?.toString()) ??
-            '';
-        if (userRole.isNotEmpty) {
-          await sharedPreferences.setString('userRole', userRole);
+        String userRole = userModel.role;
+        if (userRole.isEmpty) {
+          userRole =
+              (decoded['roles'] != null
+                  ? (decoded['roles'] is List
+                        ? (decoded['roles'] as List).join(', ')
+                        : decoded['roles'].toString())
+                  : decoded['role']?.toString()) ??
+              body['data']?['roleName']?.toString() ??
+              body['data']?['role']?.toString() ??
+              '';
         }
+        await sharedPreferences.setString('userRole', userRole);
         if (userModel.userId.isNotEmpty) {
           await sharedPreferences.setString('userId', userModel.userId);
         }
         if (userPhone.isNotEmpty) {
           await sharedPreferences.setString('userPhone', userPhone);
         }
+
+        final orgId = (decoded['organizationId'] ??
+                decoded['orgId'] ??
+                body['data']?['organizationId'] ??
+                body['data']?['orgId'] ??
+                '')
+            .toString();
+        if (orgId.isNotEmpty) {
+          await sharedPreferences.setString('organizationId', orgId);
+        }
+
+        // Sync privileges extracted from login response and token
+        try {
+          final List<String> extractedPrivs = PrivilegeService.parsePrivilegeList(body['data']);
+          if (decoded.isNotEmpty) {
+            extractedPrivs.addAll(PrivilegeService.parsePrivilegeList(decoded));
+          }
+          if (userModel.privileges.isNotEmpty) {
+            extractedPrivs.addAll(userModel.privileges);
+          }
+          if (extractedPrivs.isNotEmpty && sl.isRegistered<PrivilegeService>()) {
+            sl<PrivilegeService>().setPrivileges(extractedPrivs, replace: true);
+          }
+        } catch (_) {}
 
         // If phone is still not found, fetch the staff profile to get the phone number
         if (userPhone.isEmpty && userModel.userId.isNotEmpty) {
@@ -243,6 +272,9 @@ class LoginRepositoryImpl implements LoginRepository {
       final body = response.data;
       if (body != null && body['success'] == true && body['data'] != null) {
         final profile = UserProfile.fromJson(body['data']);
+        if (profile.organizationId.isNotEmpty) {
+          await sharedPreferences.setString('organizationId', profile.organizationId);
+        }
         if (profile.fullName.isNotEmpty) {
           await sharedPreferences.setString('userName', profile.fullName);
         }
@@ -258,6 +290,12 @@ class LoginRepositoryImpl implements LoginRepository {
             profile.designation!.isNotEmpty) {
           await sharedPreferences.setString('userRole', profile.designation!);
         }
+        try {
+          final privs = PrivilegeService.parsePrivilegeList(body['data']);
+          if (privs.isNotEmpty && sl.isRegistered<PrivilegeService>()) {
+            sl<PrivilegeService>().setPrivileges(privs, replace: true);
+          }
+        } catch (_) {}
         return Right(profile);
       } else {
         throw ApiException(

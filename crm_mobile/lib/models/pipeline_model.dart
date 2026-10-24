@@ -7,6 +7,7 @@ class PipelineStatus {
   final Color color;
   final bool isDefault;
   final bool isClosed;
+  final int level;
 
   PipelineStatus({
     required this.id,
@@ -15,6 +16,7 @@ class PipelineStatus {
     required this.color,
     required this.isDefault,
     required this.isClosed,
+    this.level = 2,
   });
 
   factory PipelineStatus.fromJson(Map<String, dynamic> json) {
@@ -29,6 +31,17 @@ class PipelineStatus {
       }
     } catch (_) {}
 
+    final isDef = json['isDefault'] == true || (json['statusName'] ?? json['name'] ?? '').toString().toLowerCase() == 'fresh';
+    final isCls = json['isClosed'] == true;
+    int computedLevel = 2;
+    if (json['level'] != null) {
+      computedLevel = (json['level'] as num).toInt();
+    } else if (isDef) {
+      computedLevel = 1;
+    } else if (isCls) {
+      computedLevel = 3;
+    }
+
     return PipelineStatus(
       id: json['id']?.toString() ?? '',
       statusName: json['statusName']?.toString() ?? json['name']?.toString() ?? 'Status',
@@ -36,6 +49,7 @@ class PipelineStatus {
       color: parsedColor,
       isDefault: json['isDefault'] == true,
       isClosed: json['isClosed'] == true,
+      level: computedLevel,
     );
   }
 }

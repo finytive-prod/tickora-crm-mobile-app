@@ -64,6 +64,8 @@ class LeadStatus extends Equatable {
   final bool isDefault;
   final bool isClosed;
   final int displayOrder;
+  final int level;
+  final bool isActive;
 
   const LeadStatus({
     required this.id,
@@ -72,10 +74,12 @@ class LeadStatus extends Equatable {
     required this.isDefault,
     required this.isClosed,
     required this.displayOrder,
+    this.level = 2,
+    this.isActive = true,
   });
 
   @override
-  List<Object?> get props => [id, statusName, color, isDefault, isClosed, displayOrder];
+  List<Object?> get props => [id, statusName, color, isDefault, isClosed, displayOrder, level, isActive];
 }
 
 class LeadStatusModel extends LeadStatus {
@@ -86,6 +90,8 @@ class LeadStatusModel extends LeadStatus {
     required super.isDefault,
     required super.isClosed,
     required super.displayOrder,
+    super.level,
+    super.isActive,
   });
 
   factory LeadStatusModel.fromJson(dynamic json) {
@@ -97,16 +103,31 @@ class LeadStatusModel extends LeadStatus {
         isDefault: false,
         isClosed: false,
         displayOrder: 0,
+        level: 2,
+        isActive: true,
       );
     }
     if (json is Map<String, dynamic>) {
+      final isDef = json['isDefault'] == true || (json['statusName'] ?? json['name'] ?? '').toString().toLowerCase() == 'fresh';
+      final isCls = json['isClosed'] == true;
+      int computedLevel = 2;
+      if (json['level'] != null) {
+        computedLevel = (json['level'] as num).toInt();
+      } else if (isDef) {
+        computedLevel = 1;
+      } else if (isCls) {
+        computedLevel = 3;
+      }
+
       return LeadStatusModel(
-        id: json['id'] ?? '',
-        statusName: json['statusName'] ?? json['name'] ?? '',
-        color: json['color'] ?? '#6B7280',
-        isDefault: json['isDefault'] ?? false,
-        isClosed: json['isClosed'] ?? false,
-        displayOrder: json['displayOrder'] ?? 0,
+        id: json['id']?.toString() ?? '',
+        statusName: json['statusName']?.toString() ?? json['name']?.toString() ?? '',
+        color: json['color']?.toString() ?? '#6B7280',
+        isDefault: json['isDefault'] == true,
+        isClosed: json['isClosed'] == true,
+        displayOrder: (json['displayOrder'] as num?)?.toInt() ?? 0,
+        level: computedLevel,
+        isActive: json['isActive'] ?? true,
       );
     }
     return const LeadStatusModel(
@@ -116,6 +137,8 @@ class LeadStatusModel extends LeadStatus {
       isDefault: false,
       isClosed: false,
       displayOrder: 0,
+      level: 2,
+      isActive: true,
     );
   }
 }

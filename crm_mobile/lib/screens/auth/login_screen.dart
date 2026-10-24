@@ -8,6 +8,7 @@ import 'package:crm_mobile/blocs/login_state.dart';
 import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/screens/auth/forgot_password_screen.dart';
 import 'package:crm_mobile/core/services/call_recording_service.dart';
+import 'package:crm_mobile/core/utils/navigation_service.dart';
 
 class LoginScreen extends StatelessWidget {
   final bool sessionExpired;
@@ -42,6 +43,7 @@ class _LoginScreenViewState extends State<LoginScreenView> {
   @override
   void initState() {
     super.initState();
+    NavigationService.markAppReady();
   }
 
   @override
@@ -115,22 +117,41 @@ class _LoginScreenViewState extends State<LoginScreenView> {
               final lowerMsg = msg.toLowerCase();
 
               setState(() {
-                if (lowerMsg.contains('email') || lowerMsg.contains('user not found') || lowerMsg.contains('account')) {
-                  _emailError = msg;
-                } else if (lowerMsg.contains('password')) {
-                  _passwordError = msg;
-                } else if (lowerMsg.contains('credential') || lowerMsg.contains('incorrect') || lowerMsg.contains('invalid') || lowerMsg.contains('unauthorized')) {
-                  _emailError = 'Invalid email or password';
-                  _passwordError = 'Invalid email or password';
+                if (lowerMsg.contains('user not found') ||
+                    lowerMsg.contains('user does not exist') ||
+                    lowerMsg.contains('no user') ||
+                    lowerMsg.contains('not found') ||
+                    lowerMsg.contains('email not found') ||
+                    lowerMsg.contains('invalid email') ||
+                    lowerMsg.contains('username') ||
+                    lowerMsg.contains('account')) {
+                  _emailError = 'User not found or invalid email';
+                  _passwordError = null;
+                } else if (lowerMsg.contains('password') ||
+                    lowerMsg.contains('bad credentials') ||
+                    lowerMsg.contains('wrong password') ||
+                    lowerMsg.contains('incorrect password')) {
+                  _passwordError = 'Incorrect password';
+                  _emailError = null;
+                } else if (lowerMsg.contains('credential') ||
+                    lowerMsg.contains('unauthorized') ||
+                    lowerMsg.contains('session expired') ||
+                    lowerMsg.contains('invalid')) {
+                  _passwordError = 'Incorrect password';
+                  _emailError = null;
                 } else {
-                  _emailError = msg;
-                  _passwordError = msg;
+                  _passwordError = msg.isNotEmpty ? msg : 'Invalid login details';
+                  _emailError = null;
                 }
               });
 
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text(msg),
+                  content: Text(
+                    lowerMsg.contains('session expired')
+                        ? 'Invalid email or password'
+                        : (msg.isNotEmpty ? msg : 'Invalid login details'),
+                  ),
                   backgroundColor: AppColors.primary,
                 ),
               );

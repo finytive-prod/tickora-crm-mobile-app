@@ -5,88 +5,95 @@ import 'package:logger/logger.dart';
 
 class LoggerInterceptor extends Interceptor {
   final Logger logger;
-  final Map<String, DateTime> _requestTimers = {};
+  static int _requestCounter = 0;
 
   LoggerInterceptor(this.logger);
 
   void _printLog(String message) {
     if (kDebugMode) {
-      for (var line in message.split('\n')) {
-        print(line);
-      }
+      debugPrint(message);
     }
   }
 
-  String _getCurlCommand(RequestOptions options) {
+  String _formatPayload(dynamic data, {int maxLines = 45}) {
+    if (data == null) return 'null';
+    String str;
     try {
-      List<String> components = ['curl -i'];
-      
-      if (options.method.toUpperCase() != 'GET') {
-        components.add('-X ${options.method}');
-      }
-
-      options.headers.forEach((k, v) {
-        if (k != 'Cookie') {
-          components.add('-H "$k: $v"');
+      if (data is Map || data is List) {
+        str = const JsonEncoder.withIndent('  ').convert(data);
+      } else if (data is String) {
+        try {
+          final decoded = json.decode(data);
+          str = const JsonEncoder.withIndent('  ').convert(decoded);
+        } catch (_) {
+          str = data;
         }
-      });
-
-      if (options.data != null) {
-        if (options.data is FormData) {
-          final formData = options.data as FormData;
-          for (var field in formData.fields) {
-            components.add('-F "${field.key}=${field.value.replaceAll('"', '\\"')}"');
-          }
-          for (var file in formData.files) {
-            final fileName = file.value.filename ?? 'unnamed_file';
-            components.add('-F "${file.key}=@$fileName"');
-          }
-        } else {
-          final data = json.encode(options.data).replaceAll('"', '\\"');
-          components.add('-d "$data"');
-        }
+      } else {
+        str = data.toString();
       }
-
-      components.add('"${options.uri.toString()}"');
-      return components.join(' \\\n  ');
-    } catch (e) {
-      return 'Failed to generate cURL: $e';
+    } catch (_) {
+      str = data.toString();
     }
+
+    final lines = str.split('\n');
+    if (lines.length > maxLines) {
+      final kept = lines.take(maxLines).join('\n');
+      final remaining = lines.length - maxLines;
+      return '$kept\n... [+$remaining lines truncated to keep terminal readable]';
+    }
+    return str;
   }
 
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
     if (kDebugMode) {
-      _requestTimers[options.uri.toString()] = DateTime.now();
-      
-      final curlCommand = _getCurlCommand(options);
-      
-      _printLog('========== API REQUEST ==========');
-      _printLog('URL: ${options.uri}');
-      _printLog('cURL Command:\n$curlCommand');
+      final reqId = ++_requestCounter;
+      options.extra['_req_id'] = reqId;
+      options.extra['_req_time'] = DateTime.now();
+
+      final buffer = StringBuffer();
+      buffer.writeln('╔════ 🚀 [REQ #$reqId] ${options.method} ${options.uri.path}');
+      buffer.writeln('║ Full URL: ${options.uri}');
+      if (options.queryParameters.isNotEmpty) {
+        buffer.writeln('║ Query: ${options.queryParameters}');
+      }
 
       if (options.data != null) {
+        buffer.writeln('║ Payload:');
+        dynamic payloadData = options.data;
+
         if (options.data is FormData) {
           final formData = options.data as FormData;
-          _printLog('--- FormData Payload ---');
-          for (var field in formData.fields) {
-            _printLog('${field.key}: ${field.value}');
+          final map = <String, dynamic>{};
+          for (final f in formData.fields) {
+            map[f.key] = f.value;
           }
-          for (var file in formData.files) {
-            _printLog('${file.key}: File(${file.value.filename}, contentType: ${file.value.contentType})');
+          if (formData.files.isNotEmpty) {
+            final filesMap = <String, String>{};
+            for (final f in formData.files) {
+              final len = f.value.length;
+              final lenStr = len > 1024 * 1024
+                  ? '${(len / (1024 * 1024)).toStringAsFixed(1)} MB'
+                  : '${(len / 1024).toStringAsFixed(0)} KB';
+              final cType = f.value.contentType?.mimeType ?? '';
+              final details = [
+                if (cType.isNotEmpty) cType,
+                if (len > 0) lenStr,
+              ].join(', ');
+              filesMap[f.key] =
+                  '${f.value.filename ?? "file"}${details.isNotEmpty ? " ($details)" : ""}';
+            }
+            map['[FILES]'] = filesMap;
           }
-          _printLog('------------------------');
-        } else {
-          _printLog('--- Request Payload ---');
-          try {
-            _printLog(const JsonEncoder.withIndent('  ').convert(options.data));
-          } catch (_) {
-            _printLog(options.data.toString());
-          }
-          _printLog('-----------------------');
+          payloadData = map;
+        }
+
+        for (final line in _formatPayload(payloadData, maxLines: 40).split('\n')) {
+          buffer.writeln('║   $line');
         }
       }
-      _printLog('=================================\n');
+      buffer.write('╚═══════════════════════════════════════════════════════');
+      _printLog(buffer.toString());
     }
     super.onRequest(options, handler);
   }
@@ -94,28 +101,23 @@ class LoggerInterceptor extends Interceptor {
   @override
   void onResponse(Response response, ResponseInterceptorHandler handler) {
     if (kDebugMode) {
-      final requestTime = _requestTimers[response.requestOptions.uri.toString()];
-      final duration = requestTime != null ? DateTime.now().difference(requestTime).inMilliseconds : -1;
-      
-      _printLog('========== API RESPONSE ==========');
-      _printLog('URL: ${response.requestOptions.uri}');
-      _printLog('Status Code: ${response.statusCode}');
-      _printLog('Response Time: $duration ms');
+      final reqId = response.requestOptions.extra['_req_id'] ?? '?';
+      final startTime = response.requestOptions.extra['_req_time'] as DateTime?;
+      final duration = startTime != null
+          ? DateTime.now().difference(startTime).inMilliseconds
+          : -1;
+      final status = response.statusCode ?? 200;
+      final icon = (status >= 200 && status < 300) ? '🟢' : '🟡';
 
-      _printLog('--- Response Payload ---');
-      try {
-        if (response.data is Map || response.data is List) {
-          _printLog(const JsonEncoder.withIndent('  ').convert(response.data));
-        } else {
-          _printLog(response.data.toString());
-        }
-      } catch (_) {
-        _printLog(response.data.toString());
+      final buffer = StringBuffer();
+      buffer.writeln('╔════ $icon [RES #$reqId] $status ${response.requestOptions.method} (${duration}ms)');
+      buffer.writeln('║ URL: ${response.requestOptions.uri}');
+      buffer.writeln('║ Response:');
+      for (final line in _formatPayload(response.data, maxLines: 40).split('\n')) {
+        buffer.writeln('║   $line');
       }
-      _printLog('------------------------');
-      _printLog('==================================\n');
-
-      _requestTimers.remove(response.requestOptions.uri.toString());
+      buffer.write('╚═══════════════════════════════════════════════════════');
+      _printLog(buffer.toString());
     }
     super.onResponse(response, handler);
   }
@@ -123,32 +125,25 @@ class LoggerInterceptor extends Interceptor {
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
     if (kDebugMode) {
-      final requestTime = _requestTimers[err.requestOptions.uri.toString()];
-      final duration = requestTime != null ? DateTime.now().difference(requestTime).inMilliseconds : -1;
+      final reqId = err.requestOptions.extra['_req_id'] ?? '?';
+      final startTime = err.requestOptions.extra['_req_time'] as DateTime?;
+      final duration = startTime != null
+          ? DateTime.now().difference(startTime).inMilliseconds
+          : -1;
+      final status = err.response?.statusCode ?? 'FAIL';
 
-      _printLog('========== API ERROR ==========');
-      _printLog('URL: ${err.requestOptions.uri}');
-      _printLog('Method: ${err.requestOptions.method}');
-      _printLog('Status Code: ${err.response?.statusCode}');
-      _printLog('Response Time: $duration ms');
-      _printLog('Error: ${err.message}');
-
+      final buffer = StringBuffer();
+      buffer.writeln('╔════ 🔴 [ERR #$reqId] $status ${err.requestOptions.method} (${duration}ms)');
+      buffer.writeln('║ URL: ${err.requestOptions.uri}');
+      buffer.writeln('║ Error: ${err.message}');
       if (err.response?.data != null) {
-        _printLog('--- Error Response Payload ---');
-        try {
-          if (err.response!.data is Map || err.response!.data is List) {
-            _printLog(const JsonEncoder.withIndent('  ').convert(err.response!.data));
-          } else {
-            _printLog(err.response!.data.toString());
-          }
-        } catch (_) {
-          _printLog(err.response!.data.toString());
+        buffer.writeln('║ Error Data:');
+        for (final line in _formatPayload(err.response!.data, maxLines: 30).split('\n')) {
+          buffer.writeln('║   $line');
         }
-        _printLog('------------------------------');
       }
-      _printLog('===============================\n');
-
-      _requestTimers.remove(err.requestOptions.uri.toString());
+      buffer.write('╚═══════════════════════════════════════════════════════');
+      _printLog(buffer.toString());
     }
     super.onError(err, handler);
   }

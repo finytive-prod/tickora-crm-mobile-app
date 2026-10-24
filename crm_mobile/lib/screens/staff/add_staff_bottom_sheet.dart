@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:crm_mobile/core/theme/app_colors.dart';
 import 'package:crm_mobile/models/role_entity.dart';
+import 'package:crm_mobile/models/staff_user.dart';
+import 'package:crm_mobile/usecases/get_staff_users_usecase.dart';
 import 'package:crm_mobile/repositories/settings_repository.dart';
 import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/widgets/custom_text_field.dart';
@@ -41,17 +44,22 @@ class _AddStaffBottomSheetState extends State<AddStaffBottomSheet> {
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _designationController = TextEditingController();
   final TextEditingController _joiningDateController = TextEditingController();
+  final TextEditingController _callTargetController = TextEditingController(text: '50');
+  final TextEditingController _callTimeTargetController = TextEditingController(text: '08:00:00');
 
   String? _selectedGender;
   String? _selectedRole;
+  String? _selectedManagerId;
   bool _isDefault = false;
+  bool _redirect = true;
   
   bool _isLoadingRoles = true;
   bool _isSubmitting = false;
   String? _serverError;
   List<RoleDropdownItem> _roleDropdownOptions = [];
+  List<StaffUser> _managers = [];
 
-  final List<String> _genderOptions = ['MALE', 'FEMALE', 'Other'];
+  final List<String> _genderOptions = ['FEMALE', 'MALE', 'OTHER'];
 
   @override
   void initState() {
@@ -60,6 +68,7 @@ class _AddStaffBottomSheetState extends State<AddStaffBottomSheet> {
     final now = DateTime.now();
     _joiningDateController.text = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
     _fetchRoles();
+    _fetchManagers();
   }
 
   Future<void> _fetchRoles() async {
@@ -70,6 +79,7 @@ class _AddStaffBottomSheetState extends State<AddStaffBottomSheet> {
         result.fold(
           (failure) {
             _roleDropdownOptions = const [
+              RoleDropdownItem(id: 'TELE_CALLER', roleName: 'Tele Caller', roleCode: 'TELE_CALLER'),
               RoleDropdownItem(id: '8780edfe-2c9d-4f23-ad3d-ca2a605e5bf9', roleName: 'Admin', roleCode: 'ADMIN'),
               RoleDropdownItem(id: '5f2231c9-1f54-4c43-9f68-7d74f5f46d01', roleName: 'Staff', roleCode: 'STAFF'),
               RoleDropdownItem(id: 'a013a3c8-1e2b-48e6-9074-0815e5a56b82', roleName: 'Manager', roleCode: 'MANAGER'),
@@ -81,16 +91,20 @@ class _AddStaffBottomSheetState extends State<AddStaffBottomSheet> {
           },
         );
         if (_roleDropdownOptions.isNotEmpty) {
-          _selectedRole = _roleDropdownOptions.first.id;
+          final firstRole = _roleDropdownOptions.first;
+          _selectedRole = firstRole.roleCode.isNotEmpty ? firstRole.roleCode : firstRole.id;
         }
       }
     } catch (e) {
       if (_roleDropdownOptions.isEmpty) {
         _roleDropdownOptions = const [
+          RoleDropdownItem(id: 'TELE_CALLER', roleName: 'Tele Caller', roleCode: 'TELE_CALLER'),
           RoleDropdownItem(id: '8780edfe-2c9d-4f23-ad3d-ca2a605e5bf9', roleName: 'Admin', roleCode: 'ADMIN'),
           RoleDropdownItem(id: '5f2231c9-1f54-4c43-9f68-7d74f5f46d01', roleName: 'Staff', roleCode: 'STAFF'),
         ];
-        _selectedRole = _roleDropdownOptions.first.id;
+        _selectedRole = _roleDropdownOptions.first.roleCode.isNotEmpty
+            ? _roleDropdownOptions.first.roleCode
+            : _roleDropdownOptions.first.id;
       }
     } finally {
       if (mounted) {
@@ -101,6 +115,24 @@ class _AddStaffBottomSheetState extends State<AddStaffBottomSheet> {
     }
   }
 
+  Future<void> _fetchManagers() async {
+    try {
+      if (sl.isRegistered<GetStaffUsersUseCase>()) {
+        final res = await sl<GetStaffUsersUseCase>()();
+        res.fold(
+          (_) {},
+          (users) {
+            if (mounted) {
+              setState(() {
+                _managers = users;
+              });
+            }
+          },
+        );
+      }
+    } catch (_) {}
+  }
+
   @override
   void dispose() {
     _fullNameController.dispose();
@@ -108,6 +140,8 @@ class _AddStaffBottomSheetState extends State<AddStaffBottomSheet> {
     _phoneController.dispose();
     _designationController.dispose();
     _joiningDateController.dispose();
+    _callTargetController.dispose();
+    _callTimeTargetController.dispose();
     super.dispose();
   }
 
@@ -135,8 +169,9 @@ class _AddStaffBottomSheetState extends State<AddStaffBottomSheet> {
   void _handleSave() async {
     if (_isSubmitting) return;
 
-    // Validate fields and automatically drag/scroll to first error field
-    if (!validateAndScrollToError(_formKey)) {
+    final emailError = AppValidators.validateEmail(_emailController.text, isRequired: true);
+    final phoneError = AppValidators.validateMobile(_phoneController.text, isRequired: true, fieldName: 'Phone number');
+    if (emailError != null || phoneError != null || !validateAndScrollToError(_formKey)) {
       setState(() {
         _autovalidateMode = AutovalidateMode.onUserInteraction;
       });
@@ -148,34 +183,50 @@ class _AddStaffBottomSheetState extends State<AddStaffBottomSheet> {
       _serverError = null;
     });
 
-      final name = _fullNameController.text.trim();
-      final data = {
-        'fullName': name,
-        'username': name,
-        'email': _emailController.text.trim(),
-        'phone': _phoneController.text.trim(),
-        'gender': _selectedGender ?? _genderOptions.first,
-        'roleId': _selectedRole ?? '',
-        'joiningDate': _joiningDateController.text.trim(),
-        'designation': _designationController.text.trim().isEmpty ? null : _designationController.text.trim(),
-        'isDefault': _isDefault,
-      };
+    final name = _fullNameController.text.trim();
+    final nameParts = name.split(' ');
+    final firstName = nameParts.isNotEmpty ? nameParts.first : name;
+    final lastName = nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
+    final phone = _phoneController.text.trim();
+    final managerId = (_selectedManagerId != null && _selectedManagerId!.isNotEmpty) ? _selectedManagerId : null;
+    final role = _selectedRole ?? 'STAFF';
 
-      final error = await widget.onSave(data);
+    final data = <String, dynamic>{
+      'fullName': name,
+      'firstName': firstName,
+      'lastName': lastName,
+      'email': _emailController.text.trim().toLowerCase(),
+      'phone': phone,
+      'phoneNumber': phone,
+      'gender': _selectedGender ?? _genderOptions.first,
+      'joiningDate': _joiningDateController.text.trim(),
+      'designation': _designationController.text.trim().isEmpty ? null : _designationController.text.trim(),
+      'roleId': role,
+      'role': role,
+      'reportingManagerId': managerId,
+      'reportingTo': managerId,
+      'callTarget': int.tryParse(_callTargetController.text.trim()) ?? 50,
+      'callTimeTarget': _callTimeTargetController.text.trim().isEmpty ? '08:00:00' : _callTimeTargetController.text.trim(),
+      'redirect': _redirect,
+      'isDefault': _isDefault,
+      'password': '',
+    };
 
-      if (mounted) {
-        if (error == null) {
-          // Success: pop bottom sheet returning true to trigger list refresh
-          Navigator.of(context).pop(true);
-        } else {
-          // Failure: stay inside form, show error message banner
-          setState(() {
-            _isSubmitting = false;
-            _serverError = error;
-          });
-        }
+    final error = await widget.onSave(data);
+
+    if (mounted) {
+      if (error == null) {
+        // Success: pop bottom sheet returning true to trigger list refresh
+        Navigator.of(context).pop(true);
+      } else {
+        // Failure: stay inside form, show error message banner
+        setState(() {
+          _isSubmitting = false;
+          _serverError = error;
+        });
       }
     }
+  }
 
   Widget _buildSectionHeader(String title) {
     return Row(
@@ -350,7 +401,7 @@ class _AddStaffBottomSheetState extends State<AddStaffBottomSheet> {
                         keyboardType: TextInputType.phone,
                         controller: _phoneController,
                         inputFormatters: AppInputFormatters.phoneFormatters,
-                        validator: (val) => AppValidators.validateMobile(val, isRequired: true),
+                        validator: (val) => AppValidators.validateMobile(val, isRequired: true, fieldName: 'Phone number'),
                       ),
                       const SizedBox(height: 14),
 
@@ -375,9 +426,19 @@ class _AddStaffBottomSheetState extends State<AddStaffBottomSheet> {
                           : CustomDropdownField<String>(
                               label: 'Role',
                               isRequired: true,
-                              value: _selectedRole,
+                              value: (_selectedRole != null &&
+                                      _roleDropdownOptions.any((r) => (r.roleCode.isNotEmpty ? r.roleCode : r.id) == _selectedRole))
+                                  ? _selectedRole
+                                  : (_roleDropdownOptions.isNotEmpty
+                                      ? (_roleDropdownOptions.first.roleCode.isNotEmpty
+                                          ? _roleDropdownOptions.first.roleCode
+                                          : _roleDropdownOptions.first.id)
+                                      : null),
                               items: _roleDropdownOptions
-                                  .map((r) => DropdownMenuItem(value: r.id, child: Text(r.roleName)))
+                                  .map((r) => DropdownMenuItem(
+                                        value: r.roleCode.isNotEmpty ? r.roleCode : r.id,
+                                        child: Text(r.roleName),
+                                      ))
                                   .toList(),
                               onChanged: (val) => setState(() => _selectedRole = val),
                               validator: (val) => (val == null || val.isEmpty) ? 'Role is required' : null,
@@ -406,6 +467,48 @@ class _AddStaffBottomSheetState extends State<AddStaffBottomSheet> {
                       ),
                       const SizedBox(height: 14),
 
+                      CustomDropdownField<String>(
+                        label: 'Reporting Manager',
+                        isRequired: false,
+                        hintText: 'Select Reporting Manager (Optional)',
+                        value: _selectedManagerId ?? '',
+                        items: [
+                          const DropdownMenuItem(value: '', child: Text('None (No Reporting Manager)')),
+                          ..._managers.map((m) => DropdownMenuItem(value: m.userId, child: Text(m.name))),
+                        ],
+                        onChanged: (val) => setState(() => _selectedManagerId = (val != null && val.isNotEmpty) ? val : null),
+                      ),
+                      const SizedBox(height: 22),
+
+                      // Section 3: Call Targets & Settings
+                      _buildSectionHeader('Call Target & Time'),
+                      const SizedBox(height: 14),
+
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: CustomTextField(
+                              label: 'Call Target',
+                              hintText: '50',
+                              keyboardType: TextInputType.number,
+                              controller: _callTargetController,
+                              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: CustomTextField(
+                              label: 'Call Time Target',
+                              hintText: '08:00:00',
+                              controller: _callTimeTargetController,
+                              inputFormatters: AppInputFormatters.noEmojiFormatters,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+
                       // Make Default Staff Checkbox
                       Row(
                         children: [
@@ -427,6 +530,28 @@ class _AddStaffBottomSheetState extends State<AddStaffBottomSheet> {
                               color: AppColors.textPrimary,
                               fontWeight: FontWeight.w500,
                             ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+
+                      // Redirect Toggle Button
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Redirect',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: AppColors.textPrimary,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          Switch.adaptive(
+                            value: _redirect,
+                            activeTrackColor: AppColors.primary,
+                            activeThumbColor: Colors.white,
+                            onChanged: (val) => setState(() => _redirect = val),
                           ),
                         ],
                       ),

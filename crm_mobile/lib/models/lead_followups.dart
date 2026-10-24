@@ -31,13 +31,26 @@ class LeadFollowUpsModel extends LeadFollowUps {
     }
 
     if (json is Map<String, dynamic>) {
+      if (json['data'] != null && json['data'] is Map<String, dynamic> && (json.containsKey('statusCode') || json.containsKey('success'))) {
+        return LeadFollowUpsModel.fromJson(json['data']);
+      }
+      if (json['data'] != null && json['data'] is List) {
+        return LeadFollowUpsModel.fromJson(json['data']);
+      }
+
       LeadDetail? leadDetails;
       if (json['leadDetails'] != null && json['leadDetails'] is Map<String, dynamic>) {
         leadDetails = LeadDetailModel.fromJson(json['leadDetails']);
       }
 
       List<FollowUp> followups = [];
-      if (json['followups'] != null && json['followups'] is List) {
+      if (json['content'] != null && json['content'] is List) {
+        final List<dynamic> list = json['content'];
+        followups = list
+            .map((e) => FollowUpModel.fromJson(e as Map<String, dynamic>))
+            .where((f) => f.isRealFollowUp)
+            .toList();
+      } else if (json['followups'] != null && json['followups'] is List) {
         final List<dynamic> list = json['followups'];
         followups = list
             .map((e) => FollowUpModel.fromJson(e as Map<String, dynamic>))

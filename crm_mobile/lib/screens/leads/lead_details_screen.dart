@@ -20,7 +20,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crm_mobile/repositories/settings_repository.dart';
 import 'package:crm_mobile/core/utils/staff_phone_resolver.dart';
 import 'package:crm_mobile/screens/leads/add_lead_screen.dart';
-import 'package:crm_mobile/screens/followups/add_followup_screen.dart';
 import 'package:crm_mobile/screens/followups/edit_followup_screen.dart';
 import 'package:crm_mobile/models/follow_up.dart';
 import 'package:crm_mobile/usecases/get_lead_sources_usecase.dart';
@@ -30,6 +29,8 @@ import 'package:crm_mobile/models/staff_user.dart';
 import 'package:crm_mobile/screens/leads/widgets/lead_activities_tab.dart';
 import 'package:crm_mobile/screens/leads/widgets/lead_call_logs_tab.dart';
 import 'package:crm_mobile/screens/leads/widgets/lead_documents_tab.dart';
+import 'package:crm_mobile/core/services/privilege_service.dart';
+import 'package:crm_mobile/widgets/confirmation_dialog.dart';
 
 class LeadDetailsScreen extends StatelessWidget {
   final String leadId;
@@ -44,14 +45,19 @@ class LeadDetailsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocProvider(
       create: (_) => sl<LeadsBloc>()..add(FetchLeadDetails(leadId)),
-      child: LeadDetailsView(isActive: isActive),
+      child: LeadDetailsView(leadId: leadId, isActive: isActive),
     );
   }
 }
 
 class LeadDetailsView extends StatefulWidget {
+  final String leadId;
   final bool isActive;
-  const LeadDetailsView({super.key, this.isActive = true});
+  const LeadDetailsView({
+    super.key,
+    required this.leadId,
+    this.isActive = true,
+  });
 
   @override
   State<LeadDetailsView> createState() => _LeadDetailsViewState();
@@ -252,6 +258,9 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
     StaffPhoneResolver.getOrFetchStaffPhone().then((phone) {
       if (mounted) setState(() {});
     });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _triggerAutoSync();
+    });
   }
 
   void _loadDropdownData() async {
@@ -265,7 +274,9 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
       if (sl.isRegistered<GetStaffUsersUseCase>()) {
         final res = await sl<GetStaffUsersUseCase>()();
         res.fold((_) {}, (owners) {
-          if (mounted) setState(() => _availableOwners = owners);
+          final sortedOwners = List<StaffUser>.from(owners)
+            ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+          if (mounted) setState(() => _availableOwners = sortedOwners);
         });
       }
       if (sl.isRegistered<GetLeadPrioritiesUseCase>()) {
@@ -290,24 +301,61 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _lastCallTimestamp = null;
-      final blocState = context.read<LeadsBloc>().state;
-      if (blocState is LeadDetailsLoaded) {
-        final lead = blocState.leadDetail;
-        _triggerFastResumeRecordingSync(lead, blocState);
-      }
+      _triggerAutoSync();
     }
   }
 
-  void _triggerFastResumeRecordingSync(LeadDetail lead, LeadDetailsLoaded blocState) {
-    for (final delayMs in [300, 1500, 3500]) {
-      Future.delayed(Duration(milliseconds: delayMs), () {
+  void _triggerAutoSync() {
+    if (!mounted) return;
+    final blocState = context.read<LeadsBloc>().state;
+    final lead = blocState is LeadDetailsLoaded
+        ? blocState.leadDetail
+        : _lastLeadDetail;
+
+    AutoCallRecordingUploader.syncRecentCallsIfAvailable(
+      knownLeads: lead != null ? [lead] : null,
+      onUploadSuccess: () {
         if (!mounted) return;
-        AutoCallRecordingUploader.autoScanAndUploadLeadRecordings(
+        final currentLeadId = (context.read<LeadsBloc>().state is LeadDetailsLoaded)
+            ? (context.read<LeadsBloc>().state as LeadDetailsLoaded).leadDetail.id
+            : (lead?.id ?? widget.leadId);
+        context.read<LeadsBloc>().add(FetchLeadAudios(currentLeadId));
+        context.read<LeadsBloc>().add(FetchLeadCallLogs(currentLeadId));
+        if (lead != null && lead.phone.isNotEmpty) {
+          _fetchLocalRecordings(lead.phone);
+        }
+      },
+    );
+
+    if (lead != null) {
+      _triggerFastResumeRecordingSync(
+        lead,
+        blocState is LeadDetailsLoaded ? blocState : null,
+      );
+    }
+  }
+
+  bool _isResumeSyncInProgress = false;
+
+  void _triggerFastResumeRecordingSync(
+    LeadDetail lead,
+    LeadDetailsLoaded? blocState,
+  ) {
+    if (_isResumeSyncInProgress) return;
+    _isResumeSyncInProgress = true;
+
+    Future.delayed(const Duration(milliseconds: 1000), () async {
+      if (!mounted) {
+        _isResumeSyncInProgress = false;
+        return;
+      }
+      try {
+        await AutoCallRecordingUploader.autoScanAndUploadLeadRecordings(
           context: context,
           leadId: lead.id,
           phoneNumber: lead.phone,
-          existingServerAudios: blocState.audios ?? [],
-          existingServerCallLogs: blocState.callLogs?.callHistory ?? [],
+          existingServerAudios: blocState?.audios ?? [],
+          existingServerCallLogs: blocState?.callLogs?.callHistory ?? [],
           onUploadSuccess: () {
             if (mounted) {
               context.read<LeadsBloc>().add(FetchLeadAudios(lead.id));
@@ -316,8 +364,10 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
             }
           },
         );
-      });
-    }
+      } finally {
+        _isResumeSyncInProgress = false;
+      }
+    });
   }
 
   void _fetchLeadStatuses() async {
@@ -548,8 +598,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
       for (final c in effectiveTracked) {
         final diff1 = (c.timestamp - audioMs).abs();
         final diff2 = (c.startTime - audioMs).abs();
-        if (diff1 < 60000 || diff2 < 60000) {
-          // 1 minute tolerance
+        if (diff1 < 8000 || diff2 < 8000) {
           if (c.durationSeconds > 0) {
             durationSec = c.durationSeconds;
           }
@@ -564,8 +613,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
       for (final sys in systemLogs) {
         final sysStart = sys['startTime'] as int? ?? 0;
         final sysDur = sys['durationSeconds'] as int? ?? 0;
-        if (sysStart > 0 && (sysStart - audioMs).abs() < 60000) {
-          // 1 minute tolerance
+        if (sysStart > 0 && (sysStart - audioMs).abs() < 8000) {
           sysStatus = sys['callStatus'] as String? ?? '';
           if (durationSec <= 0 && sysDur > 0) {
             durationSec = sysDur;
@@ -652,14 +700,16 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                         icon: const Icon(Icons.phone, color: AppColors.primary),
                         tooltip: 'Call Lead',
                         onPressed: () async {
-                          if (effectiveLead != null && effectiveLead.phone.isNotEmpty) {
+                          if (effectiveLead != null &&
+                              effectiveLead.phone.isNotEmpty) {
                             _lastCallTimestamp =
                                 DateTime.now().millisecondsSinceEpoch;
                             AutoCallRecordingUploader.makeCallAndAutoUpload(
                               context: context,
                               leadId: effectiveLead.id,
                               phoneNumber: effectiveLead.phone,
-                              leadName: '${effectiveLead.firstName} ${effectiveLead.lastName}',
+                              leadName:
+                                  '${effectiveLead.firstName} ${effectiveLead.lastName}',
                               onUploadSuccess: () {
                                 if (context.mounted) {
                                   context.read<LeadsBloc>().add(
@@ -672,50 +722,63 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                           }
                         },
                       ),
-                    IconButton(
-                      icon: const Icon(
-                        Icons.edit_outlined,
-                        color: AppColors.textPrimary,
-                      ),
-                      tooltip: 'Edit Lead',
-                      onPressed: () {
-                        if (effectiveLead != null) {
-                          _navigateToEditForm(
-                            context,
-                            effectiveLead,
-                            targetFieldKey: null,
-                          );
-                        }
-                      },
-                    ),
-                    PopupMenuButton<String>(
-                      icon: const Icon(
-                        Icons.more_horiz,
-                        color: AppColors.textPrimary,
-                      ),
-                      onSelected: (value) {
-                        if (value == 'toggle_status') {
+                    if (sl<PrivilegeService>().hasPrivilege('LEAD_UPDATE'))
+                      IconButton(
+                        icon: const Icon(
+                          Icons.edit_outlined,
+                          color: AppColors.textPrimary,
+                        ),
+                        tooltip: 'Edit Lead',
+                        onPressed: () {
                           if (effectiveLead != null) {
-                            context.read<LeadsBloc>().add(
-                              UpdateLeadActiveStatus(
-                                leadId: effectiveLead.id,
-                                isActive: !widget.isActive,
-                              ),
+                            _navigateToEditForm(
+                              context,
+                              effectiveLead,
+                              targetFieldKey: null,
                             );
                           }
-                        }
-                      },
-                      itemBuilder: (context) => [
-                        PopupMenuItem(
-                          value: 'toggle_status',
-                          child: Text(
-                            widget.isActive
-                                ? 'Deactivate Lead'
-                                : 'Activate Lead',
-                          ),
+                        },
+                      ),
+                    if (sl<PrivilegeService>().hasPrivilege('LEAD_DELETE'))
+                      PopupMenuButton<String>(
+                        icon: const Icon(
+                          Icons.more_horiz,
+                          color: AppColors.textPrimary,
                         ),
-                      ],
-                    ),
+                        onSelected: (value) async {
+                          if (value == 'toggle_status' && effectiveLead != null) {
+                            final isDeactivating = widget.isActive;
+                            final action = isDeactivating ? 'Deactivate' : 'Activate';
+                            final leadName = '${effectiveLead.firstName} ${effectiveLead.lastName}'.trim();
+                            final confirmed = await ConfirmationDialog.show(
+                              context,
+                              title: '$action Lead',
+                              message: 'Are you sure you want to ${action.toLowerCase()}${leadName.isNotEmpty ? ' $leadName' : ' this lead'}?',
+                              confirmLabel: action,
+                              isDestructive: isDeactivating,
+                            );
+
+                            if (confirmed == true && context.mounted) {
+                              context.read<LeadsBloc>().add(
+                                UpdateLeadActiveStatus(
+                                  leadId: effectiveLead.id,
+                                  isActive: !widget.isActive,
+                                ),
+                              );
+                            }
+                          }
+                        },
+                        itemBuilder: (context) => [
+                          PopupMenuItem(
+                            value: 'toggle_status',
+                            child: Text(
+                              widget.isActive
+                                  ? 'Deactivate Lead'
+                                  : 'Activate Lead',
+                            ),
+                          ),
+                        ],
+                      ),
                   ],
                 );
               },
@@ -735,19 +798,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                   state.callLogs != null &&
                   !_scannedLeadIds.contains(leadId)) {
                 _scannedLeadIds.add(leadId);
-                AutoCallRecordingUploader.autoScanAndUploadLeadRecordings(
-                  context: context,
-                  leadId: leadId,
-                  phoneNumber: state.leadDetail.phone,
-                  existingServerAudios: state.audios,
-                  existingServerCallLogs: state.callLogs?.callHistory,
-                  onUploadSuccess: () {
-                    if (mounted) {
-                      context.read<LeadsBloc>().add(FetchLeadAudios(leadId));
-                      context.read<LeadsBloc>().add(FetchLeadCallLogs(leadId));
-                    }
-                  },
-                );
+                _triggerAutoSync();
               }
             } else if (state is LeadActionSuccess) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -783,21 +834,45 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                 return const Center(child: SpinningLogo(size: 60));
               } else if (state is LeadDetailsError) {
                 return Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        state.message,
-                        style: const TextStyle(color: AppColors.primary),
-                      ),
-                      const SizedBox(height: 12),
-                      ElevatedButton(
-                        onPressed: () {
-                          Navigator.pop(context);
-                        },
-                        child: const Text('Go Back'),
-                      ),
-                    ],
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          state.message,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: AppColors.primary, fontSize: 14),
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            ElevatedButton(
+                              onPressed: () {
+                                Navigator.pop(context);
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.grey.shade200,
+                                foregroundColor: Colors.black87,
+                              ),
+                              child: const Text('Go Back'),
+                            ),
+                            const SizedBox(width: 12),
+                            ElevatedButton(
+                              onPressed: () {
+                                context.read<LeadsBloc>().add(FetchLeadDetails(widget.leadId));
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primary,
+                                foregroundColor: Colors.white,
+                              ),
+                              child: const Text('Retry'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 );
               }
@@ -933,7 +1008,6 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                   ),
                   const SizedBox(height: 16),
 
-
                   // Tab Bar Headers
                   _buildTabBar(effectiveState),
 
@@ -1048,9 +1122,44 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
               ),
             );
           }).toList(),
-          onChanged: (newStatusId) {
+          onChanged: (newStatusId) async {
             if (newStatusId != null && newStatusId != currentStatusId) {
-              _updateLeadStatus(context, lead, newStatusId);
+              final currentStatus = _availableStatuses.firstWhere(
+                (s) => s.id == currentStatusId,
+                orElse: () => lead.status ?? const LeadStatusModel(id: '', statusName: '', color: '', isDefault: false, isClosed: false, displayOrder: 0),
+              );
+              final targetStatus = _availableStatuses.firstWhere(
+                (s) => s.id == newStatusId,
+                orElse: () => const LeadStatusModel(id: '', statusName: '', color: '', isDefault: false, isClosed: false, displayOrder: 0),
+              );
+
+              // Only Admin & Superadmin can change from 3rd step to 1st step with confirmation
+              if (currentStatus.level == 3 && targetStatus.level == 1) {
+                final isAdmin = sl<PrivilegeService>().isAdminOrSuperAdmin();
+                if (!isAdmin) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Only Admin and Super Admin can change status from Stage 3 to Stage 1.'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                  return;
+                }
+                final confirmed = await ConfirmationDialog.show(
+                  context,
+                  title: 'Confirm Status Change',
+                  message: 'Are you sure you want to change status from "${currentStatus.statusName}" (Stage 3) back to "${targetStatus.statusName}" (Stage 1)?',
+                  confirmLabel: 'Confirm Change',
+                  isDestructive: false,
+                );
+                if (confirmed != true) return;
+              }
+
+              if (context.mounted) {
+                _updateLeadStatus(context, lead, newStatusId);
+              }
             }
           },
         ),
@@ -1058,45 +1167,6 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
     );
   }
 
-  Widget _buildRescheduleButton(BuildContext context, LeadDetail lead) {
-    return SizedBox(
-      height: 46,
-      child: ElevatedButton.icon(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.primary,
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-        ),
-        icon: _isRescheduleLoading
-            ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(
-                  color: Colors.white,
-                  strokeWidth: 2,
-                ),
-              )
-            : const Icon(
-                Icons.event_repeat_rounded,
-                size: 18,
-                color: Colors.white,
-              ),
-        label: Text(
-          _isRescheduleLoading ? 'Loading...' : 'Reschedule',
-          style: const TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
-        onPressed: _isRescheduleLoading
-            ? null
-            : () => _openRescheduleScreen(lead),
-      ),
-    );
-  }
 
   Future<void> _openRescheduleScreen(
     LeadDetail lead, {
@@ -1107,6 +1177,10 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
     });
 
     try {
+      if (selectedFollowUp == null && _allLeadFollowUps.isNotEmpty) {
+        selectedFollowUp = _leadFollowUp ?? _allLeadFollowUps.first;
+      }
+
       if (selectedFollowUp == null) {
         if (!mounted) return;
         _navigateToEditForm(context, lead, targetFieldKey: 'followup');
@@ -1176,7 +1250,21 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
             _isLoadingFollowUp = false;
             _allLeadFollowUps = list;
             _leadFollowUp = target;
-            _selectedFollowUpFilter = 'Today';
+            if (list.isNotEmpty) {
+              if (_getCategoryCount(_selectedFollowUpFilter) == 0) {
+                if (_getCategoryCount('Today') > 0) {
+                  _selectedFollowUpFilter = 'Today';
+                } else if (_getCategoryCount('Upcoming') > 0) {
+                  _selectedFollowUpFilter = 'Upcoming';
+                } else if (_getCategoryCount('Missed') > 0) {
+                  _selectedFollowUpFilter = 'Missed';
+                } else {
+                  _selectedFollowUpFilter = 'All';
+                }
+              }
+            } else {
+              _selectedFollowUpFilter = 'Today';
+            }
           });
         },
       );
@@ -1474,37 +1562,46 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                       color: AppColors.textSecondary,
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  ElevatedButton.icon(
-                    onPressed: () => _navigateToEditForm(
-                      context,
-                      lead,
-                      targetFieldKey: 'followup',
+                  if (_allLeadFollowUps.isNotEmpty && _selectedFollowUpFilter != 'All') ...[
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: () => setState(() => _selectedFollowUpFilter = 'All'),
+                      icon: const Icon(Icons.list_alt_rounded, size: 16),
+                      label: Text('View All Follow-ups (${_allLeadFollowUps.length})'),
                     ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 10,
+                  ] else ...[
+                    const SizedBox(height: 16),
+                    ElevatedButton.icon(
+                      onPressed: () => _navigateToEditForm(
+                        context,
+                        lead,
+                        targetFieldKey: 'followup',
                       ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 10,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                       ),
-                    ),
-                    icon: const Icon(
-                      Icons.add_task_rounded,
-                      color: Colors.white,
-                      size: 16,
-                    ),
-                    label: const Text(
-                      'Schedule Follow-up',
-                      style: TextStyle(
+                      icon: const Icon(
+                        Icons.add_task_rounded,
                         color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
+                        size: 16,
+                      ),
+                      label: const Text(
+                        'Schedule Follow-up',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
                       ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             )
@@ -1866,12 +1963,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                   _activeTabIndex = index;
                 });
                 if (index == 1) {
-                  setState(() {
-                    _selectedFollowUpFilter = 'Today';
-                  });
-                  if (_leadFollowUp == null && !_isLoadingFollowUp) {
-                    _fetchFollowUpDetails(state.leadDetail.id);
-                  }
+                  _fetchFollowUpDetails(state.leadDetail.id);
                 } else if (index == 2 &&
                     state.auditLogs == null &&
                     !state.isAuditLogsLoading) {
@@ -2123,7 +2215,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
               Icons.person_outline,
               'Owner',
               lead.ownerUserName ?? 'Unassigned',
-              fieldKey: 'ownerUserId',
+              fieldKey: sl<PrivilegeService>().canAssignLeads() ? 'ownerUserId' : null,
               lead: lead,
             ),
             if (lead.priority != null)
@@ -2176,13 +2268,15 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                   icon,
                   field.label,
                   valStr.isNotEmpty ? valStr : '-',
-                  fieldKey: isAttachment ? null : 'customField_${field.fieldId}',
+                  fieldKey: isAttachment
+                      ? null
+                      : 'customField_${field.fieldId}',
                   onEditTap: isAttachment
                       ? () => _navigateToEditForm(
-                            context,
-                            lead,
-                            targetFieldKey: 'customField_${field.fieldId}',
-                          )
+                          context,
+                          lead,
+                          targetFieldKey: 'customField_${field.fieldId}',
+                        )
                       : null,
                   lead: lead,
                 );
@@ -2312,6 +2406,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
     LeadDetail lead, {
     String? targetFieldKey,
   }) {
+    if (!sl<PrivilegeService>().hasPrivilege('LEAD_UPDATE')) return;
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -2400,7 +2495,9 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
             onChanged: (val) {
               if (val != null) setState(() => _selectedDropdownValue = val);
             },
-            items: _availableOwners.map((owner) {
+            items: (_availableOwners.toList()
+                  ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase())))
+                .map((owner) {
               return DropdownMenuItem<String>(
                 value: owner.userId,
                 child: Text(owner.name, style: const TextStyle(fontSize: 14)),
@@ -2672,7 +2769,10 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
           ),
         ),
         if (!isEditing && trailing != null) trailing,
-        if (!isEditing && (fieldKey != null || onEditTap != null))
+        if (!isEditing &&
+            sl<PrivilegeService>().hasPrivilege('LEAD_UPDATE') &&
+            (fieldKey != 'ownerUserId' || sl<PrivilegeService>().canAssignLeads()) &&
+            (fieldKey != null || onEditTap != null))
           IconButton(
             icon: const Icon(
               Icons.edit_outlined,

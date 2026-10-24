@@ -6,6 +6,7 @@ import 'package:crm_mobile/core/network/api_client.dart';
 import 'package:crm_mobile/core/network/api_constants.dart';
 import 'package:crm_mobile/core/services/notification_service.dart';
 import 'package:crm_mobile/injection/injection.dart';
+import 'package:crm_mobile/core/utils/navigation_service.dart';
 import 'package:logger/logger.dart';
 
 /// Top-level background message handler.
@@ -33,11 +34,16 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
         '';
 
     if (title.isNotEmpty || body.isNotEmpty) {
+      final isSelfAdd = NotificationService.isSelfAddLeadNotification(
+        title: title,
+        body: body,
+        data: data,
+      );
       await NotificationService.instance.addNotificationAsync(
         title: title,
         body: body,
         data: data,
-        speakTitle: true,
+        speakTitle: !isSelfAdd,
       );
     }
   } catch (e) {
@@ -64,6 +70,17 @@ class FcmService {
     importance: Importance.max,
     showBadge: true,
     playSound: true,
+  );
+
+  /// Silent notification channel for self-created actions (no sound or vibration).
+  static const AndroidNotificationChannel _silentChannel = AndroidNotificationChannel(
+    'tickora_crm_notifications_silent',
+    'Tickora CRM Silent Notifications',
+    description: 'Silent notifications from Tickora CRM',
+    importance: Importance.low,
+    showBadge: true,
+    playSound: false,
+    enableVibration: false,
   );
 
   /// Initialize the FCM service. Call this on app startup or user authentication.
@@ -196,6 +213,7 @@ class FcmService {
             AndroidFlutterLocalNotificationsPlugin>();
 
     await androidPlugin?.createNotificationChannel(_channel);
+    await androidPlugin?.createNotificationChannel(_silentChannel);
 
     // Request Android 13+ runtime notification permissions
     await androidPlugin?.requestNotificationsPermission();
@@ -209,6 +227,11 @@ class FcmService {
       initSettings,
       onDidReceiveNotificationResponse: _onNotificationTapped,
     );
+
+    final launchDetails = await _localNotifications.getNotificationAppLaunchDetails();
+    if (launchDetails != null && launchDetails.didNotificationLaunchApp && launchDetails.notificationResponse != null) {
+      _onNotificationTapped(launchDetails.notificationResponse!);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -236,15 +259,27 @@ class FcmService {
           '';
 
       if (title.isNotEmpty || body.isNotEmpty) {
+        final isSelfAdd = NotificationService.isSelfAddLeadNotification(
+          title: title,
+          body: body,
+          data: data,
+        );
+
         NotificationService.instance.addNotification(
           title: title,
           body: body,
           data: data,
-          speakTitle: true,
+          speakTitle: !isSelfAdd,
         );
 
         final notificationId = message.messageId?.hashCode ??
             DateTime.now().millisecondsSinceEpoch.remainder(100000);
+
+        final channel = isSelfAdd ? _silentChannel : _channel;
+
+        final payloadData = Map<String, dynamic>.from(data);
+        payloadData['title'] = title;
+        payloadData['body'] = body;
 
         _localNotifications.show(
           notificationId,
@@ -252,18 +287,18 @@ class FcmService {
           body,
           NotificationDetails(
             android: AndroidNotificationDetails(
-              _channel.id,
-              _channel.name,
-              channelDescription: _channel.description,
-              importance: Importance.max,
-              priority: Priority.high,
+              channel.id,
+              channel.name,
+              channelDescription: channel.description,
+              importance: isSelfAdd ? Importance.low : Importance.max,
+              priority: isSelfAdd ? Priority.low : Priority.high,
               icon: '@mipmap/launcher_icon',
               styleInformation: BigTextStyleInformation(body),
-              playSound: true,
-              enableVibration: true,
+              playSound: !isSelfAdd,
+              enableVibration: !isSelfAdd,
             ),
           ),
-          payload: jsonEncode(data),
+          payload: jsonEncode(payloadData),
         );
       }
     });
@@ -306,6 +341,8 @@ class FcmService {
         data: data,
       );
     }
+
+    _handleLeadNavigation(data, title: title, body: body);
   }
 
   /// Called when a user taps on a foreground local notification banner.
@@ -323,9 +360,17 @@ class FcmService {
           body: body,
           data: data,
         );
+        _handleLeadNavigation(data, title: title, body: body);
       } catch (e) {
         logger?.w('Error parsing notification payload: $e');
       }
+    }
+  }
+
+  Future<void> _handleLeadNavigation(Map<String, dynamic>? data, {String? title, String? body}) async {
+    final leadId = await NotificationService.resolveLeadId(data, title: title, body: body);
+    if (leadId != null && leadId.isNotEmpty) {
+      NavigationService.navigateToLeadDetails(leadId);
     }
   }
 

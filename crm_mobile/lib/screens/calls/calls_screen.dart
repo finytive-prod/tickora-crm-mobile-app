@@ -8,6 +8,8 @@ import 'package:crm_mobile/repositories/leads_repository.dart';
 import 'package:crm_mobile/usecases/get_staff_users_usecase.dart';
 import 'package:crm_mobile/core/network/error_handler.dart';
 import 'package:crm_mobile/widgets/spinning_logo.dart';
+import 'package:crm_mobile/screens/leads/lead_details_screen.dart';
+import 'package:crm_mobile/core/services/auto_call_recording_uploader.dart';
 
 class CallsScreen extends StatefulWidget {
   const CallsScreen({super.key});
@@ -16,7 +18,7 @@ class CallsScreen extends StatefulWidget {
   State<CallsScreen> createState() => _CallsScreenState();
 }
 
-class _CallsScreenState extends State<CallsScreen> {
+class _CallsScreenState extends State<CallsScreen> with WidgetsBindingObserver {
   bool _isLoading = true;
   String? _errorMessage;
   
@@ -29,12 +31,42 @@ class _CallsScreenState extends State<CallsScreen> {
 
   List<OwnerCallReport> _allReports = [];
   List<OwnerCallReport> _filteredReports = [];
+  final Set<String> _expandedOwnerIds = {};
+  bool _isStaffReportLoading = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _applyQuickDateFilter('Today', fetch: false);
     _loadInitialData();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _triggerAutoSync();
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _triggerAutoSync();
+    }
+  }
+
+  void _triggerAutoSync() {
+    if (!mounted) return;
+    AutoCallRecordingUploader.syncRecentCallsIfAvailable(
+      onUploadSuccess: () {
+        if (mounted) {
+          _fetchCallReport();
+        }
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   void _applyQuickDateFilter(String filter, {bool fetch = true}) {
@@ -155,20 +187,19 @@ class _CallsScreenState extends State<CallsScreen> {
 
     try {
       final repo = sl<LeadsRepository>();
-      final List<String>? ownerIdsList = (_selectedStaffUserId != null && _selectedStaffUserId!.isNotEmpty)
-          ? [_selectedStaffUserId!]
-          : null;
+      final startStr = _startDate != null ? _formatDate(_startDate!) : null;
+      final endStr = _endDate != null ? _formatDate(_endDate!) : null;
 
-      final result = await repo.getOwnerCallReport(
-        ownerId: _selectedStaffUserId,
-        ownerIds: ownerIdsList,
-        startDate: _startDate != null ? _formatDate(_startDate!) : null,
-        endDate: _endDate != null ? _formatDate(_endDate!) : null,
+      // 1. Fetch Global Report across all staff with ownerIds: []
+      final globalResult = await repo.getOwnerCallReport(
+        ownerIds: [],
+        startDate: startStr,
+        endDate: endStr,
       );
 
       if (!mounted) return;
 
-      result.fold(
+      globalResult.fold(
         (failure) {
           setState(() {
             _isLoading = false;
@@ -176,13 +207,41 @@ class _CallsScreenState extends State<CallsScreen> {
           });
         },
         (reports) {
-          setState(() {
-            _isLoading = false;
-            _allReports = reports;
-            _applyFilter();
-          });
+          _allReports = reports;
+          _isLoading = false;
         },
       );
+
+      // 2. Fetch specific staff breakdown if a staff member is selected
+      if (_selectedStaffUserId != null && _selectedStaffUserId!.isNotEmpty) {
+        final staffResult = await repo.getOwnerCallReport(
+          ownerIds: [_selectedStaffUserId!],
+          startDate: startStr,
+          endDate: endStr,
+        );
+        if (mounted) {
+          staffResult.fold(
+            (_) {
+              _filteredReports = _allReports
+                  .where((r) => r.ownerId == _selectedStaffUserId)
+                  .toList();
+            },
+            (reports) {
+              _filteredReports = reports;
+            },
+          );
+        }
+      } else {
+        _filteredReports = List.from(_allReports);
+      }
+
+      if (mounted) {
+        setState(() {
+          if (_filteredReports.length == 1) {
+            _expandedOwnerIds.add(_filteredReports.first.ownerId);
+          }
+        });
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -193,29 +252,58 @@ class _CallsScreenState extends State<CallsScreen> {
     }
   }
 
-  void _applyFilter() {
-    if (_selectedStaffUserId == null || _selectedStaffUserId!.isEmpty) {
-      _filteredReports = List.from(_allReports);
-    } else {
-      _filteredReports = _allReports
-          .where((r) => r.ownerId == _selectedStaffUserId)
-          .toList();
-    }
-  }
-
-  void _onStaffChanged(String? newStaffId) {
+  void _onStaffChanged(String? newStaffId) async {
     setState(() {
       _selectedStaffUserId = newStaffId;
+      _isStaffReportLoading = true;
     });
-    _fetchCallReport();
+
+    try {
+      if (newStaffId != null && newStaffId.isNotEmpty) {
+        final repo = sl<LeadsRepository>();
+        final startStr = _startDate != null ? _formatDate(_startDate!) : null;
+        final endStr = _endDate != null ? _formatDate(_endDate!) : null;
+
+        final result = await repo.getOwnerCallReport(
+          ownerIds: [newStaffId],
+          startDate: startStr,
+          endDate: endStr,
+        );
+
+        if (!mounted) return;
+        result.fold(
+          (_) {
+            _filteredReports = _allReports
+                .where((r) => r.ownerId == newStaffId)
+                .toList();
+          },
+          (reports) {
+            _filteredReports = reports;
+          },
+        );
+      } else {
+        _filteredReports = List.from(_allReports);
+      }
+    } catch (_) {
+      if (mounted) {
+        _filteredReports = (newStaffId != null && newStaffId.isNotEmpty)
+            ? _allReports.where((r) => r.ownerId == newStaffId).toList()
+            : List.from(_allReports);
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isStaffReportLoading = false;
+          if (_filteredReports.length == 1) {
+            _expandedOwnerIds.add(_filteredReports.first.ownerId);
+          }
+        });
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final int totalCalls = _filteredReports.fold(0, (sum, r) => sum + r.totalCallsCount);
-    final int totalIncoming = _filteredReports.fold(0, (sum, r) => sum + r.incomingCalls);
-    final int totalOutgoing = _filteredReports.fold(0, (sum, r) => sum + r.outgoingCalls);
-
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
@@ -246,10 +334,6 @@ class _CallsScreenState extends State<CallsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Staff Dropdown
-              _buildStaffFilterDropdown(),
-              const SizedBox(height: 12),
-
               // Date Range Filter
               _buildDateFilterSection(),
               const SizedBox(height: 16),
@@ -340,10 +424,6 @@ class _CallsScreenState extends State<CallsScreen> {
                   ),
                 ),
               ] else ...[
-                // KPI Stat Cards
-                _buildKpiSummarySection(totalCalls, totalIncoming, totalOutgoing),
-                const SizedBox(height: 20),
-
                 const Text(
                   'Staff Call Breakdown',
                   style: TextStyle(
@@ -354,7 +434,15 @@ class _CallsScreenState extends State<CallsScreen> {
                 ),
                 const SizedBox(height: 12),
 
-                if (_filteredReports.isEmpty) ...[
+                // Staff Dropdown below Staff Call Breakdown
+                _buildStaffFilterDropdown(),
+                const SizedBox(height: 14),
+
+                if (_isStaffReportLoading) ...[
+                  const SizedBox(height: 30),
+                  const Center(child: SpinningLogo(size: 40)),
+                  const SizedBox(height: 30),
+                ] else if (_filteredReports.isEmpty) ...[
                   Container(
                     padding: const EdgeInsets.all(32),
                     decoration: BoxDecoration(
@@ -845,101 +933,42 @@ class _CallsScreenState extends State<CallsScreen> {
     );
   }
 
-  Widget _buildKpiSummarySection(int totalCalls, int totalIncoming, int totalOutgoing) {
-    return Column(
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: _buildSummaryKpiCard(
-                'Total Calls',
-                totalCalls.toString(),
-                Icons.phone,
-                Colors.blue,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _buildSummaryKpiCard(
-                'Inbound Calls',
-                totalIncoming.toString(),
-                Icons.call_received,
-                Colors.green,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _buildSummaryKpiCard(
-                'Outbound Calls',
-                totalOutgoing.toString(),
-                Icons.call_made,
-                Colors.orange,
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSummaryKpiCard(String title, String value, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withValues(alpha: 0.25)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              Icon(icon, color: color, size: 16),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: color,
-                    height: 1.1,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-              color: AppColors.textSecondary,
-              height: 1.1,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
-      ),
-    );
+  double _parsePercentage(String? pctString, {int? current, int? target}) {
+    if (pctString != null && pctString.isNotEmpty) {
+      final clean = pctString.replaceAll('%', '').trim();
+      final parsed = double.tryParse(clean);
+      if (parsed != null) {
+        return (parsed / 100.0).clamp(0.0, 1.0);
+      }
+    }
+    if (current != null && target != null && target > 0) {
+      return (current / target).clamp(0.0, 1.0);
+    }
+    return 0.0;
   }
 
   Widget _buildStaffReportCard(OwnerCallReport report) {
     final initials = report.ownerName.trim().isNotEmpty
         ? report.ownerName.trim().substring(0, 1).toUpperCase()
         : 'S';
+    final isExpanded = _expandedOwnerIds.contains(report.ownerId);
+    final hasCalledLeads = report.calledLeads.isNotEmpty;
+
+    final double callTargetProgress = _parsePercentage(
+      report.callTargetPercentage,
+      current: report.totalCallsCount,
+      target: report.callTarget,
+    );
+
+    final double callTimeTargetProgress = _parsePercentage(
+      report.callTimeTargetPercentage,
+    );
 
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: AppColors.borderEnabled),
         boxShadow: [
           BoxShadow(
@@ -952,47 +981,299 @@ class _CallsScreenState extends State<CallsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header: Avatar & Owner Name
+          // 1. Header: Avatar, Owner Name, Handled By, and Duration Badge
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               CircleAvatar(
-                radius: 18,
-                backgroundColor: AppColors.primary.withValues(alpha: 0.1),
+                radius: 19,
+                backgroundColor: AppColors.primary.withValues(alpha: 0.12),
                 child: Text(
                   initials,
                   style: const TextStyle(
                     color: AppColors.primary,
                     fontWeight: FontWeight.bold,
-                    fontSize: 14,
+                    fontSize: 15,
                   ),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: Text(
-                  report.ownerName,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.textPrimary,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      report.ownerName,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (report.callHandledBy != null &&
+                        report.callHandledBy!.isNotEmpty &&
+                        report.callHandledBy != report.ownerName) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        'Handled by ${report.callHandledBy}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppColors.textSecondary,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              // Duration Badge
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.schedule, size: 13, color: AppColors.primary),
+                    const SizedBox(width: 4),
+                    Text(
+                      report.totalDuration,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          const Divider(height: 1, color: AppColors.borderEnabled),
+
           const SizedBox(height: 12),
 
-          // 2 Columns: Inbound & Outbound details
+          // 2. Target & Progress Section (if callTarget or callTimeTarget exists)
+          if ((report.callTarget != null && report.callTarget! > 0) ||
+              (report.callTimeTarget != null && report.callTimeTarget!.isNotEmpty)) ...[
+            Container(
+              padding: const EdgeInsets.all(11),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Call Count Target
+                  if (report.callTarget != null && report.callTarget! > 0) ...[
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.track_changes_rounded, size: 14, color: AppColors.primary),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Call Target: ${report.totalCallsCount} / ${report.callTarget}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            report.callTargetPercentage ?? '${(callTargetProgress * 100).toInt()}%',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: callTargetProgress,
+                        minHeight: 5,
+                        backgroundColor: const Color(0xFFE2E8F0),
+                        valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
+                      ),
+                    ),
+                  ],
+
+                  if (report.callTarget != null &&
+                      report.callTarget! > 0 &&
+                      report.callTimeTarget != null &&
+                      report.callTimeTarget!.isNotEmpty)
+                    const SizedBox(height: 9),
+
+                  // Call Time Target
+                  if (report.callTimeTarget != null && report.callTimeTarget!.isNotEmpty) ...[
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.timer_outlined, size: 14, color: Color(0xFF0284C7)),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Time Target: ${report.totalDuration} / ${report.callTimeTarget}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE0F2FE),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            report.callTimeTargetPercentage ?? '${(callTimeTargetProgress * 100).toInt()}%',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF0284C7),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: callTimeTargetProgress,
+                        minHeight: 5,
+                        backgroundColor: const Color(0xFFE2E8F0),
+                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF0284C7)),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
+
+          // 3. Connected vs Not Connected Status Row
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFECFDF5),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFA7F3D0)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.phone_in_talk, color: Color(0xFF059669), size: 15),
+                      const SizedBox(width: 7),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${report.connectedCallsCount}',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF047857),
+                              ),
+                            ),
+                            const Text(
+                              'Connected',
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                color: Color(0xFF059669),
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF2F2),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFFECACA)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.phone_missed, color: Color(0xFFDC2626), size: 15),
+                      const SizedBox(width: 7),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${report.notConnectedCallsCount}',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFFB91C1C),
+                              ),
+                            ),
+                            const Text(
+                              'Not Connected',
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                color: Color(0xFFDC2626),
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 9),
+
+          // 4. Inbound & Outbound Breakdown
           Row(
             children: [
               // Inbound
               Expanded(
                 child: Container(
-                  padding: const EdgeInsets.all(10),
+                  padding: const EdgeInsets.all(9),
                   decoration: BoxDecoration(
                     color: const Color(0xFFF0FDF4),
                     borderRadius: BorderRadius.circular(8),
@@ -1003,7 +1284,7 @@ class _CallsScreenState extends State<CallsScreen> {
                     children: [
                       const Row(
                         children: [
-                          Icon(Icons.call_received, color: Color(0xFF16A34A), size: 14),
+                          Icon(Icons.call_received, color: Color(0xFF16A34A), size: 13),
                           SizedBox(width: 4),
                           Text(
                             'Incoming',
@@ -1015,20 +1296,20 @@ class _CallsScreenState extends State<CallsScreen> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 4),
                       Text(
                         '${report.incomingCalls} calls',
                         style: const TextStyle(
-                          fontSize: 13,
+                          fontSize: 12.5,
                           fontWeight: FontWeight.bold,
                           color: Color(0xFF166534),
                         ),
                       ),
-                      const SizedBox(height: 2),
+                      const SizedBox(height: 1),
                       Text(
-                        'Duration: ${report.incomingCallsDuration}',
+                        report.incomingCallsDuration,
                         style: const TextStyle(
-                          fontSize: 11,
+                          fontSize: 10.5,
                           color: Color(0xFF15803D),
                         ),
                       ),
@@ -1036,12 +1317,12 @@ class _CallsScreenState extends State<CallsScreen> {
                   ),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
 
               // Outbound
               Expanded(
                 child: Container(
-                  padding: const EdgeInsets.all(10),
+                  padding: const EdgeInsets.all(9),
                   decoration: BoxDecoration(
                     color: const Color(0xFFFFF7ED),
                     borderRadius: BorderRadius.circular(8),
@@ -1052,7 +1333,7 @@ class _CallsScreenState extends State<CallsScreen> {
                     children: [
                       const Row(
                         children: [
-                          Icon(Icons.call_made, color: Color(0xFFEA580C), size: 14),
+                          Icon(Icons.call_made, color: Color(0xFFEA580C), size: 13),
                           SizedBox(width: 4),
                           Text(
                             'Outgoing',
@@ -1064,20 +1345,20 @@ class _CallsScreenState extends State<CallsScreen> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 4),
                       Text(
                         '${report.outgoingCalls} calls',
                         style: const TextStyle(
-                          fontSize: 13,
+                          fontSize: 12.5,
                           fontWeight: FontWeight.bold,
                           color: Color(0xFF9A3412),
                         ),
                       ),
-                      const SizedBox(height: 2),
+                      const SizedBox(height: 1),
                       Text(
-                        'Duration: ${report.outgoingCallsDuration}',
+                        report.outgoingCallsDuration,
                         style: const TextStyle(
-                          fontSize: 11,
+                          fontSize: 10.5,
                           color: Color(0xFFC2410C),
                         ),
                       ),
@@ -1087,46 +1368,238 @@ class _CallsScreenState extends State<CallsScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              // Highlighted Total Calls below Incoming box
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: AppColors.primary.withValues(alpha: 0.25)),
-                ),
-                child: Text(
-                  'Total: ${report.totalCallsCount}',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.primary,
+
+          // 5. Most Talked Lead Banner
+          if (report.mostTalkedLeadName != null && report.mostTalkedLeadName!.isNotEmpty) ...[
+            const SizedBox(height: 9),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF5F3FF),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFDDD6FE)),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(5),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFEDE9FE),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.star_rounded, color: Color(0xFF7C3AED), size: 15),
                   ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Most Talked Lead',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF6D28D9),
+                          ),
+                        ),
+                        Text(
+                          report.mostTalkedLeadName!,
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF5B21B6),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (report.mostTalkedLeadDuration != null && report.mostTalkedLeadDuration!.isNotEmpty) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(5),
+                        border: Border.all(color: const Color(0xFFDDD6FE)),
+                      ),
+                      child: Text(
+                        report.mostTalkedLeadDuration!,
+                        style: const TextStyle(
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF6D28D9),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+
+          // 6. Called Leads Collapsible Section
+          if (hasCalledLeads) ...[
+            const SizedBox(height: 10),
+            InkWell(
+              onTap: () {
+                setState(() {
+                  if (isExpanded) {
+                    _expandedOwnerIds.remove(report.ownerId);
+                  } else {
+                    _expandedOwnerIds.add(report.ownerId);
+                  }
+                });
+              },
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.list_alt_rounded, size: 15, color: AppColors.primary),
+                    const SizedBox(width: 7),
+                    Text(
+                      'Called Leads (${report.calledLeads.length})',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                    const Spacer(),
+                    Icon(
+                      isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                      color: AppColors.primary,
+                      size: 19,
+                    ),
+                  ],
                 ),
               ),
-              // Highlighted Total Duration below Outgoing box
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: AppColors.primary.withValues(alpha: 0.25)),
-                ),
-                child: Text(
-                  'Total Duration: ${report.totalDuration}',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.primary,
-                  ),
-                ),
+            ),
+            if (isExpanded) ...[
+              const SizedBox(height: 7),
+              ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: report.calledLeads.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 6),
+                itemBuilder: (context, idx) {
+                  final lead = report.calledLeads[idx];
+                  final isConnected = lead.callStatus.toUpperCase() == 'CONNECTED';
+                  final isOutgoing = lead.callType.toUpperCase() == 'OUT';
+
+                  return InkWell(
+                    onTap: lead.leadId.isNotEmpty
+                        ? () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => LeadDetailsScreen(leadId: lead.leadId),
+                              ),
+                            );
+                          }
+                        : null,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFAFAFA),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            isOutgoing ? Icons.call_made : Icons.call_received,
+                            size: 15,
+                            color: isOutgoing ? const Color(0xFFEA580C) : const Color(0xFF16A34A),
+                          ),
+                          const SizedBox(width: 7),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  lead.leadName.isNotEmpty ? lead.leadName : 'Lead (${lead.leadId})',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.textPrimary,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                if (lead.callHandledBy != null && lead.callHandledBy!.isNotEmpty) ...[
+                                  Text(
+                                    'By ${lead.callHandledBy}',
+                                    style: const TextStyle(
+                                      fontSize: 10.5,
+                                      color: AppColors.textSecondary,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                                if (lead.formattedCreatedAt.isNotEmpty) ...[
+                                  const SizedBox(height: 1),
+                                  Text(
+                                    lead.formattedCreatedAt,
+                                    style: const TextStyle(
+                                      fontSize: 10,
+                                      color: AppColors.textHint,
+                                      fontWeight: FontWeight.w400,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: isConnected ? const Color(0xFFECFDF5) : const Color(0xFFFEF2F2),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(
+                                color: isConnected ? const Color(0xFFA7F3D0) : const Color(0xFFFECACA),
+                              ),
+                            ),
+                            child: Text(
+                              isConnected ? 'CONNECTED' : (lead.callStatus.isNotEmpty ? lead.callStatus : 'NOT CONNECTED'),
+                              style: TextStyle(
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.bold,
+                                color: isConnected ? const Color(0xFF047857) : const Color(0xFFB91C1C),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            lead.duration,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                          if (lead.leadId.isNotEmpty) ...[
+                            const SizedBox(width: 4),
+                            const Icon(Icons.chevron_right, size: 15, color: AppColors.textHint),
+                          ],
+                        ],
+                      ),
+                    ),
+                  );
+                },
               ),
             ],
-          ),
+          ],
         ],
       ),
     );

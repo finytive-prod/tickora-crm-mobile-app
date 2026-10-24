@@ -10,14 +10,15 @@ import 'package:crm_mobile/screens/home_screen.dart';
 import 'package:crm_mobile/screens/settings/settings_menu_screen.dart';
 import 'package:crm_mobile/screens/staff/staff_list_screen.dart';
 import 'package:crm_mobile/screens/customers/customers_screen.dart';
-import 'package:crm_mobile/screens/reports/reports_screen.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:crm_mobile/blocs/leads_bloc.dart';
-import 'package:crm_mobile/blocs/leads_event.dart';
 import 'package:crm_mobile/screens/pipeline/lead_pipeline_screen.dart';
 import 'package:crm_mobile/repositories/login_repository.dart';
 import 'package:crm_mobile/screens/profile/profile_screen.dart';
 import 'package:crm_mobile/widgets/call_log_icon.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:crm_mobile/blocs/leads_bloc.dart';
+import 'package:crm_mobile/blocs/leads_event.dart';
+import 'package:crm_mobile/screens/reports/reports_screen.dart';
+import 'package:crm_mobile/screens/more/block_numbers_screen.dart';
 
 class MoreScreen extends StatefulWidget {
   const MoreScreen({super.key});
@@ -35,7 +36,20 @@ class _MoreScreenState extends State<MoreScreen> {
   void initState() {
     super.initState();
     _loadUserData();
+    sl<PrivilegeService>().addListener(_onPrivilegesChanged);
     _checkAndRefreshPrivileges();
+  }
+
+  void _onPrivilegesChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
+  void dispose() {
+    sl<PrivilegeService>().removeListener(_onPrivilegesChanged);
+    super.dispose();
   }
 
   void _checkAndRefreshPrivileges() async {
@@ -304,7 +318,6 @@ class _MoreScreenState extends State<MoreScreen> {
   Widget build(BuildContext context) {
     const brandColor = Color(0xFFDB222A);
     final priv = sl<PrivilegeService>();
-    final bool showAllByDefault = priv.privileges.isEmpty;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -363,7 +376,7 @@ class _MoreScreenState extends State<MoreScreen> {
                       child: Container(
                         padding: const EdgeInsets.all(6),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
+                          color: Colors.white.withValues(alpha: 0.2),
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(
@@ -431,7 +444,7 @@ class _MoreScreenState extends State<MoreScreen> {
             child: ListView(
               padding: const EdgeInsets.symmetric(vertical: 12),
               children: [
-                if (showAllByDefault || priv.hasPrivilege('DASHBOARD_READ'))
+                if (priv.hasPrivilege('DASHBOARD_READ'))
                   _buildMenuItem(
                     icon: Icons.grid_view_outlined,
                     title: 'Dashboard',
@@ -445,9 +458,7 @@ class _MoreScreenState extends State<MoreScreen> {
                       );
                     },
                   ),
-                if (showAllByDefault ||
-                    priv.hasPrivilege('CALL_READ') ||
-                    priv.hasPrivilege('DASHBOARD_READ'))
+                if (priv.hasPrivilege('CALL_READ'))
                   _buildMenuItem(
                     customIcon: const CallLogIcon(
                       color: AppColors.textPrimary,
@@ -542,19 +553,20 @@ class _MoreScreenState extends State<MoreScreen> {
                     },
                   ),
 
-                const Padding(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: 16.0,
-                    vertical: 8.0,
-                  ),
-                  child: Divider(
-                    color: Color(0xFFF3F4F6),
-                    thickness: 1,
-                    height: 1,
-                  ),
-                ),
-
-                if (priv.hasPrivilege('SETTINGS_READ'))
+                
+                if (priv.isAdminOrSuperAdmin() ||
+                    priv.hasPrivilege('SETTINGS_READ') ||
+                    priv.hasPrivilege('LEAD_CUSTOM_FIELDS_READ') ||
+                    priv.hasPrivilege('LEAD_CUSTOM_FORM_READ') ||
+                    priv.hasPrivilege('CUSTOM_FIELDS_READ') ||
+                    priv.hasPrivilege('LEAD_STATUS_READ') ||
+                    priv.hasPrivilege('LEAD_STATUSES_READ') ||
+                    priv.hasPrivilege('LEAD_SOURCES_READ') ||
+                    priv.hasPrivilege('LEAD_SOURCE_READ') ||
+                    priv.hasPrivilege('PERMISSIONS_READ') ||
+                    priv.hasPrivilege('PERMISSION_READ') ||
+                    priv.hasPrivilege('ROLES_READ') ||
+                    priv.hasPrivilege('ROLE_READ'))
                   _buildMenuItem(
                     icon: Icons.settings_outlined,
                     title: 'Settings',
@@ -564,6 +576,20 @@ class _MoreScreenState extends State<MoreScreen> {
                         context,
                         MaterialPageRoute(
                           builder: (context) => const SettingsMenuScreen(),
+                        ),
+                      );
+                    },
+                  ),
+                if (priv.hasPrivilege('BLOCKLIST_READ'))
+                  _buildMenuItem(
+                    icon: Icons.phone_disabled_outlined,
+                    title: 'Block Number',
+                    brandColor: brandColor,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const BlockNumbersScreen(),
                         ),
                       );
                     },

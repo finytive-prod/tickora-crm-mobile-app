@@ -335,7 +335,7 @@ class CallRecordingManager(private val context: Context) {
                 if (entry.last10.length >= 7) {
                     val isSamePhone = (entry.last10 == targetLast10 || entry.cleanNumber.contains(targetCleanPhone) || targetLast10.contains(entry.last10))
                     if (!isSamePhone) {
-                        if (effectiveTime in (entry.callStart - 5 * 60 * 1000L)..(entry.callEnd + 5 * 60 * 1000L)) {
+                        if (effectiveTime in (entry.callStart - 20 * 1000L)..(entry.callEnd + 20 * 1000L)) {
                             Log.d(TAG, "Recording $fileName at $effectiveTime matches a DIFFERENT phone call log (${entry.rawNumber}), rejecting match for $targetCleanPhone")
                             return true
                         }
@@ -372,7 +372,7 @@ class CallRecordingManager(private val context: Context) {
                             val callDurSec = if (durIdx >= 0) c.getLong(durIdx) else 0L
                             val callEnd = callStart + (callDurSec * 1000L)
 
-                            if (effectiveTime in (callStart - 5 * 60 * 1000L)..(callEnd + 5 * 60 * 1000L)) {
+                            if (effectiveTime in (callStart - 20 * 1000L)..(callEnd + 20 * 1000L)) {
                                 Log.d(TAG, "Recording $fileName at $effectiveTime matches a DIFFERENT phone call log ($rawNum), rejecting match for $targetCleanPhone")
                                 return true
                             }
@@ -416,10 +416,11 @@ class CallRecordingManager(private val context: Context) {
             return true
         }
 
-        // 3. Strict call timestamp window match (within 1 minute of explicit call) ONLY if not conflicting with another phone
+        // 3. Call timestamp window match (handles long calls where file was created/modified upon call end)
         if (callTimestamp > 0L) {
-            val timeDiffMs = abs(timestamp - callTimestamp)
-            if (timeDiffMs <= 60 * 1000L) {
+            val isWithinCallWindow = (timestamp >= callTimestamp - 45_000L && timestamp <= callTimestamp + (90 * 60 * 1000L)) ||
+                    abs(timestamp - callTimestamp) <= 30 * 60 * 1000L
+            if (isWithinCallWindow) {
                 if (!matchesCallLogForDifferentPhone(file.name, timestamp, cleanDigits, cachedLogs)) {
                     return true
                 }
@@ -442,11 +443,10 @@ class CallRecordingManager(private val context: Context) {
             score += when {
                 timeDiffMs < 15 * 1000L -> 100
                 timeDiffMs < 35 * 1000L -> 60
-                timeDiffMs < 90 * 1000L -> 30
-                timeDiffMs < 180 * 1000L -> 10
-                else -> -50
+                timeDiffMs < 90 * 1000L -> 40
+                timeDiffMs < 30 * 60 * 1000L -> 20
+                else -> 0
             }
-            score -= (timeDiffMs / 1000L).toInt()
         }
         return score
     }
@@ -549,7 +549,7 @@ class CallRecordingManager(private val context: Context) {
                     val safeName = cleanName.replace(Regex("[^a-zA-Z0-9._-]"), "_")
                     val filePrefix = if (phone.isNotEmpty()) "${phone}_" else ""
                     val cacheDir = File(context.cacheDir, "recordings").apply { mkdirs() }
-                    val destFile = File(cacheDir, "$filePrefix$safeName")
+                    val destFile = File(cacheDir, "${filePrefix}${bestTime}_$safeName")
                     if (copyStreamSafely(bestFile, destFile)) {
                         Log.d(TAG, "Fast MediaStore match tagged: ${destFile.absolutePath}")
                         return@withContext destFile.absolutePath
@@ -590,7 +590,8 @@ class CallRecordingManager(private val context: Context) {
             val filePrefix = if (phone.isNotEmpty()) "${phone}_" else ""
 
             val cacheDir = File(context.cacheDir, "recordings").apply { mkdirs() }
-            val destFile = File(cacheDir, "$filePrefix$safeName")
+            val effectiveTime = if (bestTime > 0L) bestTime else (parseTimestampFromFileName(foundFile.name) ?: foundFile.lastModified())
+            val destFile = File(cacheDir, "${filePrefix}${effectiveTime}_$safeName")
             if (copyStreamSafely(foundFile, destFile)) {
                 Log.d(TAG, "Tagged live recording: ${destFile.absolutePath}")
                 return@withContext destFile.absolutePath
@@ -825,7 +826,7 @@ class CallRecordingManager(private val context: Context) {
                     val filePrefix = if (phone.isNotEmpty()) "${phone}_" else ""
 
                     val cacheDir = File(context.cacheDir, "recordings").apply { mkdirs() }
-                    val destFile = File(cacheDir, "$filePrefix$safeName")
+                    val destFile = File(cacheDir, "${filePrefix}${effectiveTime}_$safeName")
                     val contentUri = if (id > 0) ContentUris.withAppendedId(queryUri, id) else null
                     if (copyToCache(fileForMatch, contentUri, destFile)) {
                         registerFile(destFile, mediaStoreDur)
@@ -854,9 +855,10 @@ class CallRecordingManager(private val context: Context) {
                     val cleanName = extractCleanOriginalName(file.name)
                     val safeName = cleanName.replace(Regex("[^a-zA-Z0-9._-]"), "_")
                     val filePrefix = if (phone.isNotEmpty()) "${phone}_" else ""
+                    val fileTime = parseTimestampFromFileName(file.name) ?: file.lastModified()
 
                     val cacheDir = File(context.cacheDir, "recordings").apply { mkdirs() }
-                    val destFile = File(cacheDir, "$filePrefix$safeName")
+                    val destFile = File(cacheDir, "${filePrefix}${fileTime}_$safeName")
                     if (copyToCache(file, null, destFile)) {
                         registerFile(destFile)
                     } else if (file.canRead()) {
@@ -1019,8 +1021,11 @@ class CallRecordingManager(private val context: Context) {
         val srcTimestamp = parseTimestampFromFileName(file.name) ?: (if (file.exists()) file.lastModified() else System.currentTimeMillis())
 
         if (destFile.exists() && destFile.length() >= MIN_RECORDING_BYTES) {
-            destFile.setLastModified(srcTimestamp)
-            return true
+            val srcLen = if (file.exists()) file.length() else 0L
+            if (srcLen == 0L || destFile.length() == srcLen) {
+                destFile.setLastModified(srcTimestamp)
+                return true
+            }
         }
         val cacheDir = destFile.parentFile
         if (cacheDir != null && !cacheDir.exists()) {
@@ -1274,6 +1279,9 @@ class CallRecordingManager(private val context: Context) {
                 CallLog.Calls.DATE,
                 CallLog.Calls.DURATION
             )
+            var bestMatch: Map<String, Any>? = null
+            var minDiff = Long.MAX_VALUE
+
             context.contentResolver.query(
                 CallLog.Calls.CONTENT_URI, projection, null, null, "${CallLog.Calls.DATE} DESC"
             )?.use { c ->
@@ -1308,31 +1316,48 @@ class CallRecordingManager(private val context: Context) {
                         val fromNum = if (isIncoming) num else devicePhone
                         val toNum = if (isIncoming) devicePhone else num
 
-                        val matches = if (callTimestamp > 0L) {
-                            val inInterval = callTimestamp in (startTime - 60000L)..(endTime + 60000L)
+                        if (callTimestamp > 0L) {
+                            val inInterval = callTimestamp in (startTime - 30000L)..(endTime + 30000L)
                             val diffStart = abs(startTime - callTimestamp)
                             val diffEnd = abs(endTime - callTimestamp)
-                            inInterval || diffStart <= 5 * 60 * 1000L || diffEnd <= 5 * 60 * 1000L
+                            val currentDiff = minOf(diffStart, diffEnd)
+                            if (currentDiff < minDiff && (inInterval || currentDiff <= 2 * 60 * 1000L)) {
+                                minDiff = currentDiff
+                                bestMatch = mapOf(
+                                    "phoneNumber" to num,
+                                    "fromNumber" to fromNum,
+                                    "toNumber" to toNum,
+                                    "contactName" to contactName,
+                                    "startTime" to startTime,
+                                    "endTime" to endTime,
+                                    "durationSeconds" to effDurationSec,
+                                    "callType" to typeStr,
+                                    "callStatus" to callStatusStr
+                                )
+                                if (currentDiff <= 1000L) {
+                                    return bestMatch
+                                }
+                            }
                         } else {
                             val ageMs = abs(System.currentTimeMillis() - endTime)
-                            ageMs <= 2 * 60 * 60 * 1000L
-                        }
-                        if (matches) {
-                            return mapOf(
-                                "phoneNumber" to num,
-                                "fromNumber" to fromNum,
-                                "toNumber" to toNum,
-                                "contactName" to contactName,
-                                "startTime" to startTime,
-                                "endTime" to endTime,
-                                "durationSeconds" to effDurationSec,
-                                "callType" to typeStr,
-                                "callStatus" to callStatusStr
-                            )
+                            if (ageMs <= 3 * 60 * 1000L) {
+                                return mapOf(
+                                    "phoneNumber" to num,
+                                    "fromNumber" to fromNum,
+                                    "toNumber" to toNum,
+                                    "contactName" to contactName,
+                                    "startTime" to startTime,
+                                    "endTime" to endTime,
+                                    "durationSeconds" to effDurationSec,
+                                    "callType" to typeStr,
+                                    "callStatus" to callStatusStr
+                                )
+                            }
                         }
                     }
                 }
             }
+            if (bestMatch != null) return bestMatch
         } catch (e: Exception) {
             Log.e(TAG, "Error querying system CallLog details", e)
         }

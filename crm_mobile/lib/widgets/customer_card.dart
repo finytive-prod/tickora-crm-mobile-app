@@ -5,15 +5,15 @@ import 'package:crm_mobile/models/customer.dart';
 class CustomerCard extends StatelessWidget {
   final Customer customer;
   final VoidCallback onTap;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
 
   const CustomerCard({
     super.key,
     required this.customer,
     required this.onTap,
-    required this.onEdit,
-    required this.onDelete,
+    this.onEdit,
+    this.onDelete,
   });
 
   Color _getAvatarColor(String initials) {
@@ -112,17 +112,20 @@ class CustomerCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                PopupMenuButton<String>(
-                  icon: const Icon(Icons.more_vert, color: AppColors.textHint, size: 20),
-                  onSelected: (value) {
-                    if (value == 'edit') onEdit();
-                    if (value == 'delete') onDelete();
-                  },
-                  itemBuilder: (context) => [
-                    const PopupMenuItem(value: 'edit', child: Text('Edit')),
-                    const PopupMenuItem(value: 'delete', child: Text('Delete', style: TextStyle(color: AppColors.primary))),
-                  ],
-                ),
+                if (onEdit != null || onDelete != null)
+                  PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert, color: AppColors.textHint, size: 20),
+                    onSelected: (value) {
+                      if (value == 'edit') onEdit?.call();
+                      if (value == 'delete') onDelete?.call();
+                    },
+                    itemBuilder: (context) => [
+                      if (onEdit != null)
+                        const PopupMenuItem(value: 'edit', child: Text('Edit')),
+                      if (onDelete != null)
+                        const PopupMenuItem(value: 'delete', child: Text('Delete', style: TextStyle(color: AppColors.primary))),
+                    ],
+                  ),
               ],
             ),
             const SizedBox(height: 12),

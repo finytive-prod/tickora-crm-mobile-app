@@ -24,6 +24,9 @@ import 'package:crm_mobile/core/services/auto_call_recording_uploader.dart';
 import 'package:crm_mobile/core/services/call_recording_service.dart';
 import 'package:crm_mobile/core/utils/phone_number_utils.dart';
 import 'package:crm_mobile/models/owner_call_report.dart';
+import 'package:crm_mobile/core/services/notification_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:crm_mobile/injection/injection.dart';
 
 abstract class LeadsRepository {
   Future<Either<Failure, List<Lead>>> getLeads(
@@ -48,6 +51,7 @@ abstract class LeadsRepository {
   Future<Either<Failure, AuditLogResponse>> getLeadAuditLogs(String id, {int page = 0, int size = 20});
   Future<Either<Failure, List<Attachment>>> getLeadAttachments(String id);
   Future<Either<Failure, void>> uploadLeadAttachment(String leadId, String filePath);
+  Future<Either<Failure, void>> deleteLeadAttachment(String attachmentId);
   Future<Either<Failure, List<LeadAudio>>> getLeadAudios(String leadId);
   Future<Either<Failure, LeadCallLogResponse>> getLeadCallLogs(String leadId);
   Future<Either<Failure, LeadAudio>> uploadLeadAudio(
@@ -100,7 +104,7 @@ class LeadsRepositoryImpl implements LeadsRepository {
           'isLead': true,
           'isCustomer': false,
           'isUser': false,
-          'isFollowup': true,
+          'isFollowup': false,
         },
       );
 
@@ -134,45 +138,6 @@ class LeadsRepositoryImpl implements LeadsRepository {
     String? searchQuery,
   }) async {
     try {
-      if (filterParams == null || !filterParams.hasActiveFilters) {
-        final globalLeads = await _searchGlobalLeads(query: searchQuery, page: page, size: size);
-        if (globalLeads != null && globalLeads.isNotEmpty) {
-          var leads = globalLeads;
-
-          if (statusId != null && statusId.isNotEmpty) {
-            final filteredByStatus = leads.where((l) => l.status?.id == statusId).toList();
-            if (filteredByStatus.isNotEmpty) {
-              leads = filteredByStatus;
-            }
-          }
-
-          if (searchQuery != null && searchQuery.trim().isNotEmpty) {
-            final qLower = searchQuery.trim().toLowerCase();
-            final digitsOnly = searchQuery.trim().replaceAll(RegExp(r'[^\d]'), '');
-            final filteredBySearch = leads.where((l) {
-              final name = '${l.firstName} ${l.lastName}'.toLowerCase();
-              final phone = l.phone.toLowerCase();
-              final phoneDigits = l.phone.replaceAll(RegExp(r'[^\d]'), '');
-              final company = l.companyName.toLowerCase();
-              final email = l.email.toLowerCase();
-
-              final matchPhone = phone.contains(qLower) ||
-                  (digitsOnly.isNotEmpty && phoneDigits.contains(digitsOnly));
-
-              return name.contains(qLower) ||
-                  matchPhone ||
-                  company.contains(qLower) ||
-                  email.contains(qLower);
-            }).toList();
-            if (filteredBySearch.isNotEmpty) {
-              leads = filteredBySearch;
-            }
-          }
-
-          return Right(leads);
-        }
-      }
-
       final leadsBaseUrl = _leadsBaseUrl;
 
       final queryParameters = <String, dynamic>{
@@ -180,6 +145,9 @@ class LeadsRepositoryImpl implements LeadsRepository {
         'size': size,
         'sort': 'createdAt,desc',
       };
+      if (isActive != null) {
+        queryParameters['isActive'] = isActive;
+      }
 
       final bodyPayload = <String, dynamic>{};
       if (filterParams != null) {
@@ -235,32 +203,21 @@ class LeadsRepositoryImpl implements LeadsRepository {
     LeadFilterParams? filterParams,
   }) async {
     final qTrimmed = query.trim();
-    final globalLeads = await _searchGlobalLeads(query: qTrimmed, page: page, size: size);
-    if (globalLeads != null && globalLeads.isNotEmpty) {
-      var results = globalLeads;
-      if (qTrimmed.isNotEmpty && qTrimmed != 'null') {
-        final queryLower = qTrimmed.toLowerCase();
-        final digitsOnly = qTrimmed.replaceAll(RegExp(r'[^\d]'), '');
-        final matched = results.where((l) {
-          final name = '${l.firstName} ${l.lastName}'.toLowerCase();
-          final phone = l.phone.toLowerCase();
-          final phoneDigits = l.phone.replaceAll(RegExp(r'[^\d]'), '');
-          final company = l.companyName.toLowerCase();
-          final email = l.email.toLowerCase();
+    if (qTrimmed.isEmpty) {
+      return getLeads(page, size, filterParams: filterParams);
+    }
 
-          final matchPhone = phone.contains(queryLower) ||
-              (digitsOnly.isNotEmpty && phoneDigits.contains(digitsOnly));
+    // 1. Primary: Use /leads/filter with search parameter for full lead details
+    final filterResult = await getLeads(
+      page,
+      size,
+      filterParams: filterParams,
+      searchQuery: qTrimmed,
+    );
 
-          return name.contains(queryLower) ||
-              matchPhone ||
-              company.contains(queryLower) ||
-              email.contains(queryLower);
-        }).toList();
-        if (matched.isNotEmpty) {
-          results = matched;
-        }
-      }
-      return Right(results);
+    final filterLeads = filterResult.fold<List<Lead>?>((_) => null, (leads) => leads);
+    if (filterLeads != null && filterLeads.isNotEmpty) {
+      return Right(filterLeads);
     }
 
     final cleanDigits = qTrimmed.replaceAll(RegExp(r'[^\d]'), '');
@@ -313,7 +270,12 @@ class LeadsRepositoryImpl implements LeadsRepository {
       } catch (_) {}
     }
 
-    return getLeads(page, size, filterParams: filterParams, searchQuery: query);
+    final globalLeads = await _searchGlobalLeads(query: qTrimmed, page: page, size: size);
+    if (globalLeads != null && globalLeads.isNotEmpty) {
+      return Right(globalLeads);
+    }
+
+    return filterResult;
   }
 
 
@@ -348,6 +310,17 @@ class LeadsRepositoryImpl implements LeadsRepository {
         queryParameters['search'] = search;
       }
 
+      List<StaffUser> filterByOrg(List<StaffUser> list) {
+        final currentOrgId = sl.isRegistered<SharedPreferences>()
+            ? sl<SharedPreferences>().getString('organizationId')
+            : null;
+        if (currentOrgId != null && currentOrgId.isNotEmpty) {
+          final matched = list.where((u) => u.organizationId == null || u.organizationId == currentOrgId).toList();
+          if (matched.isNotEmpty) return matched;
+        }
+        return list;
+      }
+
       // 1. Try /identity/users/dropdown
       try {
         final response = await apiClient.get(
@@ -367,7 +340,9 @@ class LeadsRepositoryImpl implements LeadsRepository {
           }
           final users = content.map((json) => StaffUser.fromJson(json)).toList();
           if (users.isNotEmpty) {
-            return Right(users);
+            final filtered = filterByOrg(users)
+              ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+            return Right(filtered);
           }
         }
       } catch (_) {}
@@ -391,7 +366,9 @@ class LeadsRepositoryImpl implements LeadsRepository {
           }
           final users = content.map((json) => StaffUser.fromJson(json)).toList();
           if (users.isNotEmpty) {
-            return Right(users);
+            final filtered = filterByOrg(users)
+              ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+            return Right(filtered);
           }
         }
       } catch (_) {}
@@ -413,7 +390,9 @@ class LeadsRepositoryImpl implements LeadsRepository {
           content = [];
         }
         final users = content.map((json) => StaffUser.fromJson(json)).toList();
-        return Right(users);
+        final filtered = filterByOrg(users)
+          ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+        return Right(filtered);
       } else {
         return const Right([]);
       }
@@ -469,6 +448,7 @@ class LeadsRepositoryImpl implements LeadsRepository {
 
       final body = response.data;
       if (body != null && body['success'] == true) {
+        NotificationService.instance.recordSelfLeadCreated();
         return const Right(null);
       } else {
         throw ApiException(message: body['message'] ?? 'Failed to create lead');
@@ -547,17 +527,59 @@ class LeadsRepositoryImpl implements LeadsRepository {
   Future<Either<Failure, LeadDetail>> getLeadDetails(String id) async {
     try {
       final leadsBaseUrl = _leadsBaseUrl;
-      final response = await apiClient.get('$leadsBaseUrl/leads/$id');
+      try {
+        final response = await apiClient.get('$leadsBaseUrl/leads/$id');
+        final body = response.data;
+        if (body != null && (body['success'] == true || response.statusCode == 200) && body['data'] != null) {
+          final leadDetail = LeadDetailModel.fromJson(body['data']);
+          return Right(leadDetail);
+        }
+      } catch (_) {}
 
-      final body = response.data;
-      if (body['success'] == true && body['data'] != null) {
-        final leadDetail = LeadDetailModel.fromJson(body['data']);
-        return Right(leadDetail);
-      } else {
-        throw ApiException(message: body['message'] ?? 'Failed to load lead details');
-      }
+      // Fallback 1: If id was a follow-up ID, resolve its leadId
+      try {
+        final followupRes = await apiClient.get('$leadsBaseUrl/leads/followups/$id');
+        final fBody = followupRes.data;
+        if (fBody != null && fBody['data'] != null) {
+          final fData = fBody['data'] is Map ? fBody['data'] as Map : null;
+          final realLeadId = (fData?['leadId'] ?? fData?['lead']?['id'])?.toString().trim();
+          if (realLeadId != null && realLeadId.isNotEmpty && realLeadId != id) {
+            final resolved = await getLeadDetails(realLeadId);
+            if (resolved.isRight()) return resolved;
+          }
+        }
+      } catch (_) {}
+
+      // Fallback 2: Try global search with id
+      try {
+        final searchRes = await apiClient.post(
+          '$leadsBaseUrl/leads/search/global',
+          queryParameters: {'query': id, 'page': 0, 'size': 1},
+          data: {'query': id},
+        );
+        final sBody = searchRes.data;
+        if (sBody != null && sBody['data'] != null) {
+          List content = [];
+          if (sBody['data'] is Map && sBody['data']['content'] is List) {
+            content = sBody['data']['content'];
+          } else if (sBody['data'] is List) {
+            content = sBody['data'];
+          }
+          if (content.isNotEmpty && content.first is Map) {
+            final realLeadId = (content.first['leadId'] ?? content.first['id'])?.toString().trim();
+            if (realLeadId != null && realLeadId.isNotEmpty && realLeadId != id) {
+              final resolved = await getLeadDetails(realLeadId);
+              if (resolved.isRight()) return resolved;
+            }
+          }
+        }
+      } catch (_) {}
+
+      return Left(ServerFailure('Lead not found with id: $id'));
     } on Exception catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));
+    } catch (e) {
+      return Left(ServerFailure('Error loading lead details: $e'));
     }
   }
 
@@ -639,6 +661,21 @@ class LeadsRepositoryImpl implements LeadsRepository {
   }
 
   @override
+  Future<Either<Failure, void>> deleteLeadAttachment(String attachmentId) async {
+    try {
+      final leadsBaseUrl = _leadsBaseUrl;
+      final response = await apiClient.delete('$leadsBaseUrl/leads/attachments/$attachmentId');
+      final body = response.data;
+      if (body != null && body is Map && body['success'] == false) {
+        throw ApiException(message: body['message'] ?? 'Failed to delete attachment');
+      }
+      return const Right(null);
+    } on Exception catch (e) {
+      return Left(ErrorHandler.mapExceptionToFailure(e));
+    }
+  }
+
+  @override
   Future<Either<Failure, List<LeadAudio>>> getLeadAudios(String leadId) async {
     try {
       final leadsBaseUrl = _leadsBaseUrl;
@@ -654,6 +691,19 @@ class LeadsRepositoryImpl implements LeadsRepository {
         } else if (body['content'] is List) {
           listData = body['content'];
         }
+      } else if (body is String && body.trim().isNotEmpty) {
+        try {
+          final decoded = jsonDecode(body);
+          if (decoded is List) {
+            listData = decoded;
+          } else if (decoded is Map<String, dynamic>) {
+            if (decoded['data'] is List) {
+              listData = decoded['data'];
+            } else if (decoded['content'] is List) {
+              listData = decoded['content'];
+            }
+          }
+        } catch (_) {}
       }
 
       final audios = listData.map((json) => LeadAudioModel.fromJson(json)).toList();
@@ -676,7 +726,10 @@ class LeadsRepositoryImpl implements LeadsRepository {
 
       final body = response.data;
       if (body != null && body is Map<String, dynamic>) {
-        final callLogsResponse = LeadCallLogResponse.fromJson(body);
+        final dataMap = (body.containsKey('data') && body['data'] is Map<String, dynamic>)
+            ? body['data'] as Map<String, dynamic>
+            : body;
+        final callLogsResponse = LeadCallLogResponse.fromJson(dataMap);
         return Right(callLogsResponse);
       }
       return const Left(ServerFailure('Invalid response format'));
@@ -806,9 +859,12 @@ class LeadsRepositoryImpl implements LeadsRepository {
       setField('duration', effDuration ?? '0');
       setField('callDate', effCallDate);
 
-      if (callStatus != null && callStatus.isNotEmpty) {
-        setField('callStatus', callStatus);
-      }
+      final durInt = int.tryParse(effDuration ?? '0') ?? 0;
+      final effectiveCallStatus = (callStatus != null && callStatus.isNotEmpty)
+          ? (callStatus.toUpperCase() == 'ANSWERED' ? 'CONNECTED' : callStatus)
+          : (durInt > 0 ? 'CONNECTED' : (filePath != null && filePath.isNotEmpty ? 'CONNECTED' : 'NOT_CONNECTED'));
+
+      setField('callStatus', effectiveCallStatus);
 
       if (filePath != null && filePath.isNotEmpty && await File(filePath).exists()) {
         final realFilename = filePath.split('/').last.split('\\').last;
@@ -896,7 +952,9 @@ class LeadsRepositoryImpl implements LeadsRepository {
       durationSeconds: int.tryParse(duration ?? '0') ?? 0,
       callDate: callDate,
       createdAt: DateTime.now(),
-      callStatus: callStatus ?? 'NOT_CONNECTED',
+      callStatus: (callStatus != null && callStatus.isNotEmpty)
+          ? (callStatus.toUpperCase() == 'ANSWERED' ? 'CONNECTED' : callStatus)
+          : ((int.tryParse(duration ?? '0') ?? 0) > 0 ? 'CONNECTED' : 'NOT_CONNECTED'),
     );
   }
 
@@ -1104,6 +1162,8 @@ class LeadsRepositoryImpl implements LeadsRepository {
         payload['ownerIds'] = ownerIds;
       } else if (ownerId != null && ownerId.isNotEmpty) {
         payload['ownerIds'] = [ownerId];
+      } else {
+        payload['ownerIds'] = [];
       }
 
       if (startDate != null && startDate.isNotEmpty) {

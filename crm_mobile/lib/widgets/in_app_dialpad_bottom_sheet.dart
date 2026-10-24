@@ -614,23 +614,31 @@ class _InAppDialpadBottomSheetState extends State<InAppDialpadBottomSheet> {
                                 const SizedBox(height: 2),
                                 Row(
                                   children: [
-                                    Text(
-                                      _leadSource.isNotEmpty ? _leadSource : 'Direct Lead',
-                                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                                    Flexible(
+                                      child: Text(
+                                        _leadSource.isNotEmpty ? _leadSource : 'Direct Lead',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                                      ),
                                     ),
                                     Text(' • ', style: TextStyle(color: Colors.grey[600])),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFE8F5E9),
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                      child: Text(
-                                        _leadStatus.isNotEmpty ? _leadStatus : 'Enrolled',
-                                        style: const TextStyle(
-                                          color: Color(0xFF2E7D32),
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
+                                    Flexible(
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFE8F5E9),
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: Text(
+                                          _leadStatus.isNotEmpty ? _leadStatus : 'Enrolled',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            color: Color(0xFF2E7D32),
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                          ),
                                         ),
                                       ),
                                     ),
@@ -639,6 +647,7 @@ class _InAppDialpadBottomSheetState extends State<InAppDialpadBottomSheet> {
                               ],
                             ),
                           ),
+                          const SizedBox(width: 8),
                           InkWell(
                             onTap: () => _showMatchedLeadPopup(_phoneNumber),
                             borderRadius: BorderRadius.circular(8),

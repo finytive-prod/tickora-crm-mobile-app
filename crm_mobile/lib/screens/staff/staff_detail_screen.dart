@@ -8,6 +8,8 @@ import 'package:crm_mobile/blocs/staff_bloc.dart';
 import 'package:crm_mobile/blocs/staff_event.dart';
 import 'package:crm_mobile/blocs/staff_state.dart';
 import 'package:crm_mobile/screens/staff/edit_staff_bottom_sheet.dart';
+import 'package:crm_mobile/core/services/privilege_service.dart';
+import 'package:crm_mobile/widgets/confirmation_dialog.dart';
 
 class StaffDetailScreen extends StatelessWidget {
   final StaffMember staff;
@@ -69,50 +71,17 @@ class _StaffDetailViewState extends State<_StaffDetailView> {
     final newActive = !_staff.isActive;
     final action = newActive ? 'Activate' : 'Deactivate';
 
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            Icon(
-              newActive ? Icons.check_circle_outline : Icons.block,
-              color: newActive ? const Color(0xFF10B981) : AppColors.primary,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              '$action Staff',
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-            ),
-          ],
-        ),
-        content: Text(
-          'Are you sure you want to ${action.toLowerCase()} ${_staff.fullName}?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text(
-              'Cancel',
-              style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.bold),
-            ),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: newActive ? const Color(0xFF10B981) : AppColors.primary,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            onPressed: () {
-              Navigator.of(dialogContext).pop();
-              context.read<StaffBloc>().add(
-                ToggleStaffStatusEvent(id: _staff.id, isActive: newActive),
-              );
-            },
-            child: Text(action, style: const TextStyle(fontWeight: FontWeight.bold)),
-          ),
-        ],
-      ),
+    ConfirmationDialog.show(
+      context,
+      title: '$action Staff',
+      message: 'Are you sure you want to ${action.toLowerCase()} ${_staff.fullName}?',
+      confirmLabel: action,
+      isDestructive: !newActive,
+      onConfirm: () {
+        context.read<StaffBloc>().add(
+          ToggleStaffStatusEvent(id: _staff.id, isActive: newActive),
+        );
+      },
     );
   }
 
@@ -208,26 +177,28 @@ class _StaffDetailViewState extends State<_StaffDetailView> {
               icon: const Icon(Icons.refresh, color: AppColors.textSecondary, size: 22),
             ),
             // Edit
-            IconButton(
-              onPressed: _handleEdit,
-              icon: Container(
-                padding: const EdgeInsets.all(6),
-                decoration: const BoxDecoration(
-                  color: AppColors.primary,
-                  shape: BoxShape.circle,
+            if (sl<PrivilegeService>().hasPrivilege('STAFF_UPDATE'))
+              IconButton(
+                onPressed: _handleEdit,
+                icon: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: const BoxDecoration(
+                    color: AppColors.primary,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.edit, color: Colors.white, size: 16),
                 ),
-                child: const Icon(Icons.edit, color: Colors.white, size: 16),
               ),
-            ),
             // Toggle Status
-            IconButton(
-              onPressed: _handleToggleStatus,
-              icon: Icon(
-                _staff.isActive ? Icons.person_off_outlined : Icons.person_add_alt_1,
-                color: AppColors.textSecondary,
-                size: 22,
+            if (sl<PrivilegeService>().hasPrivilege('STAFF_DELETE'))
+              IconButton(
+                onPressed: _handleToggleStatus,
+                icon: Icon(
+                  _staff.isActive ? Icons.person_off_outlined : Icons.person_add_alt_1,
+                  color: AppColors.textSecondary,
+                  size: 22,
+                ),
               ),
-            ),
           ],
         ),
         body: RefreshIndicator(
