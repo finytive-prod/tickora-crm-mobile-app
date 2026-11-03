@@ -1,4 +1,5 @@
 import 'package:crm_mobile/injection/injection.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
 import 'package:crm_mobile/widgets/custom_bottom_nav_bar.dart';
 import 'package:crm_mobile/screens/calls/calls_screen.dart';
@@ -13,7 +14,9 @@ import 'package:crm_mobile/widgets/call_log_icon.dart';
 import 'package:crm_mobile/core/utils/navigation_service.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final bool isFromLogin;
+
+  const HomeScreen({super.key, this.isFromLogin = false});
 
   @override
   State<HomeScreen> createState() => HomeScreenState();
@@ -34,6 +37,7 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (leadsIndex != -1) {
       _currentIndex = leadsIndex;
     }
+    NavigationService.isLoginScreenActive = false;
     NavigationService.markAppReady();
     sl<PrivilegeService>().addListener(_onPrivilegesChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -79,13 +83,19 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     try {
       final service = CallRecordingService();
 
-      // 1. Overlay Permission: If not granted, display the Overlay Permission dialog popup
-      final hasOverlay = await service.hasOverlayPermission();
-      if (!hasOverlay) {
-        if (mounted && !_isOverlayDialogShowing) {
-          await _showOverlayPermissionDialog(service);
+      // 1. Overlay Permission: Prompt ONLY when user logs in, NEVER when simply opening or resuming the app
+      final prefs = sl<SharedPreferences>();
+      final alreadyPrompted = prefs.getBool('overlay_permission_prompted') ?? false;
+
+      if (widget.isFromLogin && !alreadyPrompted) {
+        await prefs.setBool('overlay_permission_prompted', true);
+        final hasOverlay = await service.hasOverlayPermission();
+        if (!hasOverlay) {
+          if (mounted && !_isOverlayDialogShowing) {
+            await _showOverlayPermissionDialog(service);
+          }
+          return;
         }
-        return;
       }
 
       // 2. Caller ID / Call Screening Role: Prompt once per session to enable Caller ID

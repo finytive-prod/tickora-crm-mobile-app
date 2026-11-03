@@ -6,7 +6,6 @@ import 'package:crm_mobile/core/network/api_client.dart';
 import 'package:crm_mobile/core/network/api_constants.dart';
 import 'package:crm_mobile/core/services/notification_service.dart';
 import 'package:crm_mobile/injection/injection.dart';
-import 'package:crm_mobile/core/utils/navigation_service.dart';
 import 'package:logger/logger.dart';
 
 /// Top-level background message handler.
@@ -368,10 +367,13 @@ class FcmService {
   }
 
   Future<void> _handleLeadNavigation(Map<String, dynamic>? data, {String? title, String? body}) async {
-    final leadId = await NotificationService.resolveLeadId(data, title: title, body: body);
-    if (leadId != null && leadId.isNotEmpty) {
-      NavigationService.navigateToLeadDetails(leadId);
-    }
+    await NotificationService.handleNotificationNavigation(
+      id: data?['id']?.toString(),
+      type: data?['type']?.toString(),
+      title: title,
+      body: body,
+      data: data,
+    );
   }
 
   // ---------------------------------------------------------------------------

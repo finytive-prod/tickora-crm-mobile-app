@@ -19,6 +19,7 @@ import 'package:crm_mobile/blocs/leads_bloc.dart';
 import 'package:crm_mobile/blocs/leads_event.dart';
 import 'package:crm_mobile/screens/reports/reports_screen.dart';
 import 'package:crm_mobile/screens/more/block_numbers_screen.dart';
+import 'package:crm_mobile/core/utils/navigation_service.dart';
 
 class MoreScreen extends StatefulWidget {
   const MoreScreen({super.key});
@@ -132,31 +133,34 @@ class _MoreScreenState extends State<MoreScreen> {
                   borderRadius: BorderRadius.circular(8),
                 ),
               ),
-              onPressed: () async {
+              onPressed: () {
                 Navigator.of(dialogContext).pop();
+                NavigationService.isAppReady = false;
+                NavigationService.isLoginScreenActive = true;
 
-                // Call logout API endpoint with FCM token
-                try {
-                  if (sl.isRegistered<LoginRepository>()) {
-                    await sl<LoginRepository>().logout();
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(
+                    builder: (context) => const LoginScreen(),
+                  ),
+                  (Route<dynamic> route) => false,
+                );
+
+                // Run cleanup in background without delaying navigation
+                () async {
+                  try {
+                    if (sl.isRegistered<LoginRepository>()) {
+                      await sl<LoginRepository>().logout();
+                    }
+                  } catch (_) {}
+
+                  if (sl.isRegistered<SharedPreferences>()) {
+                    await sl<SharedPreferences>().clear();
                   }
-                } catch (_) {}
-
-                // Clear session & FCM token
-                if (sl.isRegistered<SharedPreferences>()) {
-                  await sl<SharedPreferences>().clear();
-                }
-                sl<PrivilegeService>().clearPrivileges();
-                await FcmService.instance.deleteToken();
-
-                if (context.mounted) {
-                  Navigator.of(context).pushAndRemoveUntil(
-                    MaterialPageRoute(
-                      builder: (context) => const LoginScreen(),
-                    ),
-                    (Route<dynamic> route) => false,
-                  );
-                }
+                  sl<PrivilegeService>().clearPrivileges();
+                  try {
+                    await FcmService.instance.deleteToken();
+                  } catch (_) {}
+                }();
               },
               child: const Text(
                 'Logout',

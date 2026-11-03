@@ -275,7 +275,9 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
         final res = await sl<GetStaffUsersUseCase>()();
         res.fold((_) {}, (owners) {
           final sortedOwners = List<StaffUser>.from(owners)
-            ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+            ..sort(
+              (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+            );
           if (mounted) setState(() => _availableOwners = sortedOwners);
         });
       }
@@ -316,8 +318,11 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
       knownLeads: lead != null ? [lead] : null,
       onUploadSuccess: () {
         if (!mounted) return;
-        final currentLeadId = (context.read<LeadsBloc>().state is LeadDetailsLoaded)
-            ? (context.read<LeadsBloc>().state as LeadDetailsLoaded).leadDetail.id
+        final currentLeadId =
+            (context.read<LeadsBloc>().state is LeadDetailsLoaded)
+            ? (context.read<LeadsBloc>().state as LeadDetailsLoaded)
+                  .leadDetail
+                  .id
             : (lead?.id ?? widget.leadId);
         context.read<LeadsBloc>().add(FetchLeadAudios(currentLeadId));
         context.read<LeadsBloc>().add(FetchLeadCallLogs(currentLeadId));
@@ -666,6 +671,28 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
     return formatter.format(value);
   }
 
+  String _resolveLeadPhone(LeadDetail? lead) {
+    if (lead == null) return '';
+    final p = lead.phone.trim();
+    if (p.isNotEmpty) return p;
+    final alt = lead.alternatePhone?.trim() ?? '';
+    if (alt.isNotEmpty) return alt;
+    for (final cf in lead.customFields) {
+      final name = cf.fieldName.toLowerCase();
+      final label = cf.label.toLowerCase();
+      if (name.contains('phone') ||
+          name.contains('mobile') ||
+          label.contains('phone') ||
+          label.contains('mobile')) {
+        final val = cf.value?.toString().trim() ?? '';
+        if (val.isNotEmpty) return val;
+      }
+    }
+    return '';
+  }
+
+
+  @override
   Widget build(BuildContext context) {
     return WillPopScope(
       onWillPop: () async {
@@ -691,37 +718,45 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                 final effectiveLead = state is LeadDetailsLoaded
                     ? state.leadDetail
                     : _lastLeadDetail;
-                final leadPhone = effectiveLead?.phone ?? '';
+                final leadPhone = _resolveLeadPhone(effectiveLead);
                 return Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (leadPhone.isNotEmpty)
-                      IconButton(
-                        icon: const Icon(Icons.phone, color: AppColors.primary),
-                        tooltip: 'Call Lead',
-                        onPressed: () async {
-                          if (effectiveLead != null &&
-                              effectiveLead.phone.isNotEmpty) {
-                            _lastCallTimestamp =
-                                DateTime.now().millisecondsSinceEpoch;
-                            AutoCallRecordingUploader.makeCallAndAutoUpload(
-                              context: context,
-                              leadId: effectiveLead.id,
-                              phoneNumber: effectiveLead.phone,
-                              leadName:
-                                  '${effectiveLead.firstName} ${effectiveLead.lastName}',
-                              onUploadSuccess: () {
-                                if (context.mounted) {
-                                  context.read<LeadsBloc>().add(
-                                    FetchLeadAudios(effectiveLead.id),
-                                  );
-                                  _fetchLocalRecordings(effectiveLead.phone);
-                                }
-                              },
-                            );
-                          }
-                        },
-                      ),
+                    IconButton(
+                      icon: const Icon(Icons.phone, color: AppColors.primary),
+                      tooltip: 'Call Lead',
+                      onPressed: () async {
+                        if (effectiveLead != null && leadPhone.isNotEmpty) {
+                          _lastCallTimestamp =
+                              DateTime.now().millisecondsSinceEpoch;
+                          AutoCallRecordingUploader.makeCallAndAutoUpload(
+                            context: context,
+                            leadId: effectiveLead.id,
+                            phoneNumber: leadPhone,
+                            leadName:
+                                '${effectiveLead.firstName} ${effectiveLead.lastName}'
+                                    .trim(),
+                            onUploadSuccess: () {
+                              if (context.mounted) {
+                                context.read<LeadsBloc>().add(
+                                  FetchLeadAudios(effectiveLead.id),
+                                );
+                                _fetchLocalRecordings(leadPhone);
+                              }
+                            },
+                          );
+                        } else if (effectiveLead != null) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'No phone number available for this lead',
+                              ),
+                              backgroundColor: AppColors.primary,
+                            ),
+                          );
+                        }
+                      },
+                    ),
                     if (sl<PrivilegeService>().hasPrivilege('LEAD_UPDATE'))
                       IconButton(
                         icon: const Icon(
@@ -739,46 +774,51 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                           }
                         },
                       ),
-                    if (sl<PrivilegeService>().hasPrivilege('LEAD_DELETE'))
-                      PopupMenuButton<String>(
-                        icon: const Icon(
-                          Icons.more_horiz,
-                          color: AppColors.textPrimary,
-                        ),
-                        onSelected: (value) async {
-                          if (value == 'toggle_status' && effectiveLead != null) {
-                            final isDeactivating = widget.isActive;
-                            final action = isDeactivating ? 'Deactivate' : 'Activate';
-                            final leadName = '${effectiveLead.firstName} ${effectiveLead.lastName}'.trim();
-                            final confirmed = await ConfirmationDialog.show(
-                              context,
-                              title: '$action Lead',
-                              message: 'Are you sure you want to ${action.toLowerCase()}${leadName.isNotEmpty ? ' $leadName' : ' this lead'}?',
-                              confirmLabel: action,
-                              isDestructive: isDeactivating,
-                            );
-
-                            if (confirmed == true && context.mounted) {
-                              context.read<LeadsBloc>().add(
-                                UpdateLeadActiveStatus(
-                                  leadId: effectiveLead.id,
-                                  isActive: !widget.isActive,
-                                ),
-                              );
-                            }
-                          }
-                        },
-                        itemBuilder: (context) => [
-                          PopupMenuItem(
-                            value: 'toggle_status',
-                            child: Text(
-                              widget.isActive
-                                  ? 'Deactivate Lead'
-                                  : 'Activate Lead',
-                            ),
-                          ),
-                        ],
+                    PopupMenuButton<String>(
+                      icon: const Icon(
+                        Icons.more_vert,
+                        color: AppColors.textPrimary,
                       ),
+                      tooltip: 'More options',
+                      onSelected: (value) async {
+                        if (value == 'toggle_status' && effectiveLead != null) {
+                          final isDeactivating = widget.isActive;
+                          final action = isDeactivating
+                              ? 'Deactivate'
+                              : 'Activate';
+                          final leadName =
+                              '${effectiveLead.firstName} ${effectiveLead.lastName}'
+                                  .trim();
+                          final confirmed = await ConfirmationDialog.show(
+                            context,
+                            title: '$action Lead',
+                            message:
+                                'Are you sure you want to ${action.toLowerCase()}${leadName.isNotEmpty ? ' $leadName' : ' this lead'}?',
+                            confirmLabel: action,
+                            isDestructive: isDeactivating,
+                          );
+
+                          if (confirmed == true && context.mounted) {
+                            context.read<LeadsBloc>().add(
+                              UpdateLeadActiveStatus(
+                                leadId: effectiveLead.id,
+                                isActive: !widget.isActive,
+                              ),
+                            );
+                          }
+                        }
+                      },
+                      itemBuilder: (context) => [
+                        PopupMenuItem(
+                          value: 'toggle_status',
+                          child: Text(
+                            widget.isActive
+                                ? 'Deactivate Lead'
+                                : 'Activate Lead',
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                 );
               },
@@ -842,7 +882,10 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                         Text(
                           state.message,
                           textAlign: TextAlign.center,
-                          style: const TextStyle(color: AppColors.primary, fontSize: 14),
+                          style: const TextStyle(
+                            color: AppColors.primary,
+                            fontSize: 14,
+                          ),
                         ),
                         const SizedBox(height: 16),
                         Row(
@@ -861,7 +904,9 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                             const SizedBox(width: 12),
                             ElevatedButton(
                               onPressed: () {
-                                context.read<LeadsBloc>().add(FetchLeadDetails(widget.leadId));
+                                context.read<LeadsBloc>().add(
+                                  FetchLeadDetails(widget.leadId),
+                                );
                               },
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppColors.primary,
@@ -880,7 +925,12 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
             }
 
             final lead = _lastLeadDetail!;
-            final fullName = '${lead.firstName} ${lead.lastName}';
+            final fullName = '${lead.firstName} ${lead.lastName}'.trim();
+            final displayName = fullName.isNotEmpty
+                ? fullName
+                : (lead.companyName.isNotEmpty
+                      ? lead.companyName
+                      : 'Unnamed Lead');
 
             final statusColor = lead.status?.color != null
                 ? _hexToColor(lead.status!.color)
@@ -889,124 +939,145 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
             final initials =
                 (lead.firstName.isNotEmpty ? lead.firstName[0] : '') +
                 (lead.lastName.isNotEmpty ? lead.lastName[0] : '');
+            final effectiveInitials = initials.isNotEmpty
+                ? initials
+                : (displayName.isNotEmpty ? displayName[0] : 'L');
+
+            final leadPhone = _resolveLeadPhone(lead);
 
             return SafeArea(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // ─── PROFILE HEADER: AVATAR ON LEFT BELOW BACK BUTTON ───────
+                  // ─── PROFILE HEADER CARD ───
                   Padding(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 16.0,
-                      vertical: 4.0,
+                      vertical: 6.0,
                     ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        CircleAvatar(
-                          radius: 28,
-                          backgroundColor: statusColor,
-                          child: Text(
-                            initials.toUpperCase(),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppColors.borderEnabled),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          CircleAvatar(
+                            backgroundColor: const Color(0xFFFDE8E1),
+                            radius: 18,
+                            child: Text(
+                              effectiveInitials.toUpperCase(),
+                              style: const TextStyle(
+                                color: Color(0xFFD97706),
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      fullName,
-                                      style: const TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
-                                        color: AppColors.textPrimary,
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 2),
-                              Row(
-                                children: [
-                                  const Icon(
-                                    Icons.phone_outlined,
-                                    size: 13,
-                                    color: AppColors.textHint,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    lead.phone.isNotEmpty
-                                        ? lead.phone
-                                        : 'No Phone',
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      color: AppColors.textSecondary,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                  if (lead.phone.isNotEmpty) ...[
-                                    const SizedBox(width: 6),
-                                    InkWell(
-                                      onTap: () {
-                                        Clipboard.setData(
-                                          ClipboardData(text: lead.phone),
-                                        );
-                                        ScaffoldMessenger.of(
-                                          context,
-                                        ).showSnackBar(
-                                          const SnackBar(
-                                            content: Text(
-                                              'Phone number copied to clipboard',
-                                            ),
-                                            duration: Duration(seconds: 2),
-                                            backgroundColor: AppColors.primary,
-                                          ),
-                                        );
-                                      },
-                                      borderRadius: BorderRadius.circular(4),
-                                      child: const Padding(
-                                        padding: EdgeInsets.all(2.0),
-                                        child: Icon(
-                                          Icons.copy_rounded,
-                                          size: 14,
-                                          color: AppColors.primary,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                              if (lead.companyName.isNotEmpty) ...[
-                                const SizedBox(height: 2),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
                                 Text(
-                                  lead.companyName,
+                                  displayName,
                                   style: const TextStyle(
-                                    fontSize: 12,
-                                    color: AppColors.primary,
-                                    fontWeight: FontWeight.w600,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                    color: AppColors.textPrimary,
                                   ),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
+                                if (leadPhone.isNotEmpty && leadPhone != '-')
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 2),
+                                    child: Text(
+                                      leadPhone,
+                                      style: const TextStyle(
+                                        color: AppColors.textHint,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: statusColor.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  lead.status?.statusName ?? 'Unknown',
+                                  style: TextStyle(
+                                    color: statusColor,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 0.3,
+                                  ),
+                                ),
+                              ),
+                              if (leadPhone.isNotEmpty && leadPhone != '-') ...[
+                                const SizedBox(height: 6),
+                                InkWell(
+                                  onTap: () async {
+                                    _lastCallTimestamp =
+                                        DateTime.now().millisecondsSinceEpoch;
+                                    AutoCallRecordingUploader.makeCallAndAutoUpload(
+                                      context: context,
+                                      leadId: lead.id,
+                                      phoneNumber: leadPhone,
+                                      leadName: displayName,
+                                      onUploadSuccess: () {
+                                        if (context.mounted) {
+                                          context.read<LeadsBloc>().add(
+                                            FetchLeadAudios(lead.id),
+                                          );
+                                          _fetchLocalRecordings(leadPhone);
+                                        }
+                                      },
+                                    );
+                                  },
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(6),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.primary.withValues(alpha: 0.1),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(
+                                      Icons.phone,
+                                      size: 18,
+                                      color: AppColors.primary,
+                                    ),
+                                  ),
+                                ),
                               ],
                             ],
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 8),
 
                   // Tab Bar Headers
                   _buildTabBar(effectiveState),
@@ -1126,11 +1197,27 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
             if (newStatusId != null && newStatusId != currentStatusId) {
               final currentStatus = _availableStatuses.firstWhere(
                 (s) => s.id == currentStatusId,
-                orElse: () => lead.status ?? const LeadStatusModel(id: '', statusName: '', color: '', isDefault: false, isClosed: false, displayOrder: 0),
+                orElse: () =>
+                    lead.status ??
+                    const LeadStatusModel(
+                      id: '',
+                      statusName: '',
+                      color: '',
+                      isDefault: false,
+                      isClosed: false,
+                      displayOrder: 0,
+                    ),
               );
               final targetStatus = _availableStatuses.firstWhere(
                 (s) => s.id == newStatusId,
-                orElse: () => const LeadStatusModel(id: '', statusName: '', color: '', isDefault: false, isClosed: false, displayOrder: 0),
+                orElse: () => const LeadStatusModel(
+                  id: '',
+                  statusName: '',
+                  color: '',
+                  isDefault: false,
+                  isClosed: false,
+                  displayOrder: 0,
+                ),
               );
 
               // Only Admin & Superadmin can change from 3rd step to 1st step with confirmation
@@ -1140,7 +1227,9 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text('Only Admin and Super Admin can change status from Stage 3 to Stage 1.'),
+                        content: Text(
+                          'Only Admin and Super Admin can change status from Stage 3 to Stage 1.',
+                        ),
                         backgroundColor: Colors.red,
                       ),
                     );
@@ -1150,7 +1239,8 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                 final confirmed = await ConfirmationDialog.show(
                   context,
                   title: 'Confirm Status Change',
-                  message: 'Are you sure you want to change status from "${currentStatus.statusName}" (Stage 3) back to "${targetStatus.statusName}" (Stage 1)?',
+                  message:
+                      'Are you sure you want to change status from "${currentStatus.statusName}" (Stage 3) back to "${targetStatus.statusName}" (Stage 1)?',
                   confirmLabel: 'Confirm Change',
                   isDestructive: false,
                 );
@@ -1166,7 +1256,6 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
       ),
     );
   }
-
 
   Future<void> _openRescheduleScreen(
     LeadDetail lead, {
@@ -1562,12 +1651,16 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                       color: AppColors.textSecondary,
                     ),
                   ),
-                  if (_allLeadFollowUps.isNotEmpty && _selectedFollowUpFilter != 'All') ...[
+                  if (_allLeadFollowUps.isNotEmpty &&
+                      _selectedFollowUpFilter != 'All') ...[
                     const SizedBox(height: 12),
                     OutlinedButton.icon(
-                      onPressed: () => setState(() => _selectedFollowUpFilter = 'All'),
+                      onPressed: () =>
+                          setState(() => _selectedFollowUpFilter = 'All'),
                       icon: const Icon(Icons.list_alt_rounded, size: 16),
-                      label: Text('View All Follow-ups (${_allLeadFollowUps.length})'),
+                      label: Text(
+                        'View All Follow-ups (${_allLeadFollowUps.length})',
+                      ),
                     ),
                   ] else ...[
                     const SizedBox(height: 16),
@@ -1866,50 +1959,6 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
     );
   }
 
-  Widget _buildDetailTile({
-    required IconData icon,
-    required String label,
-    required String value,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.borderEnabled),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 18, color: AppColors.primary),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: const TextStyle(
-                    fontSize: 10,
-                    color: AppColors.textHint,
-                  ),
-                ),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _updateLeadStatus(
     BuildContext context,
     LeadDetail lead,
@@ -1925,7 +1974,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
       'sourceId': lead.source?.id,
       'statusId': newStatusId,
       'score': lead.score ?? 0,
-      'priority': lead.priority,
+      // 'priority': lead.priority,
       'industry': lead.industry,
       'annualRevenue': lead.annualRevenue ?? 0.0,
       'employeeSize': lead.employeeSize ?? 0,
@@ -1936,7 +1985,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
       'postalCode': lead.postalCode,
       'address': lead.address,
       'description': lead.description,
-      'ownerUserId': lead.ownerUserId,
+      // 'ownerUserId': lead.ownerUserId,
     };
     leadData.removeWhere((key, value) => value == null);
 
@@ -2215,7 +2264,9 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
               Icons.person_outline,
               'Owner',
               lead.ownerUserName ?? 'Unassigned',
-              fieldKey: sl<PrivilegeService>().canAssignLeads() ? 'ownerUserId' : null,
+              fieldKey: sl<PrivilegeService>().canAssignLeads()
+                  ? 'ownerUserId'
+                  : null,
               lead: lead,
             ),
             if (lead.priority != null)
@@ -2495,14 +2546,21 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
             onChanged: (val) {
               if (val != null) setState(() => _selectedDropdownValue = val);
             },
-            items: (_availableOwners.toList()
-                  ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase())))
-                .map((owner) {
-              return DropdownMenuItem<String>(
-                value: owner.userId,
-                child: Text(owner.name, style: const TextStyle(fontSize: 14)),
-              );
-            }).toList(),
+            items:
+                (_availableOwners.toList()..sort(
+                      (a, b) =>
+                          a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+                    ))
+                    .map((owner) {
+                      return DropdownMenuItem<String>(
+                        value: owner.userId,
+                        child: Text(
+                          owner.name,
+                          style: const TextStyle(fontSize: 14),
+                        ),
+                      );
+                    })
+                    .toList(),
           ),
         ),
       );
@@ -2771,7 +2829,8 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
         if (!isEditing && trailing != null) trailing,
         if (!isEditing &&
             sl<PrivilegeService>().hasPrivilege('LEAD_UPDATE') &&
-            (fieldKey != 'ownerUserId' || sl<PrivilegeService>().canAssignLeads()) &&
+            (fieldKey != 'ownerUserId' ||
+                sl<PrivilegeService>().canAssignLeads()) &&
             (fieldKey != null || onEditTap != null))
           IconButton(
             icon: const Icon(

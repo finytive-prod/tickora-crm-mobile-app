@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/core/network/api_client.dart';
 import 'package:crm_mobile/core/network/api_constants.dart';
+import 'package:crm_mobile/core/utils/navigation_service.dart';
 import 'package:crm_mobile/repositories/leads_repository.dart';
 
 class AppNotification {
@@ -126,9 +127,26 @@ class NotificationService extends ValueNotifier<List<AppNotification>> {
     return false;
   }
 
+  static bool isFollowUpNotification({
+    String? type,
+    String? title,
+    String? body,
+    Map<String, dynamic>? data,
+  }) {
+    final t = '${type ?? ''} ${data?['type'] ?? ''} ${data?['category'] ?? ''} ${data?['action'] ?? ''} ${data?['entityType'] ?? ''} ${data?['entity_type'] ?? ''}'.toLowerCase();
+    if (t.contains('followup') || t.contains('follow_up') || t.contains('follow-up') || t.contains('reminder')) {
+      return true;
+    }
+    if (data != null && (data['followupId'] != null || data['followUpId'] != null || data['follow_up_id'] != null)) {
+      return true;
+    }
+    final text = '${title ?? ''} ${body ?? ''}'.toLowerCase();
+    return text.contains('follow up') || text.contains('followup') || text.contains('follow-up') || text.contains('reminder');
+  }
+
   static String? extractLeadId(Map<String, dynamic>? data, {String? title, String? body}) {
     if (data != null && data.isNotEmpty) {
-      // 1. Direct keys
+      // 1. Direct lead keys
       for (final key in [
         'leadId',
         'lead_id',
@@ -158,7 +176,7 @@ class NotificationService extends ValueNotifier<List<AppNotification>> {
       // 3. Nested data / payload object
       if (data['data'] != null && data['data'] is Map) {
         final d = data['data'] as Map;
-        final val = (d['leadId'] ?? d['lead_id'] ?? d['leadID'])?.toString().trim();
+        final val = (d['leadId'] ?? d['lead_id'] ?? d['leadID'] ?? d['id'])?.toString().trim();
         if (val != null && val.isNotEmpty && val != 'null') return val;
       }
 
@@ -172,16 +190,11 @@ class NotificationService extends ValueNotifier<List<AppNotification>> {
         } catch (_) {}
       }
 
-      // 4. Explicit entityId when entityType indicates LEAD
-      final entityType = (data['entityType'] ?? data['entity_type'])?.toString().toUpperCase() ?? '';
-      final type = data['type']?.toString().toUpperCase() ?? '';
-      if (entityType == 'LEAD' ||
-          (entityType.isEmpty && (type == 'LEAD' || type == 'LEAD_CREATED' || type == 'LEAD_ASSIGNED' || type == 'NEW_LEAD'))) {
-        for (final key in ['entityId', 'entity_id']) {
-          final val = data[key]?.toString().trim();
-          if (val != null && val.isNotEmpty && val != 'null') {
-            return val;
-          }
+      // 4. Entity / Generic keys
+      for (final key in ['entityId', 'entity_id', 'id', 'referenceId', 'refId']) {
+        final val = data[key]?.toString().trim();
+        if (val != null && val.isNotEmpty && val != 'null') {
+          return val;
         }
       }
     }
@@ -191,6 +204,7 @@ class NotificationService extends ValueNotifier<List<AppNotification>> {
 
   static Future<String?> resolveLeadId(
     Map<String, dynamic>? data, {
+    String? id,
     String? title,
     String? body,
   }) async {
@@ -200,7 +214,13 @@ class NotificationService extends ValueNotifier<List<AppNotification>> {
       return directId;
     }
 
-    // 2. Try candidate IDs (e.g. followupId, entityId) against backend endpoints
+    // 2. Direct ID parameter
+    final cleanId = id?.trim();
+    if (cleanId != null && cleanId.isNotEmpty && cleanId != 'null') {
+      return cleanId;
+    }
+
+    // 3. Candidate IDs against backend endpoints
     final candidateIds = <String>[];
     if (data != null) {
       for (final k in ['followupId', 'followUpId', 'follow_up_id', 'entityId', 'entity_id', 'id']) {
@@ -240,7 +260,7 @@ class NotificationService extends ValueNotifier<List<AppNotification>> {
       }
     }
 
-    // 3. Try phone search if present in data, title, or body
+    // 4. Try phone search if present in data, title, or body
     if (sl.isRegistered<LeadsRepository>()) {
       final phone = data?['phone']?.toString().trim() ??
           data?['phoneNumber']?.toString().trim() ??
@@ -264,8 +284,31 @@ class NotificationService extends ValueNotifier<List<AppNotification>> {
       }
     }
 
+    // 5. Fallback candidate ID so user is never stranded
+    if (candidateIds.isNotEmpty) {
+      return candidateIds.first;
+    }
+
     return null;
   }
+
+  static Future<void> handleNotificationNavigation({
+    String? id,
+    String? type,
+    String? title,
+    String? body,
+    Map<String, dynamic>? data,
+  }) async {
+    final targetId = await resolveLeadId(data, id: id, title: title, body: body);
+    if (targetId == null || targetId.isEmpty) return;
+
+    if (isFollowUpNotification(type: type, title: title, body: body, data: data)) {
+      NavigationService.navigateToLeadFollowUpDetails(targetId);
+    } else {
+      NavigationService.navigateToLeadDetails(targetId);
+    }
+  }
+
 
   int get unreadCount => value.where((n) => !n.isRead).length;
 

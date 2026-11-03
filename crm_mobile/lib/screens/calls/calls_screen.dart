@@ -126,10 +126,20 @@ class _CallsScreenState extends State<CallsScreen> with WidgetsBindingObserver {
 
   Future<void> _fetchStaffUsers() async {
     try {
-      final useCase = sl<GetStaffUsersUseCase>();
-      final result = await useCase();
+      final repo = sl<LeadsRepository>();
+      final result = await repo.getStaffDropdown();
       result.fold(
-        (_) {},
+        (_) async {
+          final fallbackResult = await sl<GetStaffUsersUseCase>()();
+          fallbackResult.fold((_) {}, (users) {
+            if (mounted) {
+              setState(() {
+                _staffList = users;
+                _selectDefaultStaffUser();
+              });
+            }
+          });
+        },
         (users) {
           if (mounted) {
             setState(() {
@@ -144,6 +154,13 @@ class _CallsScreenState extends State<CallsScreen> with WidgetsBindingObserver {
 
   void _selectDefaultStaffUser() {
     if (_selectedStaffUserId != null && _selectedStaffUserId!.isNotEmpty) {
+      final existsInList = _staffList.any((s) => s.userId == _selectedStaffUserId);
+      if (existsInList) return;
+      _selectedStaffUserId = null;
+    }
+
+    if (_staffList.length == 1) {
+      _selectedStaffUserId = _staffList.first.userId;
       return;
     }
 
@@ -166,6 +183,15 @@ class _CallsScreenState extends State<CallsScreen> with WidgetsBindingObserver {
     if (matched == null && currentUserName != null && currentUserName.isNotEmpty) {
       for (final staff in _staffList) {
         if (staff.name.trim().toLowerCase() == currentUserName) {
+          matched = staff;
+          break;
+        }
+      }
+    }
+
+    if (matched == null) {
+      for (final staff in _staffList) {
+        if (staff.isDefault == true) {
           matched = staff;
           break;
         }
@@ -232,7 +258,14 @@ class _CallsScreenState extends State<CallsScreen> with WidgetsBindingObserver {
           );
         }
       } else {
-        _filteredReports = List.from(_allReports);
+        if (_staffList.isNotEmpty) {
+          final allowedIds = _staffList.map((s) => s.userId).toSet();
+          _filteredReports = _allReports
+              .where((r) => allowedIds.contains(r.ownerId))
+              .toList();
+        } else {
+          _filteredReports = List.from(_allReports);
+        }
       }
 
       if (mounted) {
@@ -282,13 +315,23 @@ class _CallsScreenState extends State<CallsScreen> with WidgetsBindingObserver {
           },
         );
       } else {
-        _filteredReports = List.from(_allReports);
+        if (_staffList.isNotEmpty) {
+          final allowedIds = _staffList.map((s) => s.userId).toSet();
+          _filteredReports = _allReports.where((r) => allowedIds.contains(r.ownerId)).toList();
+        } else {
+          _filteredReports = List.from(_allReports);
+        }
       }
     } catch (_) {
       if (mounted) {
-        _filteredReports = (newStaffId != null && newStaffId.isNotEmpty)
-            ? _allReports.where((r) => r.ownerId == newStaffId).toList()
-            : List.from(_allReports);
+        if (newStaffId != null && newStaffId.isNotEmpty) {
+          _filteredReports = _allReports.where((r) => r.ownerId == newStaffId).toList();
+        } else if (_staffList.isNotEmpty) {
+          final allowedIds = _staffList.map((s) => s.userId).toSet();
+          _filteredReports = _allReports.where((r) => allowedIds.contains(r.ownerId)).toList();
+        } else {
+          _filteredReports = List.from(_allReports);
+        }
       }
     } finally {
       if (mounted) {
@@ -487,15 +530,23 @@ class _CallsScreenState extends State<CallsScreen> with WidgetsBindingObserver {
 
     for (final staff in _staffList) {
       if (staff.userId.isNotEmpty) {
-        final displayName = staff.name.isNotEmpty ? staff.name : 'Staff (${staff.userId})';
+        final roleSuffix = (staff.role != null && staff.role!.trim().isNotEmpty)
+            ? ' (${staff.role!.trim()})'
+            : '';
+        final displayName = staff.name.isNotEmpty
+            ? '${staff.name}$roleSuffix'
+            : 'Staff (${staff.userId})';
         staffMap[staff.userId] = displayName;
       }
     }
 
-    for (final report in _allReports) {
-      if (report.ownerId.isNotEmpty && !staffMap.containsKey(report.ownerId)) {
-        final displayName = report.ownerName.isNotEmpty ? report.ownerName : 'Owner (${report.ownerId})';
-        staffMap[report.ownerId] = displayName;
+    // Only fallback to _allReports if _staffList is completely empty
+    if (staffMap.isEmpty) {
+      for (final report in _allReports) {
+        if (report.ownerId.isNotEmpty && !staffMap.containsKey(report.ownerId)) {
+          final displayName = report.ownerName.isNotEmpty ? report.ownerName : 'Owner (${report.ownerId})';
+          staffMap[report.ownerId] = displayName;
+        }
       }
     }
 
