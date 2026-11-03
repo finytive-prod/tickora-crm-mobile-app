@@ -227,19 +227,26 @@ class AutoCallRecordingUploader {
 
     if (isMissedCallKey || isCallLogKey) {
       if (existingServerAudios != null) {
-        // Parse timestamp from key: missed_IN_1726650000000_+919876543210 or calllog_IN_1726650000000_+919876543210
         final parts = path.split('_');
         if (parts.length >= 3) {
-          final ts = int.tryParse(parts[2]) ?? 0;
-          final keyBound = parts[1].toUpperCase(); // 'IN' or 'OUT'
+          int ts = 0;
+          for (final part in parts) {
+            final parsed = int.tryParse(part);
+            if (parsed != null && parsed > 1000000000) {
+              ts = parsed;
+              break;
+            }
+          }
+          final keyBound = parts.any((p) => p.toUpperCase() == 'IN') ? 'IN' : 'OUT';
           if (ts > 0) {
             for (final sAudio in existingServerAudios) {
               if (sAudio.size > 0 && isMissedCallKey)
                 continue; // For missed call, skip real audio files
 
               final parsedTime = parseTimestampFromFileName(sAudio.displayName);
-              final audioMs =
-                  parsedTime ?? (sAudio.createdAt?.millisecondsSinceEpoch ?? 0);
+              final sAudioStartDt = parseCallDateTime(sAudio.callDate, sAudio.startTimeStr, sAudio.createdAt?.toIso8601String());
+              final sAudioStartMs = sAudioStartDt?.millisecondsSinceEpoch ?? 0;
+              final audioMs = (sAudioStartMs > 0) ? sAudioStartMs : (parsedTime ?? (sAudio.createdAt?.millisecondsSinceEpoch ?? 0));
 
               if (audioMs > 0) {
                 final serverBound = sAudio.bound?.toUpperCase() ?? '';
@@ -255,7 +262,7 @@ class AutoCallRecordingUploader {
                             serverBound.contains('OUT')));
 
                 if (isBoundMatch) {
-                  if ((audioMs - ts).abs() < 4000) {
+                  if ((audioMs - ts).abs() < 45000) {
                     await _markAsUploaded(path, 0);
                     return true;
                   }
@@ -302,29 +309,56 @@ class AutoCallRecordingUploader {
 
   static final Set<String> _activeScanningLeads = {};
   static final Set<String> _queuedScanningLeads = {};
-  static final Map<String, int> _lastOutgoingUploadTimes = {};
+  static final Map<String, int> _lastCallUploadTimes = {};
 
-  static bool _isOutgoingRecentlyUploaded(String phone, String leadId) {
+  static bool _isCallRecentlyUploaded(String phone, {String? bound, String? leadId, int? timestampMs}) {
     final now = DateTime.now().millisecondsSinceEpoch;
     final cleanDigits = phone.replaceAll(RegExp(r'\D'), '');
     final last10 = cleanDigits.length >= 10 ? cleanDigits.substring(cleanDigits.length - 10) : cleanDigits;
+    final b = (bound != null && bound.toUpperCase().startsWith('IN')) ? 'IN' : 'OUT';
 
-    if (leadId.isNotEmpty && _lastOutgoingUploadTimes.containsKey(leadId)) {
-      if ((now - _lastOutgoingUploadTimes[leadId]!) < 45000) return true;
-    }
-    if (last10.isNotEmpty && _lastOutgoingUploadTimes.containsKey(last10)) {
-      if ((now - _lastOutgoingUploadTimes[last10]!) < 45000) return true;
+    final keys = [
+      if (last10.isNotEmpty) '${last10}_$b',
+      if (last10.isNotEmpty) last10,
+      if (leadId != null && leadId.isNotEmpty) '${leadId}_$b',
+      if (leadId != null && leadId.isNotEmpty) leadId,
+      if (timestampMs != null && timestampMs > 0 && last10.isNotEmpty)
+        '${last10}_${b}_${(timestampMs ~/ 3500) * 3500}',
+    ];
+
+    for (final k in keys) {
+      final t = _lastCallUploadTimes[k];
+      if (t != null && (now - t) < 60000) {
+        return true;
+      }
     }
     return false;
   }
 
-  static void _recordOutgoingUploaded(String phone, String leadId) {
+  static void _recordCallUploaded(String phone, {String? bound, String? leadId, int? timestampMs}) {
     final now = DateTime.now().millisecondsSinceEpoch;
     final cleanDigits = phone.replaceAll(RegExp(r'\D'), '');
     final last10 = cleanDigits.length >= 10 ? cleanDigits.substring(cleanDigits.length - 10) : cleanDigits;
-    if (leadId.isNotEmpty) _lastOutgoingUploadTimes[leadId] = now;
-    if (last10.isNotEmpty) _lastOutgoingUploadTimes[last10] = now;
+    final b = (bound != null && bound.toUpperCase().startsWith('IN')) ? 'IN' : 'OUT';
+
+    if (last10.isNotEmpty) {
+      _lastCallUploadTimes['${last10}_$b'] = now;
+      _lastCallUploadTimes[last10] = now;
+    }
+    if (leadId != null && leadId.isNotEmpty) {
+      _lastCallUploadTimes['${leadId}_$b'] = now;
+      _lastCallUploadTimes[leadId] = now;
+    }
+    if (timestampMs != null && timestampMs > 0 && last10.isNotEmpty) {
+      _lastCallUploadTimes['${last10}_${b}_${(timestampMs ~/ 3500) * 3500}'] = now;
+    }
   }
+
+  static bool _isOutgoingRecentlyUploaded(String phone, String leadId) =>
+      _isCallRecentlyUploaded(phone, bound: 'OUT', leadId: leadId);
+
+  static void _recordOutgoingUploaded(String phone, String leadId) =>
+      _recordCallUploaded(phone, bound: 'OUT', leadId: leadId);
 
   static Future<void> _markCallBucketAsUploaded(
     String phone,
@@ -339,31 +373,35 @@ class AutoCallRecordingUploader {
         : cleanDigits;
     final bucket = (timestampMs ~/ 3500) * 3500;
     final status = (callStatus != null && callStatus.isNotEmpty) ? callStatus.toUpperCase() : '';
+    final dirKey = (bound != null && bound.toUpperCase().startsWith('IN')) ? 'IN' : 'OUT';
 
-    _uploadedPaths.add('call_${last10}_$bucket');
-    _uploadedPaths.add('call_${last10}_IN_$bucket');
-    _uploadedPaths.add('call_${last10}_OUT_$bucket');
-    _uploadedPaths.add('calllog_IN_${bucket}_$phone');
-    _uploadedPaths.add('calllog_OUT_${bucket}_$phone');
-    _uploadedPaths.add('calllog_IN_${bucket}_$cleanDigits');
-    _uploadedPaths.add('calllog_OUT_${bucket}_$cleanDigits');
-    if (status.isNotEmpty) {
-      _uploadedPaths.add('call_${last10}_${status}_$bucket');
-      _uploadedPaths.add('calllog_${status}_${bucket}_$phone');
-      _uploadedPaths.add('calllog_${status}_${bucket}_$cleanDigits');
-    }
-    if (bound != null && bound.isNotEmpty) {
-      final b = bound.toUpperCase().startsWith('IN') ? 'IN' : 'OUT';
-      _uploadedPaths.add('calllog_${b}_${bucket}_$phone');
-      _uploadedPaths.add('calllog_${b}_${bucket}_$cleanDigits');
+    for (final b in [
+      bucket - 7000,
+      bucket - 3500,
+      bucket,
+      bucket + 3500,
+      bucket + 7000,
+    ]) {
+      _uploadedPaths.add('call_${last10}_$b');
+      _uploadedPaths.add('call_${last10}_IN_$b');
+      _uploadedPaths.add('call_${last10}_OUT_$b');
+      _uploadedPaths.add('calllog_IN_${b}_$phone');
+      _uploadedPaths.add('calllog_OUT_${b}_$phone');
+      _uploadedPaths.add('calllog_IN_${b}_$cleanDigits');
+      _uploadedPaths.add('calllog_OUT_${b}_$cleanDigits');
+      _uploadedPaths.add('call_${last10}_${dirKey}_$b');
+      _sessionUploadedKeys.add('${last10}_${dirKey}_$b');
+      _sessionUploadedKeys.add('call_${last10}_$b');
       if (status.isNotEmpty) {
-        _uploadedPaths.add('calllog_${b}_${status}_${bucket}_$phone');
-        _uploadedPaths.add('calllog_${b}_${status}_${bucket}_$cleanDigits');
-        _sessionUploadedKeys.add('${last10}_${b}_${status}_$bucket');
+        _uploadedPaths.add('call_${last10}_${status}_$b');
+        _uploadedPaths.add('calllog_${status}_${b}_$phone');
+        _uploadedPaths.add('calllog_${status}_${b}_$cleanDigits');
+        _uploadedPaths.add('calllog_${dirKey}_${status}_${b}_$phone');
+        _uploadedPaths.add('calllog_${dirKey}_${status}_${b}_$cleanDigits');
+        _sessionUploadedKeys.add('${last10}_${dirKey}_${status}_$b');
       }
-      _sessionUploadedKeys.add('${last10}_${b}_$bucket');
     }
-    _sessionUploadedKeys.add('call_${last10}_$bucket');
+    _recordCallUploaded(phone, bound: bound, timestampMs: timestampMs);
 
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -386,31 +424,38 @@ class AutoCallRecordingUploader {
         : cleanDigits;
     final bucket = (timestampMs ~/ 3500) * 3500;
     final status = (callStatus != null && callStatus.isNotEmpty) ? callStatus.toUpperCase() : '';
-
     final isBoundIn = bound != null && bound.toUpperCase().startsWith('IN');
-    final buckets = isBoundIn
-        ? [bucket]
-        : [
-            bucket - 14000,
-            bucket - 10500,
-            bucket - 7000,
-            bucket - 3500,
-            bucket,
-            bucket + 3500,
-            bucket + 7000,
-            bucket + 10500,
-            bucket + 14000,
-          ];
+
+    final buckets = [
+      bucket - 35000,
+      bucket - 28000,
+      bucket - 21000,
+      bucket - 14000,
+      bucket - 10500,
+      bucket - 7000,
+      bucket - 3500,
+      bucket,
+      bucket + 3500,
+      bucket + 7000,
+      bucket + 10500,
+      bucket + 14000,
+      bucket + 21000,
+      bucket + 28000,
+      bucket + 35000,
+    ];
 
     if (bound != null && bound.isNotEmpty) {
       final dirKey = isBoundIn ? 'IN' : 'OUT';
       for (final b in buckets) {
         if (_uploadedPaths.contains('call_${last10}_${dirKey}_$b') ||
+            _uploadedPaths.contains('call_${last10}_$b') ||
             _uploadedPaths.contains('calllog_${dirKey}_${b}_$phone') ||
             _uploadedPaths.contains('calllog_${dirKey}_${b}_$cleanDigits') ||
             _sessionUploadedKeys.contains('${last10}_${dirKey}_$b') ||
+            _sessionUploadedKeys.contains('call_${last10}_$b') ||
             (status.isNotEmpty &&
                 (_uploadedPaths.contains('calllog_${dirKey}_${status}_${b}_$phone') ||
+                    _uploadedPaths.contains('call_${last10}_${status}_$b') ||
                     _sessionUploadedKeys.contains('${last10}_${dirKey}_${status}_$b')))) {
           return true;
         }
@@ -418,12 +463,16 @@ class AutoCallRecordingUploader {
     } else {
       for (final b in buckets) {
         final key1 = 'call_${last10}_$b';
+        final key2 = 'call_${last10}_IN_$b';
+        final key2b = 'call_${last10}_OUT_$b';
         final key3 = 'calllog_IN_${b}_$phone';
         final key4 = 'calllog_OUT_${b}_$phone';
         final key5 = 'calllog_IN_${b}_$cleanDigits';
         final key6 = 'calllog_OUT_${b}_$cleanDigits';
 
         if (_uploadedPaths.contains(key1) ||
+            _uploadedPaths.contains(key2) ||
+            _uploadedPaths.contains(key2b) ||
             _uploadedPaths.contains(key3) ||
             _uploadedPaths.contains(key4) ||
             _uploadedPaths.contains(key5) ||
@@ -434,11 +483,11 @@ class AutoCallRecordingUploader {
       }
     }
 
-    // Check against existingServerAudios
+    // Check against existingServerAudios (45s tolerance for both IN and OUT)
     if (existingServerAudios != null && existingServerAudios.isNotEmpty) {
-      final maxDiff = isBoundIn ? 3500 : 20000;
+      const maxDiff = 45000;
       for (final sAudio in existingServerAudios) {
-        if (isBoundIn && sAudio.size > 0) {
+        if (status == 'MISSED' && sAudio.size > 0) {
           // A missed call has no real audio file; don't match against existing real audios
           continue;
         }
@@ -462,9 +511,9 @@ class AutoCallRecordingUploader {
       }
     }
 
-    // Check against existingServerCallLogs
+    // Check against existingServerCallLogs (45s tolerance for both IN and OUT)
     if (existingServerCallLogs != null && existingServerCallLogs.isNotEmpty) {
-      final maxDiff = isBoundIn ? 3500 : 20000;
+      const maxDiff = 45000;
       for (final sLog in existingServerCallLogs) {
         if (status.isNotEmpty) {
           final sStatus = sLog.callStatus.toUpperCase();
@@ -633,7 +682,7 @@ class AutoCallRecordingUploader {
         final isMissedLog = callTypeRaw == 'MISSED' || callTypeRaw == 'REJECTED' || (log['callStatus'] as String? ?? '').toUpperCase() == 'MISSED';
         final logStatusStr = isMissedLog ? 'MISSED' : (logDur > 0 ? 'CONNECTED' : (isIncoming ? 'MISSED' : 'NOT_CONNECTED'));
 
-        if (boundStr == 'OUT' && _isOutgoingRecentlyUploaded(rawPhone, '')) {
+        if (_isCallRecentlyUploaded(rawPhone, bound: boundStr, timestampMs: st)) {
           continue;
         }
 
@@ -1406,9 +1455,7 @@ class AutoCallRecordingUploader {
             _currentlyUploadingPaths.remove(cleanName);
             serverAudios.add(audio);
             uploadedAny = true;
-            if (targetBound == 'OUT') {
-              _recordOutgoingUploaded(phoneNumber, leadId);
-            }
+            _recordCallUploaded(phoneNumber, bound: targetBound, leadId: leadId, timestampMs: actualStartMs);
           },
         );
       }
@@ -1577,22 +1624,22 @@ class AutoCallRecordingUploader {
         final sessionKey = '${leadLast10}_${boundStr}_${callStatusStr}_$startTimeBucket';
 
         // 1. If audio was already uploaded for this call in Phase 1 or in past, skip it entirely.
-        final audioTolerance = isIncoming ? 3500 : 20000;
+        const audioTolerance = 45000;
         final isAudioAlreadyUploaded = isConnectedCall && uploadedAudioTimestamps.any(
           (ts) => (ts - startTimeMs).abs() < audioTolerance || (ts - (startTimeMs + callDuration * 1000)).abs() < audioTolerance,
         );
 
-        final hasServerAudioForOut = !isIncoming && serverAudios.any((sAudio) {
+        final hasServerAudio = isConnectedCall && serverAudios.any((sAudio) {
           final sBound = (sAudio.bound ?? '').toUpperCase();
-          if (sBound.isNotEmpty && !sBound.startsWith('OUT')) return false;
+          if (sBound.isNotEmpty && !checkBoundMatch(boundStr, sBound)) return false;
           final parsedTime = parseTimestampFromFileName(sAudio.displayName);
           final sAudioStartDt = parseCallDateTime(sAudio.callDate, sAudio.startTimeStr, sAudio.createdAt?.toIso8601String());
           final sAudioStartMs = sAudioStartDt?.millisecondsSinceEpoch ?? 0;
           final audioMs = (sAudioStartMs > 0) ? sAudioStartMs : (parsedTime ?? (sAudio.createdAt?.millisecondsSinceEpoch ?? 0));
-          return audioMs > 0 && (audioMs - startTimeMs).abs() < 45000;
+          return audioMs > 0 && (audioMs - startTimeMs).abs() < audioTolerance;
         });
 
-        if (isAudioAlreadyUploaded || hasServerAudioForOut) {
+        if (isAudioAlreadyUploaded || hasServerAudio) {
           debugPrint(
             'Phase 2: Audio already exists or uploaded for call at $startTimeMs. Skipping call-log-only post.',
           );
@@ -1696,7 +1743,7 @@ class AutoCallRecordingUploader {
             );
             if (sDt != null) {
               final sMs = sDt.millisecondsSinceEpoch;
-              final maxTolerance = isIncoming ? 3500 : 20000;
+              const maxTolerance = 45000;
               final isSameCallStatus =
                   sLog.callStatus.toUpperCase() == callStatusStr.toUpperCase() ||
                   (sLog.callStatus.toUpperCase().contains('CONN') && callStatusStr.toUpperCase().contains('ANS')) ||
@@ -1712,7 +1759,7 @@ class AutoCallRecordingUploader {
 
         // 2. Check serverAudios (only for connected calls, as missed calls never have audio files)
         if (!alreadySyncedInHistory && isConnectedCall && serverAudios.isNotEmpty) {
-          final maxTolerance = isIncoming ? 3500 : 20000;
+          const maxTolerance = 45000;
           for (final sAudio in serverAudios) {
             final parsedTime = parseTimestampFromFileName(sAudio.displayName);
             final sAudioStartDt = parseCallDateTime(sAudio.callDate, sAudio.startTimeStr, sAudio.createdAt?.toIso8601String());
@@ -1726,10 +1773,7 @@ class AutoCallRecordingUploader {
               final sBoundUpper = (sAudio.bound ?? '').toUpperCase();
               final matchesBound =
                   sBoundUpper.isEmpty ||
-                  (isIncoming &&
-                      (sBoundUpper == 'IN' || sBoundUpper.startsWith('INC'))) ||
-                  (!isIncoming &&
-                      (sBoundUpper == 'OUT' || sBoundUpper.startsWith('OUT')));
+                  checkBoundMatch(boundStr, sBoundUpper);
               if (matchesBound) {
                 alreadySyncedInHistory = true;
                 break;
@@ -1794,9 +1838,9 @@ class AutoCallRecordingUploader {
           toNum = phoneNumber.isNotEmpty ? phoneNumber : 'Lead';
         }
 
-        if (!isIncoming && _isOutgoingRecentlyUploaded(phoneNumber, leadId)) {
+        if (_isCallRecentlyUploaded(phoneNumber, bound: boundStr, leadId: leadId, timestampMs: startTimeMs)) {
           debugPrint(
-            'Phase 2: Outgoing call was recently uploaded for $leadId ($phoneNumber). Suppressing duplicate call log upload.',
+            'Phase 2: Call was recently uploaded for $leadId ($phoneNumber). Suppressing duplicate call log upload.',
           );
           await _markAsUploaded(uniqueKey, 0);
           await _markCallBucketAsUploaded(phoneNumber, startTimeMs, boundStr, callStatusStr);
@@ -1844,9 +1888,7 @@ class AutoCallRecordingUploader {
             _currentlyUploadingPaths.remove(uniqueKey);
             serverAudios.add(audio);
             uploadedAny = true;
-            if (boundStr == 'OUT') {
-              _recordOutgoingUploaded(phoneNumber, leadId);
-            }
+            _recordCallUploaded(phoneNumber, bound: boundStr, leadId: leadId, timestampMs: startTimeMs);
           },
         );
       }

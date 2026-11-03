@@ -35,13 +35,70 @@ class Customer {
       customerType: (json['customerType'] ?? json['type'] ?? 'INDIVIDUAL').toString(),
       customerName: nameVal.isEmpty ? 'Unnamed' : nameVal,
       companyName: (json['companyName'] ?? json['company'] ?? '').toString(),
-      email: (json['email'] ?? '').toString(),
-      phone: (json['phone'] ?? json['phoneNumber'] ?? json['mobile'] ?? '').toString(),
+      email: _parseEmail(json),
+      phone: (json['phone'] ?? json['phoneNumber'] ?? json['mobile'] ?? json['mobileNumber'] ?? '').toString(),
       designation: (json['designation'] ?? json['title'] ?? '').toString(),
       address: (json['address'] ?? '').toString(),
       notes: json['notes']?.toString(),
       tags: json['tags']?.toString(),
     );
+  }
+
+  static String _parseEmail(Map<String, dynamic> json) {
+    final candidates = [
+      json['email'],
+      json['emailId'],
+      json['email_id'],
+      json['emailAddress'],
+      json['email_address'],
+      json['mail'],
+      json['customerEmail'],
+      json['customer_email'],
+      json['contactEmail'],
+      json['contact_email'],
+      json['primaryEmail'],
+      json['primary_email'],
+      json['officialEmail'],
+      json['workEmail'],
+      json['userEmail'],
+    ];
+
+    for (final candidate in candidates) {
+      if (candidate != null) {
+        final str = candidate.toString().trim();
+        if (str.isNotEmpty && str.toLowerCase() != 'null') {
+          return str;
+        }
+      }
+    }
+
+    final nestedObjects = [
+      json['contact'],
+      json['customer'],
+      json['lead'],
+      json['details'],
+      json['primaryContact'],
+      json['contactPerson'],
+    ];
+
+    for (final obj in nestedObjects) {
+      if (obj is Map<String, dynamic>) {
+        final nestedEmail = _parseEmail(obj);
+        if (nestedEmail.isNotEmpty) return nestedEmail;
+      }
+    }
+
+    if (json['emails'] is List && (json['emails'] as List).isNotEmpty) {
+      final first = (json['emails'] as List).first;
+      if (first is String && first.trim().isNotEmpty && first.trim().toLowerCase() != 'null') {
+        return first.trim();
+      } else if (first is Map<String, dynamic>) {
+        final nested = _parseEmail(first);
+        if (nested.isNotEmpty) return nested;
+      }
+    }
+
+    return '';
   }
 
   Map<String, dynamic> toJson() {

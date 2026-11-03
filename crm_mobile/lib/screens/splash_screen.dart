@@ -7,7 +7,6 @@ import 'package:crm_mobile/core/services/fcm_service.dart';
 import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/screens/home_screen.dart';
 import 'package:crm_mobile/screens/auth/login_screen.dart';
-import 'package:crm_mobile/core/services/call_recording_service.dart';
 import 'package:crm_mobile/core/services/app_update_service.dart';
 import 'package:crm_mobile/core/utils/navigation_service.dart';
 import '../../error_handling_img/force_update_screen.dart';
@@ -39,16 +38,6 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
       await FcmService.instance.initialize();
     } catch (e) {
       debugPrint('Error initializing FCM on startup: $e');
-    }
-    try {
-      final callService = CallRecordingService();
-      await callService.requestPermissionsSequentially();
-      final hasScreening = await callService.hasCallScreeningRole();
-      if (!hasScreening) {
-        await callService.requestCallScreeningRole();
-      }
-    } catch (e) {
-      debugPrint('Error requesting permissions on startup: $e');
     }
   }
 

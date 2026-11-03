@@ -51,7 +51,10 @@ class ApiUrl {
   static String get identityService {
     final raw = rawBaseUrl;
     if (raw.contains('/api/crm/lead-service')) {
-      return raw.replaceAll('/api/crm/lead-service', '/api/crm/identity-service');
+      return raw.replaceAll(
+        '/api/crm/lead-service',
+        '/api/crm/identity-service',
+      );
     }
     if (raw.endsWith('/api/crm')) {
       return '$raw/identity-service';
@@ -62,7 +65,10 @@ class ApiUrl {
   static String get customerService {
     final raw = rawBaseUrl;
     if (raw.contains('/api/crm/lead-service')) {
-      return raw.replaceAll('/api/crm/lead-service', '/api/crm/customer-service');
+      return raw.replaceAll(
+        '/api/crm/lead-service',
+        '/api/crm/customer-service',
+      );
     }
     if (raw.endsWith('/api/crm')) {
       return '$raw/customer-service';
@@ -84,7 +90,10 @@ class ApiUrl {
   static String get notificationService {
     final raw = rawBaseUrl;
     if (raw.contains('/api/crm/lead-service')) {
-      return raw.replaceAll('/api/crm/lead-service', '/api/crm/notification-service');
+      return raw.replaceAll(
+        '/api/crm/lead-service',
+        '/api/crm/notification-service',
+      );
     }
     if (raw.endsWith('/api/crm')) {
       return '$raw/notification-service';

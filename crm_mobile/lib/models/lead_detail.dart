@@ -69,6 +69,7 @@ class LeadDetail extends Equatable {
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final List<LeadDetailCustomField> customFields;
+  
 
   const LeadDetail({
     required this.id,
@@ -99,6 +100,8 @@ class LeadDetail extends Equatable {
     this.createdAt,
     this.updatedAt,
     this.customFields = const [],
+    
+    
   });
 
   @override
@@ -131,6 +134,7 @@ class LeadDetail extends Equatable {
         createdAt,
         updatedAt,
         customFields,
+        
       ];
 }
 
@@ -164,6 +168,8 @@ class LeadDetailModel extends LeadDetail {
     super.createdAt,
     super.updatedAt,
     super.customFields,
+    
+    
   });
 
   factory LeadDetailModel.fromJson(Map<String, dynamic> json) {
@@ -226,13 +232,16 @@ class LeadDetailModel extends LeadDetail {
     trySetOwnerUserName(json['ownerUser']);
     trySetOwnerUserName(json['owner']);
 
-    if (ownerUserName == null || ownerUserName!.isEmpty) {
-      if (json['assignedTo'] is String && json['assignedTo'].toString().trim().isNotEmpty) {
-        ownerUserName = json['assignedTo'].toString().trim();
-      } else if (json['owner'] is String && json['owner'].toString().trim().isNotEmpty) {
-        ownerUserName = json['owner'].toString().trim();
-      }
-    }
+    
+
+    
+    
+
+    
+    final callStatus = json['callStatus']?.toString() ??
+        json['call_status']?.toString() ??
+        json['lastCallStatus']?.toString() ??
+        json['latestCallStatus']?.toString();
 
     return LeadDetailModel(
       id: json['id'] ?? '',
@@ -275,6 +284,7 @@ class LeadDetailModel extends LeadDetail {
               ? DateTime.tryParse(json['updated_at'].toString()) 
               : (json['updatedDate'] != null ? DateTime.tryParse(json['updatedDate'].toString()) : null)),
       customFields: customFields,
+      
     );
   }
 }

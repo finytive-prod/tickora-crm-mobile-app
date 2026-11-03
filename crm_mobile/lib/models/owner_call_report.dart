@@ -170,6 +170,20 @@ class OwnerCallReport extends Equatable {
       });
     }
 
+    final List<CalledLeadReport> deduplicatedCalledLeads = [];
+    final Set<String> seenLeadCalls = {};
+    for (final call in sortedCalledLeads) {
+      final leadKey = call.leadId.isNotEmpty ? call.leadId : call.leadName.trim().toLowerCase();
+      final dt = call.callDateTime;
+      final timeKey = dt != null
+          ? (dt.millisecondsSinceEpoch ~/ 15000) * 15000
+          : (call.callDate ?? '') + (call.startTime ?? '') + (call.createdAt ?? '');
+      final key = '${leadKey}_${call.callType}_${call.duration}_$timeKey';
+      if (seenLeadCalls.add(key)) {
+        deduplicatedCalledLeads.add(call);
+      }
+    }
+
     return OwnerCallReport(
       ownerId: json['ownerId']?.toString() ?? '',
       ownerName: json['ownerName']?.toString() ?? 'Unknown',
@@ -188,7 +202,7 @@ class OwnerCallReport extends Equatable {
       callTargetPercentage: json['callTargetPercentage']?.toString(),
       callTimeTarget: json['callTimeTarget']?.toString(),
       callTimeTargetPercentage: json['callTimeTargetPercentage']?.toString(),
-      calledLeads: sortedCalledLeads,
+      calledLeads: deduplicatedCalledLeads,
     );
   }
 

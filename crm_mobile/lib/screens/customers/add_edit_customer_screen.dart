@@ -7,6 +7,7 @@ import 'package:crm_mobile/blocs/customer_event.dart';
 import 'package:crm_mobile/blocs/customer_state.dart';
 import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/core/utils/form_validator_utils.dart';
+import 'package:crm_mobile/repositories/customer_repository.dart';
 
 class AddEditCustomerScreen extends StatelessWidget {
   final Customer? customer;
@@ -64,7 +65,45 @@ class _AddEditCustomerViewState extends State<_AddEditCustomerView> {
       _addressController.text = widget.customer!.address;
       _notesController.text = widget.customer!.notes ?? '';
       _tagsController.text = widget.customer!.tags ?? '';
+
+      _fetchFreshCustomer();
     }
+  }
+
+  Future<void> _fetchFreshCustomer() async {
+    try {
+      final repo = sl<CustomerRepository>();
+      final res = await repo.getCustomerById(widget.customer!.id);
+      res.fold((_) {}, (c) {
+        if (!mounted) return;
+        setState(() {
+          if (_emailController.text.trim().isEmpty && c.email.isNotEmpty) {
+            _emailController.text = c.email;
+          }
+          if (_nameController.text.trim().isEmpty && c.customerName.isNotEmpty) {
+            _nameController.text = c.customerName;
+          }
+          if (_phoneController.text.trim().isEmpty && c.phone.isNotEmpty) {
+            _phoneController.text = c.phone;
+          }
+          if (_companyController.text.trim().isEmpty && c.companyName.isNotEmpty) {
+            _companyController.text = c.companyName;
+          }
+          if (_addressController.text.trim().isEmpty && c.address.isNotEmpty) {
+            _addressController.text = c.address;
+          }
+          if (_notesController.text.trim().isEmpty && (c.notes ?? '').isNotEmpty) {
+            _notesController.text = c.notes!;
+          }
+          if (_tagsController.text.trim().isEmpty && (c.tags ?? '').isNotEmpty) {
+            _tagsController.text = c.tags!;
+          }
+          if (_selectedType == null || _selectedType!.isEmpty) {
+            _selectedType = c.customerType;
+          }
+        });
+      });
+    } catch (_) {}
   }
 
   @override

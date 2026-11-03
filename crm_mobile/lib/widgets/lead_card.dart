@@ -98,8 +98,9 @@ class LeadCard extends StatelessWidget {
     final creatorNameStr = hasCreator
         ? createdByName!.trim()
         : (priority.trim().isNotEmpty ? priority : '-');
-    final assigneeNameStr =
-        assignee.trim().isNotEmpty ? assignee.trim() : 'Unassigned';
+    final assigneeNameStr = assignee.trim().isNotEmpty
+        ? assignee.trim()
+        : 'Unassigned';
     final createdAtStr = _formattedCreatedAt;
 
     return Container(

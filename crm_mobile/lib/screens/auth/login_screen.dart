@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:crm_mobile/core/theme/app_colors.dart';
 import 'package:crm_mobile/screens/home_screen.dart';
@@ -43,17 +44,20 @@ class _LoginScreenViewState extends State<LoginScreenView> {
   @override
   void initState() {
     super.initState();
-    NavigationService.markAppReady();
+    NavigationService.isLoginScreenActive = true;
+    NavigationService.isAppReady = false;
   }
 
   @override
   void dispose() {
+    NavigationService.isLoginScreenActive = false;
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
   void _handleLogin(BuildContext context) {
+    FocusScope.of(context).unfocus();
     setState(() {
       _emailError = null;
       _passwordError = null;
@@ -101,15 +105,22 @@ class _LoginScreenViewState extends State<LoginScreenView> {
         child: BlocConsumer<LoginBloc, LoginState>(
           listener: (context, state) async {
             if (state is LoginSuccess) {
+              NavigationService.isLoginScreenActive = false;
+              try {
+                if (sl.isRegistered<SharedPreferences>()) {
+                  await sl<SharedPreferences>().remove('overlay_permission_prompted');
+                }
+              } catch (_) {}
               try {
                 await CallRecordingService().requestPermissionsSequentially();
               } catch (e) {
                 debugPrint('Error requesting permissions post-login: $e');
               }
               if (context.mounted) {
-                Navigator.pushReplacement(
+                Navigator.pushAndRemoveUntil(
                   context,
-                  MaterialPageRoute(builder: (context) => const HomeScreen()),
+                  MaterialPageRoute(builder: (context) => const HomeScreen(isFromLogin: true)),
+                  (route) => false,
                 );
               }
             } else if (state is LoginFailure) {
@@ -158,13 +169,20 @@ class _LoginScreenViewState extends State<LoginScreenView> {
             }
           },
           builder: (context, state) {
-            return Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32.0),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
+            final isLoading = state is LoginLoading || state is LoginSuccess;
+            return LayoutBuilder(
+              builder: (context, constraints) {
+                return SingleChildScrollView(
+                  physics: const ClampingScrollPhysics(),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                    child: IntrinsicHeight(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32.0),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
                     // Brand Logo and Name ("Tickora CRM")
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -355,7 +373,7 @@ class _LoginScreenViewState extends State<LoginScreenView> {
                     SizedBox(
                       height: 52,
                       child: ElevatedButton(
-                        onPressed: state is LoginLoading ? null : () => _handleLogin(context),
+                        onPressed: isLoading ? null : () => _handleLogin(context),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.primary,
                           foregroundColor: Colors.white,
@@ -365,7 +383,7 @@ class _LoginScreenViewState extends State<LoginScreenView> {
                           ),
                           elevation: 0,
                         ),
-                        child: state is LoginLoading
+                        child: isLoading
                             ? const SizedBox(
                                 width: 22,
                                 height: 22,
@@ -388,7 +406,11 @@ class _LoginScreenViewState extends State<LoginScreenView> {
                   ],
                 ),
               ),
-            );
+            ),
+          ),
+        );
+      },
+    );
           },
         ),
       ),

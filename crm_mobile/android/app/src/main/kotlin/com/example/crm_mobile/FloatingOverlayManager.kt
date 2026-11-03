@@ -333,9 +333,9 @@ object FloatingOverlayManager {
             overlayFlags,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = 60
-            y = 240
+            gravity = Gravity.CENTER
+            x = 0
+            y = 0
         }
         layoutParams = params
 

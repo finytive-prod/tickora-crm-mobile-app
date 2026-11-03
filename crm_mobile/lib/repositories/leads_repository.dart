@@ -45,12 +45,29 @@ abstract class LeadsRepository {
   });
   Future<Either<Failure, List<String>>> getLeadPriorities();
   Future<Either<Failure, List<StaffUser>>> getStaffUsers({String? search});
-  Future<Either<Failure, void>> createLead(Map<String, dynamic> leadData, List<String> filePaths, {String? leadFileName});
-  Future<Either<Failure, void>> updateLead(String leadId, Map<String, dynamic> leadData, List<String> filePaths, {String? leadFileName});
+  Future<Either<Failure, List<StaffUser>>> getStaffDropdown();
+  Future<Either<Failure, void>> createLead(
+    Map<String, dynamic> leadData,
+    List<String> filePaths, {
+    String? leadFileName,
+  });
+  Future<Either<Failure, void>> updateLead(
+    String leadId,
+    Map<String, dynamic> leadData,
+    List<String> filePaths, {
+    String? leadFileName,
+  });
   Future<Either<Failure, LeadDetail>> getLeadDetails(String id);
-  Future<Either<Failure, AuditLogResponse>> getLeadAuditLogs(String id, {int page = 0, int size = 20});
+  Future<Either<Failure, AuditLogResponse>> getLeadAuditLogs(
+    String id, {
+    int page = 0,
+    int size = 20,
+  });
   Future<Either<Failure, List<Attachment>>> getLeadAttachments(String id);
-  Future<Either<Failure, void>> uploadLeadAttachment(String leadId, String filePath);
+  Future<Either<Failure, void>> uploadLeadAttachment(
+    String leadId,
+    String filePath,
+  );
   Future<Either<Failure, void>> deleteLeadAttachment(String attachmentId);
   Future<Either<Failure, List<LeadAudio>>> getLeadAudios(String leadId);
   Future<Either<Failure, LeadCallLogResponse>> getLeadCallLogs(String leadId);
@@ -66,14 +83,32 @@ abstract class LeadsRepository {
     String? callDate,
     String? callStatus,
   });
-  Future<Either<Failure, void>> updateLeadActiveStatus(String leadId, bool isActive);
-  Future<Either<Failure, String>> exportLeadReport(Map<String, dynamic> payload);
-  Future<Either<Failure, List<PipelineColumnData>>> getLeadPipeline({int page = 0, int size = 50});
-  Future<Either<Failure, void>> updateLeadStatusInPipeline(String leadId, String statusId);
-  Future<Either<Failure, DialpadLeadSearchResult>> searchLeadByNumber(String phoneNumber);
+  Future<Either<Failure, void>> updateLeadActiveStatus(
+    String leadId,
+    bool isActive,
+  );
+  Future<Either<Failure, String>> exportLeadReport(
+    Map<String, dynamic> payload,
+  );
+  Future<Either<Failure, List<PipelineColumnData>>> getLeadPipeline({
+    int page = 0,
+    int size = 50,
+  });
+  Future<Either<Failure, void>> updateLeadStatusInPipeline(
+    String leadId,
+    String statusId,
+  );
+  Future<Either<Failure, DialpadLeadSearchResult>> searchLeadByNumber(
+    String phoneNumber,
+  );
   Future<Either<Failure, void>> quickInviteLead(Map<String, dynamic> data);
   Future<Either<Failure, void>> renameLeadAudio(String audioId, String newName);
-  Future<Either<Failure, List<OwnerCallReport>>> getOwnerCallReport({String? ownerId, List<String>? ownerIds, String? startDate, String? endDate});
+  Future<Either<Failure, List<OwnerCallReport>>> getOwnerCallReport({
+    String? ownerId,
+    List<String>? ownerIds,
+    String? startDate,
+    String? endDate,
+  });
 }
 
 class LeadsRepositoryImpl implements LeadsRepository {
@@ -91,14 +126,13 @@ class LeadsRepositoryImpl implements LeadsRepository {
   }) async {
     try {
       final leadsBaseUrl = _leadsBaseUrl;
-      final q = (query != null && query.trim().isNotEmpty) ? query.trim() : 'null';
+      final q = (query != null && query.trim().isNotEmpty)
+          ? query.trim()
+          : 'null';
 
       final response = await apiClient.post(
         '$leadsBaseUrl/leads/search/global',
-        queryParameters: {
-          'page': page,
-          'size': size,
-        },
+        queryParameters: {'page': page, 'size': size},
         data: {
           'query': q,
           'isLead': true,
@@ -109,7 +143,9 @@ class LeadsRepositoryImpl implements LeadsRepository {
       );
 
       final body = response.data;
-      if (body != null && (body['success'] == true || body['statusCode'] == 200) && body['data'] != null) {
+      if (body != null &&
+          (body['success'] == true || body['statusCode'] == 200) &&
+          body['data'] != null) {
         final List<dynamic> content;
         if (body['data'] is List) {
           content = body['data'];
@@ -155,7 +191,9 @@ class LeadsRepositoryImpl implements LeadsRepository {
       }
 
       if (statusId != null && statusId.isNotEmpty) {
-        final existingStatuses = List<String>.from(bodyPayload['statusIds'] ?? []);
+        final existingStatuses = List<String>.from(
+          bodyPayload['statusIds'] ?? [],
+        );
         if (!existingStatuses.contains(statusId)) {
           existingStatuses.add(statusId);
         }
@@ -176,7 +214,9 @@ class LeadsRepositoryImpl implements LeadsRepository {
       );
 
       final body = response.data;
-      if (body != null && (body['success'] == true || body['statusCode'] == 200) && body['data'] != null) {
+      if (body != null &&
+          (body['success'] == true || body['statusCode'] == 200) &&
+          body['data'] != null) {
         final List<dynamic> content;
         if (body['data'] is List) {
           content = body['data'];
@@ -215,7 +255,10 @@ class LeadsRepositoryImpl implements LeadsRepository {
       searchQuery: qTrimmed,
     );
 
-    final filterLeads = filterResult.fold<List<Lead>?>((_) => null, (leads) => leads);
+    final filterLeads = filterResult.fold<List<Lead>?>(
+      (_) => null,
+      (leads) => leads,
+    );
     if (filterLeads != null && filterLeads.isNotEmpty) {
       return Right(filterLeads);
     }
@@ -224,53 +267,56 @@ class LeadsRepositoryImpl implements LeadsRepository {
     if (cleanDigits.length >= 5) {
       try {
         final numberResult = await searchLeadByNumber(qTrimmed);
-        final foundLead = numberResult.fold<Lead?>(
-          (_) => null,
-          (res) {
-            if (res.alreadyMapped && res.leadId != null && res.leadId!.isNotEmpty) {
-              final nameStr = res.name ?? 'Lead';
-              final parts = nameStr.trim().split(' ');
-              final fName = parts.isNotEmpty ? parts.first : '';
-              final lName = parts.length > 1 ? parts.sublist(1).join(' ') : '';
-              return Lead(
-                id: res.leadId!,
-                leadNumber: res.leadNumber ?? '',
-                firstName: fName,
-                lastName: lName,
-                companyName: '',
-                email: '',
-                phone: res.phone ?? qTrimmed,
-                status: res.statusName != null
-                    ? LeadStatus(
-                        id: '',
-                        statusName: res.statusName!,
-                        color: res.statusColor ?? '#6B7280',
-                        isDefault: false,
-                        isClosed: false,
-                        displayOrder: 0,
-                      )
-                    : null,
-                source: res.sourceName != null
-                    ? LeadSource(
-                        id: '',
-                        name: res.sourceName!,
-                        category: '',
-                        description: '',
-                      )
-                    : null,
-                ownerUserName: res.assignedToName,
-              );
-            }
-            return null;
-          },
-        );
+        final foundLead = numberResult.fold<Lead?>((_) => null, (res) {
+          if (res.alreadyMapped &&
+              res.leadId != null &&
+              res.leadId!.isNotEmpty) {
+            final nameStr = res.name ?? 'Lead';
+            final parts = nameStr.trim().split(' ');
+            final fName = parts.isNotEmpty ? parts.first : '';
+            final lName = parts.length > 1 ? parts.sublist(1).join(' ') : '';
+            return Lead(
+              id: res.leadId!,
+              leadNumber: res.leadNumber ?? '',
+              firstName: fName,
+              lastName: lName,
+              companyName: '',
+              email: '',
+              phone: res.phone ?? qTrimmed,
+              status: res.statusName != null
+                  ? LeadStatus(
+                      id: '',
+                      statusName: res.statusName!,
+                      color: res.statusColor ?? '#6B7280',
+                      isDefault: false,
+                      isClosed: false,
+                      displayOrder: 0,
+                    )
+                  : null,
+              source: res.sourceName != null
+                  ? LeadSource(
+                      id: '',
+                      name: res.sourceName!,
+                      category: '',
+                      description: '',
+                    )
+                  : null,
+              ownerUserName: res.assignedToName,
+            );
+          }
+          return null;
+        });
         if (foundLead != null) {
           return Right([foundLead]);
         }
       } catch (_) {}
     }
 
-    final globalLeads = await _searchGlobalLeads(query: qTrimmed, page: page, size: size);
+    final globalLeads = await _searchGlobalLeads(
+      query: qTrimmed,
+      page: page,
+      size: size,
+    );
     if (globalLeads != null && globalLeads.isNotEmpty) {
       return Right(globalLeads);
     }
@@ -278,12 +324,13 @@ class LeadsRepositoryImpl implements LeadsRepository {
     return filterResult;
   }
 
-
   @override
   Future<Either<Failure, List<String>>> getLeadPriorities() async {
     try {
       final leadsBaseUrl = _leadsBaseUrl;
-      final response = await apiClient.get('$leadsBaseUrl/lead-settings/priorities');
+      final response = await apiClient.get(
+        '$leadsBaseUrl/lead-settings/priorities',
+      );
       final body = response.data;
       if (body['success'] == true && body['data'] != null) {
         final List<dynamic> content = body['data'];
@@ -298,14 +345,45 @@ class LeadsRepositoryImpl implements LeadsRepository {
   }
 
   @override
-  Future<Either<Failure, List<StaffUser>>> getStaffUsers({String? search}) async {
+  Future<Either<Failure, List<StaffUser>>> getStaffDropdown() async {
     try {
       final identityBaseUrl = _identityBaseUrl;
-      
-      final queryParameters = <String, dynamic>{
-        'page': 0,
-        'size': 1000,
-      };
+      final response = await apiClient.get('$identityBaseUrl/users/dropdown');
+      final body = response.data;
+      if (body != null &&
+          (body['success'] == true || response.statusCode == 200) &&
+          body['data'] != null) {
+        List<dynamic> content;
+        if (body['data'] is List) {
+          content = body['data'];
+        } else if (body['data'] is Map && body['data']['content'] is List) {
+          content = body['data']['content'];
+        } else {
+          content = [];
+        }
+        final users = content
+            .map((json) => StaffUser.fromJson(json as Map<String, dynamic>))
+            .toList();
+        final sorted = users
+          ..sort(
+            (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+          );
+        return Right(sorted);
+      }
+      return const Right([]);
+    } on Exception catch (e) {
+      return Left(ErrorHandler.mapExceptionToFailure(e));
+    }
+  }
+
+  @override
+  Future<Either<Failure, List<StaffUser>>> getStaffUsers({
+    String? search,
+  }) async {
+    try {
+      final identityBaseUrl = _identityBaseUrl;
+
+      final queryParameters = <String, dynamic>{'page': 0, 'size': 1000};
       if (search != null && search.isNotEmpty) {
         queryParameters['search'] = search;
       }
@@ -315,7 +393,13 @@ class LeadsRepositoryImpl implements LeadsRepository {
             ? sl<SharedPreferences>().getString('organizationId')
             : null;
         if (currentOrgId != null && currentOrgId.isNotEmpty) {
-          final matched = list.where((u) => u.organizationId == null || u.organizationId == currentOrgId).toList();
+          final matched = list
+              .where(
+                (u) =>
+                    u.organizationId == null ||
+                    u.organizationId == currentOrgId,
+              )
+              .toList();
           if (matched.isNotEmpty) return matched;
         }
         return list;
@@ -323,13 +407,18 @@ class LeadsRepositoryImpl implements LeadsRepository {
 
       // 1. Try /identity/users/dropdown
       try {
+        final query = (search != null && search.isNotEmpty)
+            ? {'search': search}
+            : null;
         final response = await apiClient.get(
           '$identityBaseUrl/users/dropdown',
-          queryParameters: queryParameters,
+          queryParameters: query,
         );
 
         final body = response.data;
-        if (body != null && (body['success'] == true || response.statusCode == 200) && body['data'] != null) {
+        if (body != null &&
+            (body['success'] == true || response.statusCode == 200) &&
+            body['data'] != null) {
           List<dynamic> content;
           if (body['data'] is List) {
             content = body['data'];
@@ -338,10 +427,14 @@ class LeadsRepositoryImpl implements LeadsRepository {
           } else {
             content = [];
           }
-          final users = content.map((json) => StaffUser.fromJson(json)).toList();
+          final users = content
+              .map((json) => StaffUser.fromJson(json))
+              .toList();
           if (users.isNotEmpty) {
             final filtered = filterByOrg(users)
-              ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+              ..sort(
+                (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+              );
             return Right(filtered);
           }
         }
@@ -355,7 +448,9 @@ class LeadsRepositoryImpl implements LeadsRepository {
         );
 
         final body = response.data;
-        if (body != null && (body['success'] == true || response.statusCode == 200) && body['data'] != null) {
+        if (body != null &&
+            (body['success'] == true || response.statusCode == 200) &&
+            body['data'] != null) {
           List<dynamic> content;
           if (body['data'] is List) {
             content = body['data'];
@@ -364,10 +459,14 @@ class LeadsRepositoryImpl implements LeadsRepository {
           } else {
             content = [];
           }
-          final users = content.map((json) => StaffUser.fromJson(json)).toList();
+          final users = content
+              .map((json) => StaffUser.fromJson(json))
+              .toList();
           if (users.isNotEmpty) {
             final filtered = filterByOrg(users)
-              ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+              ..sort(
+                (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+              );
             return Right(filtered);
           }
         }
@@ -390,8 +489,9 @@ class LeadsRepositoryImpl implements LeadsRepository {
           content = [];
         }
         final users = content.map((json) => StaffUser.fromJson(json)).toList();
-        final filtered = filterByOrg(users)
-          ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+        final filtered = filterByOrg(
+          users,
+        )..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
         return Right(filtered);
       } else {
         return const Right([]);
@@ -404,40 +504,46 @@ class LeadsRepositoryImpl implements LeadsRepository {
   }
 
   @override
-  Future<Either<Failure, void>> createLead(Map<String, dynamic> leadData, List<String> filePaths, {String? leadFileName}) async {
+  Future<Either<Failure, void>> createLead(
+    Map<String, dynamic> leadData,
+    List<String> filePaths, {
+    String? leadFileName,
+  }) async {
     try {
       final leadsBaseUrl = _leadsBaseUrl;
       final formData = FormData();
 
       final leadJson = jsonEncode(leadData);
-      final jsonFileName = (leadFileName != null && leadFileName.isNotEmpty) ? leadFileName : 'test.json';
+      final jsonFileName = (leadFileName != null && leadFileName.isNotEmpty)
+          ? leadFileName
+          : 'test.json';
 
-      formData.files.add(MapEntry(
-        'lead',
-        MultipartFile.fromString(
-          leadJson,
-          filename: jsonFileName,
-          contentType: MediaType('application', 'json'),
+      formData.files.add(
+        MapEntry(
+          'lead',
+          MultipartFile.fromString(
+            leadJson,
+            filename: jsonFileName,
+            contentType: MediaType('application', 'json'),
+          ),
         ),
-      ));
+      );
 
       for (var path in filePaths) {
         if (path.isNotEmpty) {
           final filename = path.split('/').last.split('\\').last;
-          formData.files.add(MapEntry(
-            'attachments',
-            await MultipartFile.fromFile(
-              path,
-              filename: filename,
+          formData.files.add(
+            MapEntry(
+              'attachments',
+              await MultipartFile.fromFile(path, filename: filename),
             ),
-          ));
-          formData.files.add(MapEntry(
-            'files',
-            await MultipartFile.fromFile(
-              path,
-              filename: filename,
+          );
+          formData.files.add(
+            MapEntry(
+              'files',
+              await MultipartFile.fromFile(path, filename: filename),
             ),
-          ));
+          );
         }
       }
 
@@ -459,44 +565,54 @@ class LeadsRepositoryImpl implements LeadsRepository {
   }
 
   @override
-  Future<Either<Failure, void>> updateLead(String leadId, Map<String, dynamic> leadData, List<String> filePaths, {String? leadFileName}) async {
+  Future<Either<Failure, void>> updateLead(
+    String leadId,
+    Map<String, dynamic> leadData,
+    List<String> filePaths, {
+    String? leadFileName,
+  }) async {
     try {
       final leadsBaseUrl = _leadsBaseUrl;
       final formData = FormData();
 
       final leadJson = jsonEncode(leadData);
-      final jsonFileName = (leadFileName != null && leadFileName.isNotEmpty) ? leadFileName : 'test.json';
+      final jsonFileName = (leadFileName != null && leadFileName.isNotEmpty)
+          ? leadFileName
+          : 'test.json';
 
-      formData.files.add(MapEntry(
-        'lead',
-        MultipartFile.fromString(
-          leadJson,
-          filename: jsonFileName,
-          contentType: MediaType('application', 'json'),
+      formData.files.add(
+        MapEntry(
+          'lead',
+          MultipartFile.fromString(
+            leadJson,
+            filename: jsonFileName,
+            contentType: MediaType('application', 'json'),
+          ),
         ),
-      ));
+      );
 
-      if (leadData.containsKey('ownerUserId') && leadData['ownerUserId'] != null) {
-        formData.fields.add(MapEntry('uploadedBy', leadData['ownerUserId'].toString()));
+      if (leadData.containsKey('ownerUserId') &&
+          leadData['ownerUserId'] != null) {
+        formData.fields.add(
+          MapEntry('uploadedBy', leadData['ownerUserId'].toString()),
+        );
       }
 
       for (var path in filePaths) {
         if (path.isNotEmpty) {
           final filename = path.split('/').last.split('\\').last;
-          formData.files.add(MapEntry(
-            'attachments',
-            await MultipartFile.fromFile(
-              path,
-              filename: filename,
+          formData.files.add(
+            MapEntry(
+              'attachments',
+              await MultipartFile.fromFile(path, filename: filename),
             ),
-          ));
-          formData.files.add(MapEntry(
-            'files',
-            await MultipartFile.fromFile(
-              path,
-              filename: filename,
+          );
+          formData.files.add(
+            MapEntry(
+              'files',
+              await MultipartFile.fromFile(path, filename: filename),
             ),
-          ));
+          );
         }
       }
 
@@ -530,7 +646,9 @@ class LeadsRepositoryImpl implements LeadsRepository {
       try {
         final response = await apiClient.get('$leadsBaseUrl/leads/$id');
         final body = response.data;
-        if (body != null && (body['success'] == true || response.statusCode == 200) && body['data'] != null) {
+        if (body != null &&
+            (body['success'] == true || response.statusCode == 200) &&
+            body['data'] != null) {
           final leadDetail = LeadDetailModel.fromJson(body['data']);
           return Right(leadDetail);
         }
@@ -538,11 +656,15 @@ class LeadsRepositoryImpl implements LeadsRepository {
 
       // Fallback 1: If id was a follow-up ID, resolve its leadId
       try {
-        final followupRes = await apiClient.get('$leadsBaseUrl/leads/followups/$id');
+        final followupRes = await apiClient.get(
+          '$leadsBaseUrl/leads/followups/$id',
+        );
         final fBody = followupRes.data;
         if (fBody != null && fBody['data'] != null) {
           final fData = fBody['data'] is Map ? fBody['data'] as Map : null;
-          final realLeadId = (fData?['leadId'] ?? fData?['lead']?['id'])?.toString().trim();
+          final realLeadId = (fData?['leadId'] ?? fData?['lead']?['id'])
+              ?.toString()
+              .trim();
           if (realLeadId != null && realLeadId.isNotEmpty && realLeadId != id) {
             final resolved = await getLeadDetails(realLeadId);
             if (resolved.isRight()) return resolved;
@@ -566,8 +688,12 @@ class LeadsRepositoryImpl implements LeadsRepository {
             content = sBody['data'];
           }
           if (content.isNotEmpty && content.first is Map) {
-            final realLeadId = (content.first['leadId'] ?? content.first['id'])?.toString().trim();
-            if (realLeadId != null && realLeadId.isNotEmpty && realLeadId != id) {
+            final realLeadId = (content.first['leadId'] ?? content.first['id'])
+                ?.toString()
+                .trim();
+            if (realLeadId != null &&
+                realLeadId.isNotEmpty &&
+                realLeadId != id) {
               final resolved = await getLeadDetails(realLeadId);
               if (resolved.isRight()) return resolved;
             }
@@ -584,7 +710,11 @@ class LeadsRepositoryImpl implements LeadsRepository {
   }
 
   @override
-  Future<Either<Failure, AuditLogResponse>> getLeadAuditLogs(String id, {int page = 0, int size = 20}) async {
+  Future<Either<Failure, AuditLogResponse>> getLeadAuditLogs(
+    String id, {
+    int page = 0,
+    int size = 20,
+  }) async {
     try {
       final leadsBaseUrl = _leadsBaseUrl;
       final response = await apiClient.get(
@@ -597,7 +727,9 @@ class LeadsRepositoryImpl implements LeadsRepository {
         final auditLogResponse = AuditLogResponseModel.fromJson(body['data']);
         return Right(auditLogResponse);
       } else {
-        throw ApiException(message: body['message'] ?? 'Failed to load audit logs');
+        throw ApiException(
+          message: body['message'] ?? 'Failed to load audit logs',
+        );
       }
     } on Exception catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));
@@ -605,18 +737,26 @@ class LeadsRepositoryImpl implements LeadsRepository {
   }
 
   @override
-  Future<Either<Failure, List<Attachment>>> getLeadAttachments(String id) async {
+  Future<Either<Failure, List<Attachment>>> getLeadAttachments(
+    String id,
+  ) async {
     try {
       final leadsBaseUrl = _leadsBaseUrl;
-      final response = await apiClient.get('$leadsBaseUrl/leads/$id/attachments');
+      final response = await apiClient.get(
+        '$leadsBaseUrl/leads/$id/attachments',
+      );
 
       final body = response.data;
       if (body['success'] == true && body['data'] != null) {
         final List<dynamic> content = body['data'];
-        final attachments = content.map((json) => AttachmentModel.fromJson(json)).toList();
+        final attachments = content
+            .map((json) => AttachmentModel.fromJson(json))
+            .toList();
         return Right(attachments);
       } else {
-        throw ApiException(message: body['message'] ?? 'Failed to load attachments');
+        throw ApiException(
+          message: body['message'] ?? 'Failed to load attachments',
+        );
       }
     } on Exception catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));
@@ -624,19 +764,21 @@ class LeadsRepositoryImpl implements LeadsRepository {
   }
 
   @override
-  Future<Either<Failure, void>> uploadLeadAttachment(String leadId, String filePath) async {
+  Future<Either<Failure, void>> uploadLeadAttachment(
+    String leadId,
+    String filePath,
+  ) async {
     try {
       final leadsBaseUrl = _leadsBaseUrl;
       final formData = FormData();
       final filename = filePath.split('/').last.split('\\').last;
 
-      formData.files.add(MapEntry(
-        'files',
-        await MultipartFile.fromFile(
-          filePath,
-          filename: filename,
+      formData.files.add(
+        MapEntry(
+          'files',
+          await MultipartFile.fromFile(filePath, filename: filename),
         ),
-      ));
+      );
 
       final response = await apiClient.post(
         '$leadsBaseUrl/leads/$leadId/attachments',
@@ -647,7 +789,9 @@ class LeadsRepositoryImpl implements LeadsRepository {
       if (body != null && body['success'] == true) {
         return const Right(null);
       } else {
-        throw ApiException(message: body['message'] ?? 'Failed to upload attachment');
+        throw ApiException(
+          message: body['message'] ?? 'Failed to upload attachment',
+        );
       }
     } on DioException catch (e) {
       String msg = 'DioError: ${e.message}';
@@ -661,13 +805,19 @@ class LeadsRepositoryImpl implements LeadsRepository {
   }
 
   @override
-  Future<Either<Failure, void>> deleteLeadAttachment(String attachmentId) async {
+  Future<Either<Failure, void>> deleteLeadAttachment(
+    String attachmentId,
+  ) async {
     try {
       final leadsBaseUrl = _leadsBaseUrl;
-      final response = await apiClient.delete('$leadsBaseUrl/leads/attachments/$attachmentId');
+      final response = await apiClient.delete(
+        '$leadsBaseUrl/leads/attachments/$attachmentId',
+      );
       final body = response.data;
       if (body != null && body is Map && body['success'] == false) {
-        throw ApiException(message: body['message'] ?? 'Failed to delete attachment');
+        throw ApiException(
+          message: body['message'] ?? 'Failed to delete attachment',
+        );
       }
       return const Right(null);
     } on Exception catch (e) {
@@ -679,7 +829,9 @@ class LeadsRepositoryImpl implements LeadsRepository {
   Future<Either<Failure, List<LeadAudio>>> getLeadAudios(String leadId) async {
     try {
       final leadsBaseUrl = _leadsBaseUrl;
-      final response = await apiClient.get('$leadsBaseUrl/leads/$leadId/audios');
+      final response = await apiClient.get(
+        '$leadsBaseUrl/leads/$leadId/audios',
+      );
 
       final body = response.data;
       List<dynamic> listData = [];
@@ -706,7 +858,9 @@ class LeadsRepositoryImpl implements LeadsRepository {
         } catch (_) {}
       }
 
-      final audios = listData.map((json) => LeadAudioModel.fromJson(json)).toList();
+      final audios = listData
+          .map((json) => LeadAudioModel.fromJson(json))
+          .toList();
       return Right(audios);
     } on DioException catch (e) {
       if (e.response?.statusCode == 500) {
@@ -719,14 +873,19 @@ class LeadsRepositoryImpl implements LeadsRepository {
   }
 
   @override
-  Future<Either<Failure, LeadCallLogResponse>> getLeadCallLogs(String leadId) async {
+  Future<Either<Failure, LeadCallLogResponse>> getLeadCallLogs(
+    String leadId,
+  ) async {
     try {
       final leadsBaseUrl = _leadsBaseUrl;
-      final response = await apiClient.get('$leadsBaseUrl/leads/$leadId/call-logs');
+      final response = await apiClient.get(
+        '$leadsBaseUrl/leads/$leadId/call-logs',
+      );
 
       final body = response.data;
       if (body != null && body is Map<String, dynamic>) {
-        final dataMap = (body.containsKey('data') && body['data'] is Map<String, dynamic>)
+        final dataMap =
+            (body.containsKey('data') && body['data'] is Map<String, dynamic>)
             ? body['data'] as Map<String, dynamic>
             : body;
         final callLogsResponse = LeadCallLogResponse.fromJson(dataMap);
@@ -736,7 +895,16 @@ class LeadsRepositoryImpl implements LeadsRepository {
     } on DioException catch (e) {
       if (e.response?.statusCode == 500 || e.response?.statusCode == 404) {
         // Return empty response if not found or server error
-        return const Right(LeadCallLogResponse(totalCalls: 0, totalInboundCalls: 0, totalOutboundCalls: 0, totalMissedCalls: 0, totalDuration: 0, callHistory: []));
+        return const Right(
+          LeadCallLogResponse(
+            totalCalls: 0,
+            totalInboundCalls: 0,
+            totalOutboundCalls: 0,
+            totalMissedCalls: 0,
+            totalDuration: 0,
+            callHistory: [],
+          ),
+        );
       }
       return Left(ErrorHandler.mapExceptionToFailure(e));
     } on Exception catch (e) {
@@ -761,7 +929,9 @@ class LeadsRepositoryImpl implements LeadsRepository {
       final leadsBaseUrl = _leadsBaseUrl;
       final formData = FormData();
 
-      if (filePath != null && filePath.isNotEmpty && await File(filePath).exists()) {
+      if (filePath != null &&
+          filePath.isNotEmpty &&
+          await File(filePath).exists()) {
         final filename = filePath.split('/').last.split('\\').last;
 
         String mimeType = 'audio/mpeg';
@@ -780,19 +950,13 @@ class LeadsRepositoryImpl implements LeadsRepository {
 
         final ext = mimeType.split('/').last;
 
-        final multipartFile1 = await MultipartFile.fromFile(
-          filePath,
-          filename: filename,
-          contentType: MediaType('audio', ext),
-        );
-        final multipartFile2 = await MultipartFile.fromFile(
+        final multipartFile = await MultipartFile.fromFile(
           filePath,
           filename: filename,
           contentType: MediaType('audio', ext),
         );
 
-        formData.files.add(MapEntry('files', multipartFile1));
-        formData.files.add(MapEntry('file', multipartFile2));
+        formData.files.add(MapEntry('files', multipartFile));
       }
 
       var effBound = bound;
@@ -803,8 +967,15 @@ class LeadsRepositoryImpl implements LeadsRepository {
       var effDuration = duration;
       var effCallDate = callDate;
 
-      if (filePath != null && filePath.isNotEmpty && await File(filePath).exists() &&
-          (effStartTime == null || effStartTime.isEmpty || effFrom == null || effFrom.isEmpty || effTo == null || effTo.isEmpty)) {
+      if (filePath != null &&
+          filePath.isNotEmpty &&
+          await File(filePath).exists() &&
+          (effStartTime == null ||
+              effStartTime.isEmpty ||
+              effFrom == null ||
+              effFrom.isEmpty ||
+              effTo == null ||
+              effTo.isEmpty)) {
         try {
           // Fetch lead detail phone number if needed
           String leadPhone = '';
@@ -849,7 +1020,9 @@ class LeadsRepositoryImpl implements LeadsRepository {
         }
       }
 
-      final effectiveFrom = (effFrom != null && effFrom.isNotEmpty) ? effFrom : 'Staff';
+      final effectiveFrom = (effFrom != null && effFrom.isNotEmpty)
+          ? effFrom
+          : 'Staff';
 
       setField('bound', effBound);
       setField('startTime', effStartTime);
@@ -862,11 +1035,17 @@ class LeadsRepositoryImpl implements LeadsRepository {
       final durInt = int.tryParse(effDuration ?? '0') ?? 0;
       final effectiveCallStatus = (callStatus != null && callStatus.isNotEmpty)
           ? (callStatus.toUpperCase() == 'ANSWERED' ? 'CONNECTED' : callStatus)
-          : (durInt > 0 ? 'CONNECTED' : (filePath != null && filePath.isNotEmpty ? 'CONNECTED' : 'NOT_CONNECTED'));
+          : (durInt > 0
+                ? 'CONNECTED'
+                : (filePath != null && filePath.isNotEmpty
+                      ? 'CONNECTED'
+                      : 'NOT_CONNECTED'));
 
       setField('callStatus', effectiveCallStatus);
 
-      if (filePath != null && filePath.isNotEmpty && await File(filePath).exists()) {
+      if (filePath != null &&
+          filePath.isNotEmpty &&
+          await File(filePath).exists()) {
         final realFilename = filePath.split('/').last.split('\\').last;
         setField('originalFileName', realFilename);
       }
@@ -889,25 +1068,50 @@ class LeadsRepositoryImpl implements LeadsRepository {
             final dataVal = body['data'];
             if (dataVal is Map<String, dynamic>) {
               dataJson = dataVal;
-            } else if (dataVal is List && dataVal.isNotEmpty && dataVal.first is Map<String, dynamic>) {
+            } else if (dataVal is List &&
+                dataVal.isNotEmpty &&
+                dataVal.first is Map<String, dynamic>) {
               dataJson = dataVal.first as Map<String, dynamic>;
             }
           } else {
             dataJson = body;
           }
-        } else if (body is List && body.isNotEmpty && body.first is Map<String, dynamic>) {
+        } else if (body is List &&
+            body.isNotEmpty &&
+            body.first is Map<String, dynamic>) {
           dataJson = body.first as Map<String, dynamic>;
         }
 
         LeadAudio audioModel;
-        if (dataJson.isNotEmpty && (dataJson['id'] != null || dataJson['_id'] != null)) {
+        if (dataJson.isNotEmpty &&
+            (dataJson['id'] != null || dataJson['_id'] != null)) {
           try {
             audioModel = LeadAudioModel.fromJson(dataJson);
           } catch (_) {
-            audioModel = _createFallbackAudioModel(leadId, effBound, effStartTime, effEndTime, effectiveFrom, effTo, effDuration, effCallDate, callStatus);
+            audioModel = _createFallbackAudioModel(
+              leadId,
+              effBound,
+              effStartTime,
+              effEndTime,
+              effectiveFrom,
+              effTo,
+              effDuration,
+              effCallDate,
+              callStatus,
+            );
           }
         } else {
-          audioModel = _createFallbackAudioModel(leadId, effBound, effStartTime, effEndTime, effectiveFrom, effTo, effDuration, effCallDate, callStatus);
+          audioModel = _createFallbackAudioModel(
+            leadId,
+            effBound,
+            effStartTime,
+            effEndTime,
+            effectiveFrom,
+            effTo,
+            effDuration,
+            effCallDate,
+            callStatus,
+          );
         }
         return Right(audioModel);
       } else {
@@ -916,7 +1120,9 @@ class LeadsRepositoryImpl implements LeadsRepository {
     } on DioException catch (e) {
       String msg = 'Upload failed';
       if (e.response != null && e.response?.data is Map) {
-        msg = e.response?.data['message'] ?? 'Server error ${e.response?.statusCode}';
+        msg =
+            e.response?.data['message'] ??
+            'Server error ${e.response?.statusCode}';
       } else if (e.response != null) {
         msg = 'Server status ${e.response?.statusCode}';
       }
@@ -954,12 +1160,17 @@ class LeadsRepositoryImpl implements LeadsRepository {
       createdAt: DateTime.now(),
       callStatus: (callStatus != null && callStatus.isNotEmpty)
           ? (callStatus.toUpperCase() == 'ANSWERED' ? 'CONNECTED' : callStatus)
-          : ((int.tryParse(duration ?? '0') ?? 0) > 0 ? 'CONNECTED' : 'NOT_CONNECTED'),
+          : ((int.tryParse(duration ?? '0') ?? 0) > 0
+                ? 'CONNECTED'
+                : 'NOT_CONNECTED'),
     );
   }
 
   @override
-  Future<Either<Failure, void>> updateLeadActiveStatus(String leadId, bool isActive) async {
+  Future<Either<Failure, void>> updateLeadActiveStatus(
+    String leadId,
+    bool isActive,
+  ) async {
     try {
       final leadsBaseUrl = _leadsBaseUrl;
       final response = await apiClient.put(
@@ -970,7 +1181,9 @@ class LeadsRepositoryImpl implements LeadsRepository {
       if (body != null && body['success'] == true) {
         return const Right(null);
       } else {
-        throw ApiException(message: body['message'] ?? 'Failed to update lead status');
+        throw ApiException(
+          message: body['message'] ?? 'Failed to update lead status',
+        );
       }
     } on Exception catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));
@@ -978,23 +1191,24 @@ class LeadsRepositoryImpl implements LeadsRepository {
   }
 
   @override
-  Future<Either<Failure, String>> exportLeadReport(Map<String, dynamic> payload) async {
+  Future<Either<Failure, String>> exportLeadReport(
+    Map<String, dynamic> payload,
+  ) async {
     final leadsBaseUrl = _leadsBaseUrl;
     final url = '$leadsBaseUrl/leads/export/csv';
     debugPrint('[LeadsRepo] Calling POST $url with payload $payload');
     try {
       final tempDir = await getTemporaryDirectory();
-      final savePath = '${tempDir.path}/export_${DateTime.now().millisecondsSinceEpoch}.csv';
-      
+      final savePath =
+          '${tempDir.path}/export_${DateTime.now().millisecondsSinceEpoch}.csv';
+
       await apiClient.download(
         url,
         savePath,
         data: payload,
-        options: Options(
-          method: 'POST',
-        ),
+        options: Options(method: 'POST'),
       );
-      
+
       debugPrint('[LeadsRepo] Successfully downloaded export to $savePath');
       return Right(savePath);
     } catch (e) {
@@ -1004,7 +1218,10 @@ class LeadsRepositoryImpl implements LeadsRepository {
   }
 
   @override
-  Future<Either<Failure, List<PipelineColumnData>>> getLeadPipeline({int page = 0, int size = 50}) async {
+  Future<Either<Failure, List<PipelineColumnData>>> getLeadPipeline({
+    int page = 0,
+    int size = 50,
+  }) async {
     try {
       final leadsBaseUrl = _leadsBaseUrl;
       final response = await apiClient.get(
@@ -1016,12 +1233,22 @@ class LeadsRepositoryImpl implements LeadsRepository {
       if (body != null && body['success'] == true && body['data'] is List) {
         final List<dynamic> list = body['data'];
         final columns = list
-            .map((e) => PipelineColumnData.fromJson(e is Map<String, dynamic> ? e : Map<String, dynamic>.from(e as Map)))
+            .map(
+              (e) => PipelineColumnData.fromJson(
+                e is Map<String, dynamic>
+                    ? e
+                    : Map<String, dynamic>.from(e as Map),
+              ),
+            )
             .toList();
-        columns.sort((a, b) => a.status.displayOrder.compareTo(b.status.displayOrder));
+        columns.sort(
+          (a, b) => a.status.displayOrder.compareTo(b.status.displayOrder),
+        );
         return Right(columns);
       } else {
-        throw ApiException(message: body?['message'] ?? 'Failed to fetch pipeline data');
+        throw ApiException(
+          message: body?['message'] ?? 'Failed to fetch pipeline data',
+        );
       }
     } on Exception catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));
@@ -1029,7 +1256,10 @@ class LeadsRepositoryImpl implements LeadsRepository {
   }
 
   @override
-  Future<Either<Failure, void>> updateLeadStatusInPipeline(String leadId, String statusId) async {
+  Future<Either<Failure, void>> updateLeadStatusInPipeline(
+    String leadId,
+    String statusId,
+  ) async {
     final leadsBaseUrl = _leadsBaseUrl;
 
     try {
@@ -1041,7 +1271,8 @@ class LeadsRepositoryImpl implements LeadsRepository {
       if (body != null) {
         if (body['success'] == true) {
           return const Right(null);
-        } else if (body['message'] != null && body['message'].toString().trim().isNotEmpty) {
+        } else if (body['message'] != null &&
+            body['message'].toString().trim().isNotEmpty) {
           return Left(ServerFailure(body['message'].toString().trim()));
         }
       }
@@ -1051,14 +1282,16 @@ class LeadsRepositoryImpl implements LeadsRepository {
         try {
           final formData = FormData();
           final leadJson = jsonEncode({'statusId': statusId});
-          formData.files.add(MapEntry(
-            'lead',
-            MultipartFile.fromString(
-              leadJson,
-              filename: 'test.json',
-              contentType: MediaType('application', 'json'),
+          formData.files.add(
+            MapEntry(
+              'lead',
+              MultipartFile.fromString(
+                leadJson,
+                filename: 'test.json',
+                contentType: MediaType('application', 'json'),
+              ),
             ),
-          ));
+          );
 
           final response = await apiClient.put(
             '$leadsBaseUrl/leads/$leadId',
@@ -1069,7 +1302,9 @@ class LeadsRepositoryImpl implements LeadsRepository {
           if (body != null && body['success'] == true) {
             return const Right(null);
           } else {
-            return Left(ServerFailure(body?['message'] ?? 'Failed to update lead status'));
+            return Left(
+              ServerFailure(body?['message'] ?? 'Failed to update lead status'),
+            );
           }
         } on Object catch (fallbackError) {
           return Left(ErrorHandler.mapExceptionToFailure(fallbackError));
@@ -1082,7 +1317,9 @@ class LeadsRepositoryImpl implements LeadsRepository {
   }
 
   @override
-  Future<Either<Failure, DialpadLeadSearchResult>> searchLeadByNumber(String phoneNumber) async {
+  Future<Either<Failure, DialpadLeadSearchResult>> searchLeadByNumber(
+    String phoneNumber,
+  ) async {
     try {
       final leadsBaseUrl = _leadsBaseUrl;
       final response = await apiClient.get(
@@ -1105,7 +1342,9 @@ class LeadsRepositoryImpl implements LeadsRepository {
   }
 
   @override
-  Future<Either<Failure, void>> quickInviteLead(Map<String, dynamic> data) async {
+  Future<Either<Failure, void>> quickInviteLead(
+    Map<String, dynamic> data,
+  ) async {
     try {
       final leadsBaseUrl = _leadsBaseUrl;
       final response = await apiClient.post(
@@ -1114,10 +1353,17 @@ class LeadsRepositoryImpl implements LeadsRepository {
       );
 
       final body = response.data;
-      if (response.statusCode == 200 || response.statusCode == 201 || (body != null && (body['success'] == true || body['statusCode'] == 200 || body['statusCode'] == 201))) {
+      if (response.statusCode == 200 ||
+          response.statusCode == 201 ||
+          (body != null &&
+              (body['success'] == true ||
+                  body['statusCode'] == 200 ||
+                  body['statusCode'] == 201))) {
         return const Right(null);
       } else {
-        return Left(ServerFailure(body?['message'] ?? 'Failed to send quick invite'));
+        return Left(
+          ServerFailure(body?['message'] ?? 'Failed to send quick invite'),
+        );
       }
     } on Exception catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));
@@ -1125,8 +1371,12 @@ class LeadsRepositoryImpl implements LeadsRepository {
       return Left(ServerFailure('Error sending quick invite: $e'));
     }
   }
+
   @override
-  Future<Either<Failure, void>> renameLeadAudio(String audioId, String newName) async {
+  Future<Either<Failure, void>> renameLeadAudio(
+    String audioId,
+    String newName,
+  ) async {
     try {
       final leadsBaseUrl = _leadsBaseUrl;
       final response = await apiClient.put(
@@ -1135,10 +1385,14 @@ class LeadsRepositoryImpl implements LeadsRepository {
       );
 
       final body = response.data;
-      if (response.statusCode == 200 || (body != null && (body['success'] == true || body['statusCode'] == 200))) {
+      if (response.statusCode == 200 ||
+          (body != null &&
+              (body['success'] == true || body['statusCode'] == 200))) {
         return const Right(null);
       } else {
-        return Left(ServerFailure(body?['message'] ?? 'Failed to rename audio'));
+        return Left(
+          ServerFailure(body?['message'] ?? 'Failed to rename audio'),
+        );
       }
     } on Exception catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));
@@ -1181,7 +1435,9 @@ class LeadsRepositoryImpl implements LeadsRepository {
       final body = response.data;
       if (body != null && (body['data'] is List)) {
         final List list = body['data'];
-        final reports = list.map((e) => OwnerCallReport.fromJson(e as Map<String, dynamic>)).toList();
+        final reports = list
+            .map((e) => OwnerCallReport.fromJson(e as Map<String, dynamic>))
+            .toList();
         return Right(reports);
       } else {
         return const Right([]);

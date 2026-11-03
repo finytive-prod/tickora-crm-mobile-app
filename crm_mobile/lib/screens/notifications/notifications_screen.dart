@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:crm_mobile/core/theme/app_colors.dart';
 import 'package:crm_mobile/core/services/notification_service.dart';
-import 'package:crm_mobile/core/utils/navigation_service.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -133,14 +132,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     return InkWell(
       onTap: () async {
         NotificationService.instance.markAsRead(item.id);
-        final leadId = await NotificationService.resolveLeadId(
-          item.data,
+        await NotificationService.handleNotificationNavigation(
+          id: item.id,
+          type: item.type,
           title: item.title,
           body: item.body,
+          data: item.data,
         );
-        if (leadId != null && leadId.isNotEmpty) {
-          NavigationService.navigateToLeadDetails(leadId);
-        }
       },
       borderRadius: BorderRadius.circular(12),
       child: AnimatedContainer(
