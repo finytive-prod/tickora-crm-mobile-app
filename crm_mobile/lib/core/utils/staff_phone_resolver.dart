@@ -6,20 +6,49 @@ import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/core/services/call_recording_service.dart';
 
 class StaffPhoneResolver {
+  static Future<String>? _inFlightFetch;
+  static DateTime? _lastEmptyFetchAt;
+
   /// Ensures the logged-in staff member's phone number is retrieved and saved in SharedPreferences.
   /// Checks SharedPreferences first, then queries identity-service APIs if missing.
   static Future<String> getOrFetchStaffPhone({
     ApiClient? apiClient,
     SharedPreferences? prefs,
   }) async {
-    try {
-      final sharedPrefs = prefs ?? (sl.isRegistered<SharedPreferences>() ? sl<SharedPreferences>() : await SharedPreferences.getInstance());
+    final sharedPrefs = prefs ??
+        (sl.isRegistered<SharedPreferences>()
+            ? sl<SharedPreferences>()
+            : await SharedPreferences.getInstance());
 
-      // 1. Check if userPhone is already cached in SharedPreferences
-      String phone = sharedPrefs.getString('userPhone')?.trim() ?? '';
-      if (phone.isNotEmpty) {
-        return phone;
-      }
+    // 1. Check if userPhone is already cached in SharedPreferences
+    final cachedPhone = sharedPrefs.getString('userPhone')?.trim() ?? '';
+    if (cachedPhone.isNotEmpty) {
+      return cachedPhone;
+    }
+
+    if (_inFlightFetch != null) {
+      return _inFlightFetch!;
+    }
+
+    if (_lastEmptyFetchAt != null &&
+        DateTime.now().difference(_lastEmptyFetchAt!).inMinutes < 5) {
+      return '';
+    }
+
+    _inFlightFetch = _fetchStaffPhoneInternal(
+      sharedPrefs: sharedPrefs,
+      apiClient: apiClient,
+    ).whenComplete(() {
+      _inFlightFetch = null;
+    });
+    return _inFlightFetch!;
+  }
+
+  static Future<String> _fetchStaffPhoneInternal({
+    required SharedPreferences sharedPrefs,
+    ApiClient? apiClient,
+  }) async {
+    try {
 
       final userId = sharedPrefs.getString('userId')?.trim() ?? '';
       final userEmail = sharedPrefs.getString('userEmail')?.trim() ?? '';
@@ -102,13 +131,13 @@ class StaffPhoneResolver {
     try {
       final devicePhone = await CallRecordingService().getDevicePhoneNumber();
       if (devicePhone.isNotEmpty) {
-        final sharedPrefs = prefs ?? (sl.isRegistered<SharedPreferences>() ? sl<SharedPreferences>() : await SharedPreferences.getInstance());
         await sharedPrefs.setString('userPhone', devicePhone);
         debugPrint('StaffPhoneResolver: Found phone via device SIM -> $devicePhone');
         return devicePhone;
       }
     } catch (_) {}
 
+    _lastEmptyFetchAt = DateTime.now();
     return '';
   }
 

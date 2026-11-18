@@ -108,24 +108,41 @@ class LeadStatusModel extends LeadStatus {
       );
     }
     if (json is Map<String, dynamic>) {
-      final isDef = json['isDefault'] == true || (json['statusName'] ?? json['name'] ?? '').toString().toLowerCase() == 'fresh';
+      final statusNameStr = (json['statusName'] ?? json['name'] ?? '').toString().trim();
+      final nameLower = statusNameStr.toLowerCase();
+      final isDef = json['isDefault'] == true || nameLower == 'fresh';
       final isCls = json['isClosed'] == true;
+
       int computedLevel = 2;
-      if (json['level'] != null) {
-        computedLevel = (json['level'] as num).toInt();
-      } else if (isDef) {
+      final rawLevel = json['level'] ?? json['stage'] ?? json['stageLevel'];
+      if (rawLevel != null) {
+        final parsed = int.tryParse(rawLevel.toString());
+        if (parsed != null && parsed >= 1 && parsed <= 3) {
+          computedLevel = parsed;
+        }
+      } else if (isDef || nameLower == 'fresh' || nameLower == 'new' || nameLower == 'new lead') {
         computedLevel = 1;
-      } else if (isCls) {
+      } else if (isCls ||
+          nameLower.contains('won') ||
+          nameLower.contains('lost') ||
+          nameLower.contains('closed') ||
+          nameLower.contains('rejected') ||
+          nameLower.contains('dropped')) {
         computedLevel = 3;
+      }
+
+      int parsedDisplayOrder = 0;
+      if (json['displayOrder'] != null) {
+        parsedDisplayOrder = int.tryParse(json['displayOrder'].toString()) ?? 0;
       }
 
       return LeadStatusModel(
         id: json['id']?.toString() ?? '',
-        statusName: json['statusName']?.toString() ?? json['name']?.toString() ?? '',
+        statusName: statusNameStr,
         color: json['color']?.toString() ?? '#6B7280',
-        isDefault: json['isDefault'] == true,
-        isClosed: json['isClosed'] == true,
-        displayOrder: (json['displayOrder'] as num?)?.toInt() ?? 0,
+        isDefault: json['isDefault'] == true || computedLevel == 1,
+        isClosed: json['isClosed'] == true || computedLevel == 3,
+        displayOrder: parsedDisplayOrder,
         level: computedLevel,
         isActive: json['isActive'] ?? true,
       );
@@ -151,6 +168,7 @@ class Lead extends Equatable {
   final String companyName;
   final String email;
   final String phone;
+  final String? alternatePhone;
   final LeadSource? source;
   final LeadStatus? status;
   final String? priority;
@@ -169,6 +187,7 @@ class Lead extends Equatable {
     required this.companyName,
     required this.email,
     required this.phone,
+    this.alternatePhone,
     this.source,
     this.status,
     this.priority,
@@ -189,6 +208,7 @@ class Lead extends Equatable {
         companyName,
         email,
         phone,
+        alternatePhone,
         source,
         status,
         priority,
@@ -210,6 +230,7 @@ class LeadModel extends Lead {
     required super.companyName,
     required super.email,
     required super.phone,
+    super.alternatePhone,
     super.source,
     super.status,
     super.priority,
@@ -221,6 +242,76 @@ class LeadModel extends Lead {
     super.callStatus,
   });
 
+  static String? _extractAlternatePhoneFromJson(
+    Map<String, dynamic> json,
+    String primaryPhone,
+  ) {
+    const directKeys = [
+      'alternatePhone',
+      'altPhone',
+      'alternativePhone',
+      'alternate_phone',
+      'alt_phone',
+      'secondaryPhone',
+      'secondaryMobile',
+    ];
+    for (final key in directKeys) {
+      final raw = json[key]?.toString().trim() ?? '';
+      if (raw.isNotEmpty && raw != '-' && raw.toLowerCase() != 'null') {
+        return raw;
+      }
+    }
+
+    final rawCustomFields = json['customFields'];
+    if (rawCustomFields is List) {
+      final primaryDigits = primaryPhone.replaceAll(RegExp(r'\D'), '');
+      final primaryKey = primaryDigits.length >= 10
+          ? primaryDigits.substring(primaryDigits.length - 10)
+          : primaryDigits;
+
+      String? fallbackPhoneCustomField;
+      for (final item in rawCustomFields) {
+        if (item is! Map) continue;
+        final value = (item['value'] ?? item['fieldValue'])?.toString().trim() ?? '';
+        if (value.isEmpty || value == '-') continue;
+        final valDigits = value.replaceAll(RegExp(r'\D'), '');
+        if (valDigits.length < 3) continue;
+        final valKey = valDigits.length >= 10
+            ? valDigits.substring(valDigits.length - 10)
+            : valDigits;
+        if (primaryKey.isNotEmpty && valKey == primaryKey) continue;
+
+        final type = (item['fieldType'] ?? '').toString().toLowerCase();
+        final name = (item['fieldName'] ?? '').toString().toLowerCase();
+        final label = (item['label'] ?? item['fieldLabel'] ?? '').toString().toLowerCase();
+        final isAltKey =
+            name.contains('alternate') ||
+            name.contains('altphone') ||
+            name.contains('alt_phone') ||
+            name.contains('secondary') ||
+            label.contains('alternate') ||
+            label.contains('secondary');
+        if (isAltKey) return value;
+
+        final isPhoneType =
+            type == 'phone' ||
+            type == 'mobile' ||
+            type == 'tel' ||
+            name.contains('phone') ||
+            name.contains('mobile') ||
+            label.contains('phone') ||
+            label.contains('mobile');
+        if (isPhoneType && fallbackPhoneCustomField == null) {
+          fallbackPhoneCustomField = value;
+        }
+      }
+      if (fallbackPhoneCustomField != null) {
+        return fallbackPhoneCustomField;
+      }
+    }
+    return null;
+  }
+
   factory LeadModel.fromJson(Map<String, dynamic> json) {
     String fName = json['firstName'] ?? '';
     String lName = json['lastName'] ?? '';
@@ -230,8 +321,9 @@ class LeadModel extends Lead {
       lName = parts.length > 1 ? parts.sublist(1).join(' ') : '';
     }
     final phone = (json['phone'] != null && json['phone'].toString().isNotEmpty)
-        ? json['phone']
-        : (json['phoneNumber'] ?? '');
+        ? json['phone'].toString()
+        : (json['phoneNumber']?.toString() ?? '');
+    final alternatePhone = _extractAlternatePhoneFromJson(json, phone);
 
     String? ownerUserId;
     void trySetOwnerUserId(dynamic val) {
@@ -336,6 +428,7 @@ class LeadModel extends Lead {
       companyName: json['companyName'] ?? '',
       email: json['email'] ?? '',
       phone: phone,
+      alternatePhone: alternatePhone,
       source: json['source'] != null ? LeadSourceModel.fromJson(json['source']) : null,
       status: json['status'] != null ? LeadStatusModel.fromJson(json['status']) : null,
       priority: json['priority'],

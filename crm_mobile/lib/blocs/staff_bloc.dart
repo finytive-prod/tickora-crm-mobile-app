@@ -52,22 +52,22 @@ class StaffBloc extends Bloc<StaffEvent, StaffState> {
     final results = await Future.wait([
       getStaffStatsUseCase(),
       getStaffMembersUseCase(page: event.page, size: event.size, status: event.status, searchQuery: event.searchQuery),
-      getStaffMembersUseCase(page: 0, size: 1000, status: 'ACTIVE'),
-      getStaffMembersUseCase(page: 0, size: 1000, status: 'INACTIVE'),
     ]);
 
     final statsResult = results[0] as Either<Failure, StaffStats>;
     final membersResult = results[1] as Either<Failure, List<StaffMember>>;
-    final allActiveResult = results[2] as Either<Failure, List<StaffMember>>;
-    final allInactiveResult = results[3] as Either<Failure, List<StaffMember>>;
 
     statsResult.fold((_) => null, (s) => stats = s);
-    
+
     if (stats == null) {
+      final fallbackCounts = await Future.wait([
+        getStaffMembersUseCase(page: 0, size: 1000, status: 'ACTIVE'),
+        getStaffMembersUseCase(page: 0, size: 1000, status: 'INACTIVE'),
+      ]);
       int activeCount = 0;
       int inactiveCount = 0;
-      allActiveResult.fold((_) {}, (list) => activeCount = list.length);
-      allInactiveResult.fold((_) {}, (list) => inactiveCount = list.length);
+      fallbackCounts[0].fold((_) {}, (list) => activeCount = list.length);
+      fallbackCounts[1].fold((_) {}, (list) => inactiveCount = list.length);
       stats = StaffStats(
         activeMembers: activeCount,
         inactiveMembers: inactiveCount,

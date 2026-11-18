@@ -31,24 +31,41 @@ class PipelineStatus {
       }
     } catch (_) {}
 
-    final isDef = json['isDefault'] == true || (json['statusName'] ?? json['name'] ?? '').toString().toLowerCase() == 'fresh';
+    final statusNameStr = (json['statusName'] ?? json['name'] ?? 'Status').toString().trim();
+    final nameLower = statusNameStr.toLowerCase();
+    final isDef = json['isDefault'] == true || nameLower == 'fresh';
     final isCls = json['isClosed'] == true;
+
     int computedLevel = 2;
-    if (json['level'] != null) {
-      computedLevel = (json['level'] as num).toInt();
-    } else if (isDef) {
+    final rawLevel = json['level'] ?? json['stage'] ?? json['stageLevel'];
+    if (rawLevel != null) {
+      final parsed = int.tryParse(rawLevel.toString());
+      if (parsed != null && parsed >= 1 && parsed <= 3) {
+        computedLevel = parsed;
+      }
+    } else if (isDef || nameLower == 'fresh' || nameLower == 'new' || nameLower == 'new lead') {
       computedLevel = 1;
-    } else if (isCls) {
+    } else if (isCls ||
+        nameLower.contains('won') ||
+        nameLower.contains('lost') ||
+        nameLower.contains('closed') ||
+        nameLower.contains('rejected') ||
+        nameLower.contains('dropped')) {
       computedLevel = 3;
+    }
+
+    int parsedDisplayOrder = 0;
+    if (json['displayOrder'] != null) {
+      parsedDisplayOrder = int.tryParse(json['displayOrder'].toString()) ?? 0;
     }
 
     return PipelineStatus(
       id: json['id']?.toString() ?? '',
-      statusName: json['statusName']?.toString() ?? json['name']?.toString() ?? 'Status',
-      displayOrder: (json['displayOrder'] as num?)?.toInt() ?? 0,
+      statusName: statusNameStr,
+      displayOrder: parsedDisplayOrder,
       color: parsedColor,
-      isDefault: json['isDefault'] == true,
-      isClosed: json['isClosed'] == true,
+      isDefault: json['isDefault'] == true || computedLevel == 1,
+      isClosed: json['isClosed'] == true || computedLevel == 3,
       level: computedLevel,
     );
   }

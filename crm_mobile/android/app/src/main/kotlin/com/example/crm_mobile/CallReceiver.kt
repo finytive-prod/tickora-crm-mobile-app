@@ -27,6 +27,9 @@ class CallReceiver : BroadcastReceiver() {
         var currentCallStartTime: Long = 0L
 
         @Volatile
+        var currentCallOffhookTime: Long = 0L
+
+        @Volatile
         var isCurrentCallDismissed: Boolean = false
 
         fun startNewCall(number: String, isOutgoing: Boolean) {
@@ -52,6 +55,7 @@ class CallReceiver : BroadcastReceiver() {
             lastOutgoingNumber = null
             lastState = null
             currentCallStartTime = 0L
+            currentCallOffhookTime = 0L
             isCurrentCallDismissed = false
         }
 
@@ -145,6 +149,9 @@ class CallReceiver : BroadcastReceiver() {
                 }
 
                 TelephonyManager.EXTRA_STATE_OFFHOOK -> {
+                    if (currentCallOffhookTime == 0L) {
+                        currentCallOffhookTime = System.currentTimeMillis()
+                    }
                     var activeNumber = if (!lastRingingNumber.isNullOrBlank() && lastRingingNumber != "Unknown Number") {
                         lastRingingNumber!!
                     } else if (!lastOutgoingNumber.isNullOrBlank() && lastOutgoingNumber != "Unknown Number") {
@@ -168,7 +175,12 @@ class CallReceiver : BroadcastReceiver() {
                 }
 
                 TelephonyManager.EXTRA_STATE_IDLE -> {
+                    val callEndedAtMs = System.currentTimeMillis()
                     val wasMissed = prevState == TelephonyManager.EXTRA_STATE_RINGING
+                    val wasOffhook = currentCallOffhookTime > 0L
+                    val offhookDurationMs = if (wasOffhook) {
+                        (callEndedAtMs - currentCallOffhookTime).coerceAtLeast(0L)
+                    } else 0L
                     val rawNum = if (wasMissed) lastRingingNumber else (lastOutgoingNumber ?: lastRingingNumber)
                     FloatingOverlayManager.hide()
                     clearCallData()
@@ -180,12 +192,18 @@ class CallReceiver : BroadcastReceiver() {
                             } else {
                                 queryLatestCallLogNumber(context) ?: ""
                             }
-                            Log.d(TAG, "Call ended broadcast to Flutter: number=$finalNum, isMissed=$wasMissed")
+                            Log.d(
+                                TAG,
+                                "Call ended broadcast to Flutter: number=$finalNum, isMissed=$wasMissed, wasOffhook=$wasOffhook, offhookDurationMs=$offhookDurationMs"
+                            )
                             ch.invokeMethod("onCallEnded", mapOf(
                                 "phoneNumber" to finalNum,
-                                "isMissed" to wasMissed
+                                "isMissed" to wasMissed,
+                                "wasOffhook" to wasOffhook,
+                                "offhookDurationMs" to offhookDurationMs,
+                                "endedAtMs" to callEndedAtMs
                             ))
-                        }, 800)
+                        }, 2000)
                     }
                 }
             }

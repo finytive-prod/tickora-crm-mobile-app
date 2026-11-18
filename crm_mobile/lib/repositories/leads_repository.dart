@@ -981,13 +981,24 @@ class LeadsRepositoryImpl implements LeadsRepository {
           String leadPhone = '';
           try {
             final leadDetailResult = await getLeadDetails(leadId);
-            leadDetailResult.fold((_) {}, (detail) => leadPhone = detail.phone);
+            leadDetailResult.fold((_) {}, (detail) {
+              if (AutoCallRecordingUploader.isUsablePhone(detail.phone)) {
+                leadPhone = detail.phone.trim();
+              } else if (AutoCallRecordingUploader.isUsablePhone(
+                detail.alternatePhone,
+              )) {
+                leadPhone = detail.alternatePhone!.trim();
+              }
+            });
           } catch (_) {}
 
-          final callDetails = await CallRecordingService().getLatestCallDetails(
-            phoneNumber: leadPhone,
-            callTimestamp: 0,
-          );
+          final callDetails =
+              AutoCallRecordingUploader.isUsablePhone(leadPhone)
+              ? await CallRecordingService().getLatestCallDetails(
+                  phoneNumber: leadPhone,
+                  callTimestamp: 0,
+                )
+              : null;
 
           final meta = await AutoCallRecordingUploader.buildAudioMetadata(
             filePath: filePath,

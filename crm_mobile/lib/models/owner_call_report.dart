@@ -176,7 +176,7 @@ class OwnerCallReport extends Equatable {
       final leadKey = call.leadId.isNotEmpty ? call.leadId : call.leadName.trim().toLowerCase();
       final dt = call.callDateTime;
       final timeKey = dt != null
-          ? (dt.millisecondsSinceEpoch ~/ 15000) * 15000
+          ? (dt.millisecondsSinceEpoch ~/ 1000) * 1000
           : (call.callDate ?? '') + (call.startTime ?? '') + (call.createdAt ?? '');
       final key = '${leadKey}_${call.callType}_${call.duration}_$timeKey';
       if (seenLeadCalls.add(key)) {

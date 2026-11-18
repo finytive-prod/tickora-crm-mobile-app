@@ -1,7 +1,7 @@
 class AppUpdateConfig {
   /// Minimum supported app version required to continue using the application.
   /// Can be fetched dynamically from backend / Firebase Remote Config in the future.
-  static const String minimumSupportedVersion = "1.2.0+27";
+  static const String minimumSupportedVersion = "1.2.0+29";
 
   /// Application Package ID for Android (from android/app/build.gradle.kts)
   static const String androidPackageName = "com.tickora.crm";
