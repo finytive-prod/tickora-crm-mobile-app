@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -13,8 +14,7 @@ import 'package:crm_mobile/blocs/followups_state.dart';
 import 'package:crm_mobile/models/follow_up.dart';
 import 'package:crm_mobile/core/services/privilege_service.dart';
 import 'package:crm_mobile/core/utils/text_selection_utils.dart';
-import 'package:crm_mobile/core/services/auto_call_recording_uploader.dart';
-import 'package:crm_mobile/core/services/direct_call_helper.dart';
+import 'package:crm_mobile/widgets/call_number_picker_sheet.dart';
 import 'lead_followup_details_screen.dart';
 import 'add_followup_screen.dart';
 
@@ -47,6 +47,7 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
   int _completedCount = 0;
 
   final ScrollController _scrollController = ScrollController();
+  Timer? _searchDebounce;
 
   @override
   void initState() {
@@ -56,6 +57,7 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _scrollController.dispose();
     _searchController.dispose();
     super.dispose();
@@ -189,13 +191,17 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
                   contextMenuBuilder: buildAdaptiveContextMenu,
                   onChanged: (query) {
                     setState(() {});
-                    context.read<FollowUpsBloc>().add(
-                      FetchFollowUps(
-                        category: _getApiCategory(_selectedTab),
-                        page: 0,
-                        searchQuery: query.trim(),
-                      ),
-                    );
+                    _searchDebounce?.cancel();
+                    _searchDebounce = Timer(const Duration(milliseconds: 450), () {
+                      if (!mounted) return;
+                      context.read<FollowUpsBloc>().add(
+                        FetchFollowUps(
+                          category: _getApiCategory(_selectedTab),
+                          page: 0,
+                          searchQuery: query.trim(),
+                        ),
+                      );
+                    });
                   },
                   decoration: InputDecoration(
                     hintText: 'Search follow-ups...',
@@ -493,7 +499,11 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
         ? _hexToColor(item.leadStatus!.color) 
         : Colors.grey;
 
-    final phoneStr = (item.phoneNumber ?? '').trim();
+    final rawPrimaryPhone = (item.phoneNumber ?? '').trim();
+    final rawAltPhone = (item.alternatePhone ?? '').trim();
+    final phoneStr = rawPrimaryPhone.isNotEmpty && rawPrimaryPhone != '-'
+        ? rawPrimaryPhone
+        : rawAltPhone;
     final hasPhone = phoneStr.isNotEmpty && phoneStr != '-';
 
     return GestureDetector(
@@ -623,16 +633,13 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
                     ),
                     InkWell(
                       onTap: () async {
-                        if (item.leadId.isNotEmpty) {
-                          AutoCallRecordingUploader.makeCallAndAutoUpload(
-                            context: context,
-                            leadId: item.leadId,
-                            phoneNumber: phoneStr,
-                            leadName: item.leadName,
-                          );
-                        } else {
-                          await DirectCallHelper.makeCall(phoneStr);
-                        }
+                        await LeadCallHelper.initiateLeadCall(
+                          context: context,
+                          leadId: item.leadId,
+                          primaryPhone: rawPrimaryPhone,
+                          alternatePhone: item.alternatePhone,
+                          leadName: item.leadName,
+                        );
                       },
                       borderRadius: BorderRadius.circular(16),
                       child: Container(

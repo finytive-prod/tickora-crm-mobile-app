@@ -29,7 +29,6 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
       duration: const Duration(seconds: 2),
     )..repeat();
 
-    _runStartupBackgroundTasks();
     _navigateNext();
   }
 
@@ -65,13 +64,13 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     final isLoggedIn = token != null && token.isNotEmpty;
 
     if (isLoggedIn) {
+      _runStartupBackgroundTasks();
       try {
         await sl<PrivilegeService>().fetchPrivileges().timeout(
           const Duration(seconds: 2),
           onTimeout: () {},
         );
       } catch (_) {}
-      _runStartupBackgroundTasks();
     }
 
     // Keep splash visible for a brief, smooth 600ms transition

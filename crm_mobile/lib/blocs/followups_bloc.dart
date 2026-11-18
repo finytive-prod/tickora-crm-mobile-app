@@ -5,6 +5,7 @@ import 'package:crm_mobile/usecases/update_followup_usecase.dart';
 import 'package:crm_mobile/usecases/add_followup_usecase.dart';
 import 'package:crm_mobile/blocs/followups_event.dart';
 import 'package:crm_mobile/blocs/followups_state.dart';
+import 'package:crm_mobile/core/services/auto_call_recording_uploader.dart';
 import 'package:crm_mobile/models/follow_up.dart';
 
 class FollowUpsBloc extends Bloc<FollowUpsEvent, FollowUpsState> {
@@ -35,6 +36,7 @@ class FollowUpsBloc extends Bloc<FollowUpsEvent, FollowUpsState> {
       result.fold(
         (failure) => emit(FollowUpsLoaded(currentLoaded.response, isLoadingMore: false)),
         (newResponse) {
+          _registerFollowUpPhones(newResponse.followUps);
           final combinedList = List<FollowUp>.from(currentLoaded.response.followUps)..addAll(newResponse.followUps);
           final updatedResponse = currentLoaded.response.copyWith(
             summary: newResponse.summary,
@@ -58,7 +60,21 @@ class FollowUpsBloc extends Bloc<FollowUpsEvent, FollowUpsState> {
       final result = await getFollowUpsUseCase(category: event.category, page: event.page, size: event.size, searchQuery: event.searchQuery);
       result.fold(
         (failure) => emit(FollowUpsError(failure.message)),
-        (response) => emit(FollowUpsLoaded(response)),
+        (response) {
+          _registerFollowUpPhones(response.followUps);
+          emit(FollowUpsLoaded(response));
+        },
+      );
+    }
+  }
+
+  void _registerFollowUpPhones(Iterable<FollowUp> followUps) {
+    for (final f in followUps) {
+      if (f.leadId.trim().isEmpty) continue;
+      AutoCallRecordingUploader.registerLeadPhones(
+        leadId: f.leadId,
+        primaryPhone: f.phoneNumber,
+        alternatePhone: f.alternatePhone,
       );
     }
   }
@@ -68,7 +84,12 @@ class FollowUpsBloc extends Bloc<FollowUpsEvent, FollowUpsState> {
     final result = await getLeadFollowUpsUseCase(event.leadId);
     result.fold(
       (failure) => emit(LeadFollowUpsError(failure.message)),
-      (leadFollowUps) => emit(LeadFollowUpsLoaded(leadFollowUps)),
+      (leadFollowUps) {
+        AutoCallRecordingUploader.registerKnownLeads([
+          leadFollowUps.leadDetails,
+        ]);
+        emit(LeadFollowUpsLoaded(leadFollowUps));
+      },
     );
   }
 

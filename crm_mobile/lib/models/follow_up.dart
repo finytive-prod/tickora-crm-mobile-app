@@ -69,6 +69,7 @@ class FollowUp extends Equatable {
   final String leadName;
   final String companyName;
   final String? phoneNumber;
+  final String? alternatePhone;
   final String leadTask;
   final String followUpStatus;
   final String followUpDate;
@@ -85,6 +86,7 @@ class FollowUp extends Equatable {
     required this.leadName,
     required this.companyName,
     this.phoneNumber,
+    this.alternatePhone,
     required this.leadTask,
     required this.followUpStatus,
     required this.followUpDate,
@@ -113,6 +115,7 @@ class FollowUp extends Equatable {
         leadName,
         companyName,
         phoneNumber,
+        alternatePhone,
         leadTask,
         followUpStatus,
         followUpDate,
@@ -132,6 +135,7 @@ class FollowUpModel extends FollowUp {
     required super.leadName,
     required super.companyName,
     super.phoneNumber,
+    super.alternatePhone,
     required super.leadTask,
     required super.followUpStatus,
     required super.followUpDate,
@@ -170,12 +174,29 @@ class FollowUpModel extends FollowUp {
       parsedPhone = json['lead']['phone']?.toString().trim();
     }
 
+    String? parsedAlternatePhone =
+        json['alternatePhone']?.toString().trim() ??
+        json['altPhone']?.toString().trim() ??
+        json['alternativePhone']?.toString().trim() ??
+        json['alternate_phone']?.toString().trim() ??
+        json['leadAlternatePhone']?.toString().trim();
+    if ((parsedAlternatePhone == null || parsedAlternatePhone.isEmpty) &&
+        json['lead'] is Map) {
+      final leadMap = json['lead'] as Map;
+      parsedAlternatePhone =
+          leadMap['alternatePhone']?.toString().trim() ??
+          leadMap['altPhone']?.toString().trim() ??
+          leadMap['alternativePhone']?.toString().trim() ??
+          leadMap['alternate_phone']?.toString().trim();
+    }
+
     return FollowUpModel(
       id: json['id']?.toString(),
       leadId: json['leadId']?.toString() ?? json['id']?.toString() ?? '',
       leadName: parsedLeadName,
       companyName: parsedCompany,
       phoneNumber: parsedPhone,
+      alternatePhone: parsedAlternatePhone,
       leadTask: (json['leadTask'] != null && json['leadTask'].toString().isNotEmpty)
           ? json['leadTask'].toString()
           : (json['task']?.toString() ?? 'Follow up'),

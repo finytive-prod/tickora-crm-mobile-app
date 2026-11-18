@@ -17,11 +17,84 @@ import 'package:crm_mobile/core/services/auto_call_recording_uploader.dart';
 import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/core/network/api_client.dart';
 import 'package:crm_mobile/core/network/api_constants.dart';
+import 'package:crm_mobile/models/lead_detail.dart';
+import 'package:crm_mobile/widgets/call_number_picker_sheet.dart';
 
 class LeadCallLogsTab extends StatefulWidget {
   final LeadDetailsLoaded state;
 
   const LeadCallLogsTab({super.key, required this.state});
+
+  static List<String> collectUsableLeadPhones(LeadDetail lead) {
+    final result = <String>[];
+    final seen = <String>{};
+    void addIfUsable(String? raw) {
+      if (!AutoCallRecordingUploader.isUsablePhone(raw)) return;
+      final trimmed = raw!.trim();
+      final digits = AutoCallRecordingUploader.usablePhoneDigits(trimmed);
+      final key =
+          digits.length >= 10 ? digits.substring(digits.length - 10) : digits;
+      if (seen.add(key)) {
+        result.add(trimmed);
+      }
+    }
+
+    addIfUsable(lead.phone);
+    addIfUsable(lead.alternatePhone);
+    for (final opt in extractLeadDetailCustomPhoneOptions(lead.customFields)) {
+      addIfUsable(opt.phoneNumber);
+    }
+    return result;
+  }
+
+  static bool itemBelongsToLead({
+    required String itemLeadId,
+    required String fromNumber,
+    required String toNumber,
+    required String bound,
+    required LeadDetail lead,
+    required List<String> leadPhones,
+    String? fileName,
+  }) {
+    final cleanItemLeadId = itemLeadId.trim();
+    if (cleanItemLeadId.isNotEmpty && cleanItemLeadId != lead.id) {
+      return false;
+    }
+    if (leadPhones.isEmpty) return true;
+
+    final fromUsable = AutoCallRecordingUploader.isUsablePhone(fromNumber);
+    final toUsable = AutoCallRecordingUploader.isUsablePhone(toNumber);
+
+    for (final lp in leadPhones) {
+      if (AutoCallRecordingUploader.phonesMatch(fromNumber, lp) ||
+          AutoCallRecordingUploader.phonesMatch(toNumber, lp)) {
+        return true;
+      }
+    }
+
+    if (fromUsable && toUsable) {
+      return false;
+    }
+
+    final b = bound.trim().toUpperCase();
+    if (b.startsWith('OUT') && toUsable) return false;
+    if ((b == 'IN' || b.startsWith('INC') || b.startsWith('INB')) && fromUsable) {
+      return false;
+    }
+
+    if (fileName != null &&
+        fileName.trim().isNotEmpty &&
+        leadPhones.every(
+          (lp) => AutoCallRecordingUploader.hasConflictingPhoneInFileName(
+            fileName,
+            lp,
+          ),
+        )) {
+      return false;
+    }
+
+    return true;
+  }
 
   @override
   State<LeadCallLogsTab> createState() => _LeadCallLogsTabState();
@@ -35,27 +108,98 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
   String? _loadingAudioId;
   int _selectedSubTabIndex = 0;
   bool _isRefreshing = false;
+  static String? _workingAudioUrlTemplate;
+
+  List<MapEntry<String, String>> _buildOrderedAudioCandidates(
+    LeadAudio audio, {
+    bool includeFallbackStreamPaths = false,
+  }) {
+    final leadsBaseUrl = ApiUrl.leadService;
+    final baseUrlWithoutApi = leadsBaseUrl.replaceAll(RegExp(r'/api/v1/?$'), '');
+    final candidates = <MapEntry<String, String>>[];
+
+    if (audio.fileName.startsWith('http://') ||
+        audio.fileName.startsWith('https://')) {
+      candidates.add(MapEntry('direct_url', audio.fileName));
+    }
+    if (audio.leadId.isNotEmpty && audio.id.isNotEmpty) {
+      candidates.add(
+        MapEntry(
+          'lead_audio_download',
+          '$leadsBaseUrl/leads/${audio.leadId}/audios/${audio.id}/download',
+        ),
+      );
+      if (includeFallbackStreamPaths) {
+        candidates.add(
+          MapEntry(
+            'lead_audio_stream',
+            '$leadsBaseUrl/leads/${audio.leadId}/audios/${audio.id}',
+          ),
+        );
+      }
+    }
+    if (audio.id.isNotEmpty) {
+      candidates.add(
+        MapEntry(
+          'leads_audios_download',
+          '$leadsBaseUrl/leads/audios/${audio.id}/download',
+        ),
+      );
+      if (includeFallbackStreamPaths) {
+        candidates.add(
+          MapEntry('leads_audios_stream', '$leadsBaseUrl/leads/audios/${audio.id}'),
+        );
+      }
+      candidates.add(
+        MapEntry('audios_download', '$leadsBaseUrl/audios/${audio.id}/download'),
+      );
+      if (includeFallbackStreamPaths) {
+        candidates.add(
+          MapEntry('audios_stream', '$leadsBaseUrl/audios/${audio.id}'),
+        );
+      }
+    }
+    if (includeFallbackStreamPaths && audio.fileName.isNotEmpty) {
+      final fn = audio.fileName.replaceAll('+', '_');
+      candidates.add(MapEntry('uploads_audios', '$leadsBaseUrl/uploads/audios/$fn'));
+      candidates.add(MapEntry('uploads_root', '$leadsBaseUrl/uploads/$fn'));
+      candidates.add(
+        MapEntry('base_uploads_audios', '$baseUrlWithoutApi/uploads/audios/$fn'),
+      );
+      candidates.add(MapEntry('base_uploads_root', '$baseUrlWithoutApi/uploads/$fn'));
+    }
+
+    final preferred = _workingAudioUrlTemplate;
+    if (preferred != null) {
+      final idx = candidates.indexWhere((e) => e.key == preferred);
+      if (idx > 0) {
+        final entry = candidates.removeAt(idx);
+        candidates.insert(0, entry);
+      }
+    }
+    return candidates;
+  }
 
   Future<void> _handleRefresh() async {
     if (_isRefreshing) return;
     setState(() => _isRefreshing = true);
     try {
-      AutoCallRecordingUploader.autoScanAndUploadLeadRecordings(
-        context: context,
-        leadId: widget.state.leadDetail.id,
-        phoneNumber: widget.state.leadDetail.phone,
-        existingServerAudios: widget.state.audios,
-        existingServerCallLogs: widget.state.callLogs?.callHistory,
-        onUploadSuccess: () {
-          if (mounted) {
-            context.read<LeadsBloc>().add(FetchLeadCallLogs(widget.state.leadDetail.id));
-            context.read<LeadsBloc>().add(FetchLeadAudios(widget.state.leadDetail.id));
-          }
-        },
-      );
-      context.read<LeadsBloc>().add(FetchLeadCallLogs(widget.state.leadDetail.id));
-      context.read<LeadsBloc>().add(FetchLeadAudios(widget.state.leadDetail.id));
-      await Future.delayed(const Duration(milliseconds: 600));
+      final leadPhones = _collectUsableLeadPhones(widget.state.leadDetail);
+      for (final scanPhone in leadPhones) {
+        if (!mounted) break;
+        await AutoCallRecordingUploader.autoScanAndUploadLeadRecordings(
+          context: context,
+          leadId: widget.state.leadDetail.id,
+          phoneNumber: scanPhone,
+          existingServerAudios: widget.state.audios,
+          existingServerCallLogs: widget.state.callLogs?.callHistory,
+        );
+      }
+      if (mounted) {
+        context.read<LeadsBloc>().add(FetchLeadCallLogs(widget.state.leadDetail.id));
+        context.read<LeadsBloc>().add(FetchLeadAudios(widget.state.leadDetail.id));
+      }
+      await Future.delayed(const Duration(milliseconds: 400));
     } finally {
       if (mounted) {
         setState(() => _isRefreshing = false);
@@ -74,19 +218,6 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
         if (widget.state.callLogs == null && !widget.state.isCallLogsLoading) {
           context.read<LeadsBloc>().add(FetchLeadCallLogs(widget.state.leadDetail.id));
         }
-        AutoCallRecordingUploader.autoScanAndUploadLeadRecordings(
-          context: context,
-          leadId: widget.state.leadDetail.id,
-          phoneNumber: widget.state.leadDetail.phone,
-          existingServerAudios: widget.state.audios,
-          existingServerCallLogs: widget.state.callLogs?.callHistory,
-          onUploadSuccess: () {
-            if (mounted) {
-              context.read<LeadsBloc>().add(FetchLeadCallLogs(widget.state.leadDetail.id));
-              context.read<LeadsBloc>().add(FetchLeadAudios(widget.state.leadDetail.id));
-            }
-          },
-        );
       }
     });
   }
@@ -94,6 +225,13 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
   @override
   void didUpdateWidget(covariant LeadCallLogsTab oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.state.leadDetail.id != widget.state.leadDetail.id) {
+      _expandedCallLogIds.clear();
+      _resolvedCallTypes.clear();
+      _pendingAsyncResolutions.clear();
+      _resolvedAudioDurations.clear();
+      _loadingAudioId = null;
+    }
   }
 
   /// Returns true if [audio] represents a real uploaded audio file,
@@ -123,6 +261,34 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
         statusUpper.contains('MISSED') ||
         statusUpper.contains('UNANSWERED') ||
         statusUpper.contains('NOT_CONNECTED');
+  }
+
+  List<String> _collectUsableLeadPhones(LeadDetail lead) =>
+      LeadCallLogsTab.collectUsableLeadPhones(lead);
+
+  bool _belongsToCurrentLead({
+    required String itemLeadId,
+    required String fromNumber,
+    required String toNumber,
+    required String bound,
+    required LeadDetail lead,
+    required List<String> leadPhones,
+    String? fileName,
+  }) => LeadCallLogsTab.itemBelongsToLead(
+        itemLeadId: itemLeadId,
+        fromNumber: fromNumber,
+        toNumber: toNumber,
+        bound: bound,
+        lead: lead,
+        leadPhones: leadPhones,
+        fileName: fileName,
+      );
+
+  String _effectiveLeadDisplayPhone(LeadDetail lead) {
+    final phones = _collectUsableLeadPhones(lead);
+    if (phones.isNotEmpty) return phones.first;
+    final raw = lead.phone.trim();
+    return (raw.isNotEmpty && raw != '-') ? raw : '';
   }
 
   bool _isMissedLog(LeadCallLog log, [String leadPhone = '', LeadAudio? matchedAudio]) {
@@ -182,14 +348,15 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
       return 'inbound';
     }
 
-    final cleanPhone = phoneNumber.replaceAll(RegExp(r'\D'), '');
-    if (cleanPhone.isNotEmpty) {
-      final last10 = cleanPhone.length >= 10 ? cleanPhone.substring(cleanPhone.length - 10) : cleanPhone;
-      final cleanFrom = (audio.fromNumber ?? '').replaceAll(RegExp(r'\D'), '');
-      final cleanTo = (audio.toNumber ?? '').replaceAll(RegExp(r'\D'), '');
-
-      final fromMatchesLead = cleanFrom.isNotEmpty && (cleanFrom.endsWith(last10) || last10.contains(cleanFrom));
-      final toMatchesLead = cleanTo.isNotEmpty && (cleanTo.endsWith(last10) || last10.contains(cleanTo));
+    if (AutoCallRecordingUploader.isUsablePhone(phoneNumber)) {
+      final fromMatchesLead = AutoCallRecordingUploader.phonesMatch(
+        audio.fromNumber,
+        phoneNumber,
+      );
+      final toMatchesLead = AutoCallRecordingUploader.phonesMatch(
+        audio.toNumber,
+        phoneNumber,
+      );
 
       if (toMatchesLead && !fromMatchesLead) {
         _resolvedCallTypes[audio.id] = 'outbound';
@@ -947,12 +1114,40 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
       }
     }
 
+    final leadPhones = _collectUsableLeadPhones(state.leadDetail);
+    final leadDisplayPhone = _effectiveLeadDisplayPhone(state.leadDetail);
     final callLogs = state.callLogs;
-    final List<LeadCallLog> rawHistory = callLogs != null ? List<LeadCallLog>.from(callLogs.callHistory) : [];
+    final List<LeadCallLog> unFilteredHistory =
+        callLogs != null ? callLogs.callHistory : const [];
+    final List<LeadCallLog> rawHistory = unFilteredHistory
+        .where(
+          (log) => _belongsToCurrentLead(
+            itemLeadId: log.leadId,
+            fromNumber: log.fromNumber,
+            toNumber: log.toNumber,
+            bound: log.bound,
+            lead: state.leadDetail,
+            leadPhones: leadPhones,
+          ),
+        )
+        .toList();
+    final bool filteredForeignLogs =
+        callLogs != null && rawHistory.length < unFilteredHistory.length;
 
     // Filter server audios to real audio files for the Audios tab
     final List<LeadAudio> realAudios = (state.audios ?? [])
         .where(_audioHasRealFile)
+        .where(
+          (audio) => _belongsToCurrentLead(
+            itemLeadId: audio.leadId,
+            fromNumber: audio.fromNumber ?? '',
+            toNumber: audio.toNumber ?? '',
+            bound: audio.bound ?? audio.callType,
+            lead: state.leadDetail,
+            leadPhones: leadPhones,
+            fileName: '${audio.fileName} ${audio.originalFileName}',
+          ),
+        )
         .toList();
 
     rawHistory.sort((a, b) {
@@ -961,7 +1156,7 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
       return dtB.compareTo(dtA);
     });
 
-    // Deduplicate only identical records or true jitter collisions (<3.5s with same status, or <45s for outgoing)
+    // Deduplicate only identical records or tight timestamp jitter collisions (<= 3s)
     final List<LeadCallLog> serverHistory = [];
     for (final log in rawHistory) {
       final logDt = _parseCallLogDateTime(log);
@@ -982,26 +1177,39 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
 
         final exDt = _parseCallLogDateTime(existing);
         final exTimeMs = exDt?.millisecondsSinceEpoch ?? 0;
-        final isOutgoing = logBound.startsWith('OUT');
-        final tolerance = isOutgoing ? 45000 : 3500;
+        final logDur = int.tryParse(log.duration.replaceAll(RegExp(r'\D'), '')) ?? 0;
+        final exDur = int.tryParse(existing.duration.replaceAll(RegExp(r'\D'), '')) ?? 0;
+        final logConnected = log.callStatus.toUpperCase().contains('CONN') ||
+            log.callStatus.toUpperCase().contains('ANS') ||
+            logDur > 0;
+        final exConnected = existing.callStatus.toUpperCase().contains('CONN') ||
+            existing.callStatus.toUpperCase().contains('ANS') ||
+            exDur > 0;
         final sameStatus = existing.callStatus.toUpperCase() == log.callStatus.toUpperCase() ||
             (existing.callStatus.toUpperCase().contains('CONN') && log.callStatus.toUpperCase().contains('ANS')) ||
             (existing.callStatus.toUpperCase().contains('ANS') && log.callStatus.toUpperCase().contains('CONN'));
 
-        if (logTimeMs > 0 && exTimeMs > 0 && (logTimeMs - exTimeMs).abs() < tolerance) {
-          if (isOutgoing) {
-            final logDur = int.tryParse(log.duration.replaceAll(RegExp(r'\D'), '')) ?? 0;
-            final exDur = int.tryParse(existing.duration.replaceAll(RegExp(r'\D'), '')) ?? 0;
-            final logConnected = log.callStatus.toUpperCase().contains('CONN') || log.callStatus.toUpperCase().contains('ANS') || logDur > 0;
-            final exConnected = existing.callStatus.toUpperCase().contains('CONN') || existing.callStatus.toUpperCase().contains('ANS') || exDur > 0;
-            if (logConnected && !exConnected) {
-              serverHistory[i] = log;
-            } else if (logDur > exDur) {
+        final diffMs = (logTimeMs > 0 && exTimeMs > 0) ? (logTimeMs - exTimeMs).abs() : 1 << 30;
+        if (logConnected && exConnected) {
+          // Only dedup two connected logs if they start within jitter range AND have compatible duration
+          if (diffMs <= 3000 && (logDur == 0 || exDur == 0 || (logDur - exDur).abs() <= 10)) {
+            if (logDur > exDur) {
               serverHistory[i] = log;
             }
             isDuplicate = true;
             break;
-          } else if (sameStatus) {
+          }
+        } else if (logConnected != exConnected) {
+          // Connected log supersedes a nearby 0s shadow entry at the same start timestamp
+          if (diffMs <= 3000) {
+            if (logConnected && !exConnected) {
+              serverHistory[i] = log;
+            }
+            isDuplicate = true;
+            break;
+          }
+        } else {
+          if (sameStatus && diffMs <= 2500) {
             isDuplicate = true;
             break;
           }
@@ -1018,23 +1226,31 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
       return dtB.compareTo(dtA);
     });
 
-    // Call logs summary metrics from /call-logs endpoint
-    final totalCallsCount = callLogs?.totalCalls ?? serverHistory.length;
-    final totalDurationSec = callLogs?.totalDuration ?? 0;
-    final totalInboundCount = callLogs?.totalInboundCalls ?? serverHistory.where((l) {
-      final b = l.bound.toUpperCase();
-      return b == 'IN' || b == 'INBOUND' || b.startsWith('IN');
-    }).length;
-    final totalOutboundCount = callLogs?.totalOutboundCalls ?? serverHistory.where((l) {
-      final b = l.bound.toUpperCase();
-      return b == 'OUT' || b == 'OUTBOUND' || b.startsWith('OUT');
-    }).length;
-    final totalMissedCount = (callLogs != null && callLogs.totalMissedCalls > 0)
+    // Call logs summary metrics from /call-logs endpoint (recalculated if foreign logs filtered)
+    final totalCallsCount = (!filteredForeignLogs && callLogs != null)
+        ? callLogs.totalCalls
+        : serverHistory.length;
+    final totalDurationSec = (!filteredForeignLogs && callLogs != null)
+        ? callLogs.totalDuration
+        : serverHistory.fold<int>(0, (sum, l) => sum + _parseDurationStringToSeconds(l.duration));
+    final totalInboundCount = (!filteredForeignLogs && callLogs != null)
+        ? callLogs.totalInboundCalls
+        : serverHistory.where((l) {
+            final b = l.bound.toUpperCase();
+            return b == 'IN' || b == 'INBOUND' || b.startsWith('IN');
+          }).length;
+    final totalOutboundCount = (!filteredForeignLogs && callLogs != null)
+        ? callLogs.totalOutboundCalls
+        : serverHistory.where((l) {
+            final b = l.bound.toUpperCase();
+            return b == 'OUT' || b == 'OUTBOUND' || b.startsWith('OUT');
+          }).length;
+    final totalMissedCount = (!filteredForeignLogs && callLogs != null && callLogs.totalMissedCalls > 0)
         ? callLogs.totalMissedCalls
-        : serverHistory.where((l) => _isMissedLog(l, state.leadDetail.phone)).length;
-    final totalUnansweredCount = (callLogs != null && callLogs.totalUnansweredCalls > 0)
+        : serverHistory.where((l) => _isMissedLog(l, leadDisplayPhone)).length;
+    final totalUnansweredCount = (!filteredForeignLogs && callLogs != null && callLogs.totalUnansweredCalls > 0)
         ? callLogs.totalUnansweredCalls
-        : serverHistory.where((l) => _isUnansweredLog(l, state.leadDetail.phone)).length;
+        : serverHistory.where((l) => _isUnansweredLog(l, leadDisplayPhone)).length;
 
     // Audio recordings summary metrics from /audios endpoint
     final totalAudiosCount = realAudios.length;
@@ -1239,12 +1455,31 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
                                 final logDt = _parseCallLogDateTime(log);
                                 final logMs = logDt?.millisecondsSinceEpoch ?? 0;
                                 if (logMs > 0 && realAudios.isNotEmpty) {
+                                  final logBoundUpper = log.bound.trim().toUpperCase();
+                                  final logIsIn = logBoundUpper.startsWith('IN');
+                                  final logDurSec = int.tryParse(log.duration.replaceAll(RegExp(r'\D'), '')) ?? 0;
+                                  int? bestDiffMs;
                                   for (final a in realAudios) {
+                                    final aBoundUpper = (a.bound ?? '').trim().toUpperCase();
+                                    if (aBoundUpper.isNotEmpty && logBoundUpper.isNotEmpty) {
+                                      final aIsIn = aBoundUpper.startsWith('IN');
+                                      if (aIsIn != logIsIn) continue;
+                                    }
                                     final aDt = _parseAudioDateTime(a);
                                     final aMs = aDt.millisecondsSinceEpoch;
-                                    if ((aMs - logMs).abs() < 5000) {
-                                      matchedAudio = a;
-                                      break;
+                                    final aEndMs = a.durationSeconds > 0
+                                        ? aMs + a.durationSeconds * 1000
+                                        : aMs;
+                                    final isNear = (aMs - logMs).abs() <= 3000 ||
+                                        (logDurSec > 0 &&
+                                            logMs >= aMs - 2500 &&
+                                            logMs <= aEndMs + 2500);
+                                    if (isNear) {
+                                      final diff = (aMs - logMs).abs();
+                                      if (bestDiffMs == null || diff < bestDiffMs) {
+                                        bestDiffMs = diff;
+                                        matchedAudio = a;
+                                      }
                                     }
                                   }
                                 }
@@ -1898,25 +2133,16 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
       final sanitizedName = displayFileName.replaceAll(RegExp(r'[^\w.\- ]'), '_');
       final tempFile = File('${tempDir.path}/$sanitizedName');
 
-      final leadsBaseUrl = ApiUrl.leadService;
-      final candidateUrls = <String>[];
-      if (audio.leadId.isNotEmpty && audio.id.isNotEmpty) {
-        candidateUrls.add('$leadsBaseUrl/leads/${audio.leadId}/audios/${audio.id}/download');
-      }
-      if (audio.id.isNotEmpty) {
-        candidateUrls.add('$leadsBaseUrl/leads/audios/${audio.id}/download');
-        candidateUrls.add('$leadsBaseUrl/audios/${audio.id}/download');
-      }
-      if (audio.fileName.startsWith('http://') || audio.fileName.startsWith('https://')) {
-        candidateUrls.add(audio.fileName);
-      }
+      final candidateUrls = _buildOrderedAudioCandidates(audio);
 
       bool downloaded = false;
-      for (final downloadUrl in candidateUrls) {
+      for (final entry in candidateUrls) {
+        final downloadUrl = entry.value;
         try {
           debugPrint('Attempting download: $downloadUrl');
           final response = await sl<ApiClient>().download(downloadUrl, tempFile.path);
           if (response.statusCode == 200 && await tempFile.exists() && (await tempFile.length()) > 0) {
+            _workingAudioUrlTemplate = entry.key;
             downloaded = true;
             break;
           }
@@ -2095,10 +2321,23 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
       }
 
       final service = CallRecordingService();
-      final phonesToSearch = <String>{};
-      if (widget.state.leadDetail.phone.isNotEmpty) phonesToSearch.add(widget.state.leadDetail.phone);
-      if (audio.fromNumber != null && audio.fromNumber!.isNotEmpty) phonesToSearch.add(audio.fromNumber!);
-      if (audio.toNumber != null && audio.toNumber!.isNotEmpty) phonesToSearch.add(audio.toNumber!);
+      final leadPhones = _collectUsableLeadPhones(widget.state.leadDetail);
+      final phonesToSearch = <String>{...leadPhones};
+      if (phonesToSearch.isEmpty) {
+        if (AutoCallRecordingUploader.isUsablePhone(audio.fromNumber)) {
+          phonesToSearch.add(audio.fromNumber!.trim());
+        }
+        if (AutoCallRecordingUploader.isUsablePhone(audio.toNumber)) {
+          phonesToSearch.add(audio.toNumber!.trim());
+        }
+      } else {
+        for (final candidate in [audio.fromNumber, audio.toNumber]) {
+          if (AutoCallRecordingUploader.isUsablePhone(candidate) &&
+              leadPhones.any((lp) => AutoCallRecordingUploader.phonesMatch(candidate, lp))) {
+            phonesToSearch.add(candidate!.trim());
+          }
+        }
+      }
 
       final audioNameLower = '${audio.fileName} ${audio.originalFileName} ${audio.displayName}'.toLowerCase();
       final targetClean = AutoCallRecordingUploader.cleanFileName(audioNameLower);
@@ -2226,33 +2465,13 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
       }
 
       if (!downloaded) {
-        final leadsBaseUrl = ApiUrl.leadService;
-        final baseUrlWithoutApi = leadsBaseUrl.replaceAll(RegExp(r'/api/v1/?$'), '');
-        final candidateUrls = <String>[];
+        final candidateUrls = _buildOrderedAudioCandidates(
+          audio,
+          includeFallbackStreamPaths: true,
+        );
 
-        if (audio.fileName.startsWith('http://') || audio.fileName.startsWith('https://')) {
-          candidateUrls.add(audio.fileName);
-        }
-
-        if (audio.leadId.isNotEmpty && audio.id.isNotEmpty) {
-          candidateUrls.add('$leadsBaseUrl/leads/${audio.leadId}/audios/${audio.id}/download');
-          candidateUrls.add('$leadsBaseUrl/leads/${audio.leadId}/audios/${audio.id}');
-        }
-        if (audio.id.isNotEmpty) {
-          candidateUrls.add('$leadsBaseUrl/leads/audios/${audio.id}/download');
-          candidateUrls.add('$leadsBaseUrl/leads/audios/${audio.id}');
-          candidateUrls.add('$leadsBaseUrl/audios/${audio.id}/download');
-          candidateUrls.add('$leadsBaseUrl/audios/${audio.id}');
-        }
-        if (audio.fileName.isNotEmpty) {
-          final fn = audio.fileName.replaceAll('+', '_');
-          candidateUrls.add('$leadsBaseUrl/uploads/audios/$fn');
-          candidateUrls.add('$leadsBaseUrl/uploads/$fn');
-          candidateUrls.add('$baseUrlWithoutApi/uploads/audios/$fn');
-          candidateUrls.add('$baseUrlWithoutApi/uploads/$fn');
-        }
-
-        for (final downloadUrl in candidateUrls) {
+        for (final entry in candidateUrls) {
+          final downloadUrl = entry.value;
           debugPrint('Downloading audio file from: $downloadUrl to ${tempFile.path}');
           try {
             await sl<ApiClient>().download(
@@ -2260,6 +2479,7 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
               tempFile.path,
             );
             if (await tempFile.exists() && await _checkAudioFileValid(tempFile)) {
+              _workingAudioUrlTemplate = entry.key;
               downloaded = true;
               break;
             } else if (await tempFile.exists()) {

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -10,11 +11,13 @@ import 'package:crm_mobile/core/error/failure.dart';
 import 'package:crm_mobile/blocs/leads_bloc.dart';
 import 'package:crm_mobile/blocs/leads_state.dart';
 import 'package:crm_mobile/core/services/auto_call_recording_uploader.dart';
-import 'package:crm_mobile/core/utils/phone_number_utils.dart';
 
 class CallRecordingService {
   static const MethodChannel _channel = MethodChannel('com.example.crm_mobile/call_recording');
   static bool _isOverlayListenerInitialized = false;
+  static String? _lastOverlayLookupPhone;
+  static DateTime? _lastOverlayLookupTime;
+  static Timer? _postCallRetryTimer;
 
   static void initializeOverlayListener() {
     if (_isOverlayListenerInitialized) return;
@@ -48,8 +51,23 @@ class CallRecordingService {
         final Map<dynamic, dynamic>? args = call.arguments as Map<dynamic, dynamic>?;
         final String? phone = args?['phoneNumber'] as String?;
         final bool isMissed = args?['isMissed'] as bool? ?? false;
-        debugPrint('Call ended detected via channel: phone=$phone, isMissed=$isMissed');
-        AutoCallRecordingUploader.syncRecentCallsIfAvailable();
+        final bool wasOffhook = args?['wasOffhook'] as bool? ?? false;
+        final int offhookDurationMs = (args?['offhookDurationMs'] as num?)?.toInt() ?? 0;
+        final int endedAtMs = (args?['endedAtMs'] as num?)?.toInt() ??
+            DateTime.now().millisecondsSinceEpoch;
+        AutoCallRecordingUploader.recordNativeCallEnded(
+          phone: phone,
+          endedAtMs: endedAtMs,
+          wasOffhook: wasOffhook,
+        );
+        debugPrint(
+          'Call ended detected via channel: phone=$phone, isMissed=$isMissed, wasOffhook=$wasOffhook, offhookDurationMs=$offhookDurationMs',
+        );
+        AutoCallRecordingUploader.syncRecentCallsIfAvailable(force: true);
+        _postCallRetryTimer?.cancel();
+        _postCallRetryTimer = Timer(const Duration(seconds: 5), () {
+          AutoCallRecordingUploader.syncRecentCallsIfAvailable(force: true);
+        });
       }
     });
 
@@ -72,8 +90,16 @@ class CallRecordingService {
       final cleanDigits = phone.replaceAll(RegExp(r'[^\d]'), '');
       if (cleanDigits.length < 7) return;
 
-      final sanitized = sanitizeLeadSearchQuery(phone);
       final last10 = cleanDigits.length >= 10 ? cleanDigits.substring(cleanDigits.length - 10) : cleanDigits;
+      final now = DateTime.now();
+      if (_lastOverlayLookupPhone == last10 &&
+          _lastOverlayLookupTime != null &&
+          now.difference(_lastOverlayLookupTime!).inSeconds < 5) {
+        return;
+      }
+      _lastOverlayLookupPhone = last10;
+      _lastOverlayLookupTime = now;
+
       final repo = sl<LeadsRepository>();
 
       bool found = false;
@@ -81,17 +107,21 @@ class CallRecordingService {
       String leadId = '';
       String assignedToName = '';
       String assignedToId = '';
+      bool hadApiFailure = false;
 
-      final queries = {last10, phone.trim(), cleanDigits, sanitized, '+$cleanDigits'}
-          .where((q) => q.trim().isNotEmpty)
-          .toList();
+      final queries = <String>[
+        if (last10.isNotEmpty) last10,
+        if (phone.trim().isNotEmpty && phone.trim() != last10) phone.trim(),
+      ];
 
-      // 1. Check via searchLeadByNumber (/leads/search/number?phone=...)
+      // 1. Check via searchLeadByNumber (/leads/search/number?phone=...) with deduplicated queries
       for (final q in queries) {
         if (found) break;
         try {
           final result = await repo.searchLeadByNumber(q);
-          result.fold((_) {}, (data) {
+          result.fold((_) {
+            hadApiFailure = true;
+          }, (data) {
             if (data.alreadyMapped || (data.leadId != null && data.leadId!.isNotEmpty)) {
               found = true;
               final name = data.name?.trim() ?? '';
@@ -101,37 +131,15 @@ class CallRecordingService {
               assignedToId = data.assignedToId?.trim() ?? '';
             }
           });
-        } catch (_) {}
-      }
-
-      // 2. Check via searchLeads (calls getLeads with searchQuery)
-      if (!found) {
-        for (final q in queries) {
-          if (found) break;
-          try {
-            final listRes = await repo.searchLeads(q);
-            listRes.fold((_) {}, (leads) {
-              if (leads.isNotEmpty) {
-                final match = leads.firstWhere(
-                  (l) => l.phone.replaceAll(RegExp(r'[^\d]'), '').endsWith(last10),
-                  orElse: () => leads.first,
-                );
-                found = true;
-                final fullName = '${match.firstName} ${match.lastName}'.trim();
-                leadName = fullName.isNotEmpty ? fullName : match.companyName;
-                leadId = match.id;
-                assignedToName = match.ownerUserName?.trim() ?? '';
-                assignedToId = match.ownerUserId?.trim() ?? '';
-              }
-            });
-          } catch (_) {}
+        } catch (_) {
+          hadApiFailure = true;
         }
       }
 
-      // 3. Fallback: getLeads to verify directly against CRM leads
-      if (!found) {
+      // 2. Fallback: only if searchLeadByNumber failed, query getLeads once with last10
+      if (!found && hadApiFailure && last10.isNotEmpty) {
         try {
-          final allLeadsRes = await repo.getLeads(0, 50, searchQuery: last10);
+          final allLeadsRes = await repo.getLeads(0, 20, searchQuery: last10);
           allLeadsRes.fold((_) {}, (leads) {
             for (final l in leads) {
               final leadDigits = l.phone.replaceAll(RegExp(r'[^\d]'), '');
@@ -266,6 +274,7 @@ class CallRecordingService {
         },
         (_) async {
           debugPrint('[QuickAdd] Success for $phoneToSave');
+          AutoCallRecordingUploader.invalidatePhoneLookupCache(phoneToSave);
 
           String newLeadId = '';
           try {

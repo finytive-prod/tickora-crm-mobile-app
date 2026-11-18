@@ -19,6 +19,7 @@ import 'package:crm_mobile/blocs/leads_bloc.dart';
 import 'package:crm_mobile/blocs/leads_event.dart';
 import 'package:crm_mobile/screens/reports/reports_screen.dart';
 import 'package:crm_mobile/screens/more/block_numbers_screen.dart';
+import 'package:crm_mobile/screens/more/logs_screen.dart';
 import 'package:crm_mobile/core/utils/navigation_service.dart';
 
 class MoreScreen extends StatefulWidget {
@@ -71,7 +72,9 @@ class _MoreScreenState extends State<MoreScreen> {
       _userRole = prefs.getString('userRole') ?? '';
     });
 
-    if (sl.isRegistered<LoginRepository>()) {
+    final hasCachedUser =
+        _userName != 'User' && _userEmail.isNotEmpty && _userRole.isNotEmpty;
+    if (!hasCachedUser && sl.isRegistered<LoginRepository>()) {
       sl<LoginRepository>().getProfile().then((res) {
         res.fold((_) {}, (profile) {
           if (mounted) {
@@ -610,6 +613,19 @@ class _MoreScreenState extends State<MoreScreen> {
                       ),
                     );
                     _loadUserData();
+                  },
+                ),
+                _buildMenuItem(
+                  icon: Icons.receipt_long_outlined,
+                  title: 'Logs',
+                  brandColor: brandColor,
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const NetworkLogsScreen(),
+                      ),
+                    );
                   },
                 ),
                 _buildMenuItem(

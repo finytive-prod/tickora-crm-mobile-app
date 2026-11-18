@@ -2,10 +2,10 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:logger/logger.dart';
+import '../network_log_manager.dart';
 
 class LoggerInterceptor extends Interceptor {
   final Logger logger;
-  static int _requestCounter = 0;
 
   LoggerInterceptor(this.logger);
 
@@ -46,11 +46,11 @@ class LoggerInterceptor extends Interceptor {
 
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
-    if (kDebugMode) {
-      final reqId = ++_requestCounter;
-      options.extra['_req_id'] = reqId;
-      options.extra['_req_time'] = DateTime.now();
+    final reqId = NetworkLogManager.instance.logRequest(options);
+    options.extra['_req_id'] = reqId;
+    options.extra['_req_time'] = DateTime.now();
 
+    if (kDebugMode) {
       final buffer = StringBuffer();
       buffer.writeln('╔════ 🚀 [REQ #$reqId] ${options.method} ${options.uri.path}');
       buffer.writeln('║ Full URL: ${options.uri}');
@@ -100,6 +100,8 @@ class LoggerInterceptor extends Interceptor {
 
   @override
   void onResponse(Response response, ResponseInterceptorHandler handler) {
+    NetworkLogManager.instance.logResponse(response);
+
     if (kDebugMode) {
       final reqId = response.requestOptions.extra['_req_id'] ?? '?';
       final startTime = response.requestOptions.extra['_req_time'] as DateTime?;
@@ -124,6 +126,8 @@ class LoggerInterceptor extends Interceptor {
 
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
+    NetworkLogManager.instance.logError(err);
+
     if (kDebugMode) {
       final reqId = err.requestOptions.extra['_req_id'] ?? '?';
       final startTime = err.requestOptions.extra['_req_time'] as DateTime?;

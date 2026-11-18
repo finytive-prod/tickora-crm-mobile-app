@@ -11,6 +11,8 @@ class PrivilegeService extends ChangeNotifier {
 
   List<String> _privileges = [];
   bool _hasLoadedFromCache = false;
+  Future<void>? _inFlightFetch;
+  DateTime? _lastFetchTime;
 
   PrivilegeService({required this.apiClient, required this.logger}) {
     _loadFromCacheSync();
@@ -310,7 +312,24 @@ class PrivilegeService extends ChangeNotifier {
         hasPrivilege('ASSIGN_TO');
   }
 
-  Future<void> fetchPrivileges() async {
+  Future<void> fetchPrivileges({bool force = false}) {
+    if (_inFlightFetch != null) {
+      return _inFlightFetch!;
+    }
+    if (!force &&
+        _lastFetchTime != null &&
+        DateTime.now().difference(_lastFetchTime!).inSeconds < 30 &&
+        _privileges.isNotEmpty) {
+      return Future.value();
+    }
+
+    _inFlightFetch = _fetchPrivilegesInternal().whenComplete(() {
+      _inFlightFetch = null;
+    });
+    return _inFlightFetch!;
+  }
+
+  Future<void> _fetchPrivilegesInternal() async {
     if (_privileges.isEmpty && !_hasLoadedFromCache) {
       _loadFromCacheSync();
     }
@@ -322,6 +341,7 @@ class PrivilegeService extends ChangeNotifier {
       if (body != null) {
         final parsed = parsePrivilegeList(body);
         setPrivileges(parsed, replace: true);
+        _lastFetchTime = DateTime.now();
         logger.i('Fetched ${parsed.length} privileges from /auth/privileges');
         return;
       }
@@ -336,6 +356,7 @@ class PrivilegeService extends ChangeNotifier {
       if (body != null) {
         final parsed = parsePrivilegeList(body);
         setPrivileges(parsed, replace: true);
+        _lastFetchTime = DateTime.now();
         logger.i('Fetched ${parsed.length} privileges from /auth/permissions');
         return;
       }
@@ -348,6 +369,7 @@ class PrivilegeService extends ChangeNotifier {
       if (body != null && body['data'] != null) {
         final parsed = parsePrivilegeList(body['data']);
         setPrivileges(parsed, replace: true);
+        _lastFetchTime = DateTime.now();
         logger.i('Fetched ${parsed.length} privileges from /auth/profile');
         return;
       }
@@ -357,6 +379,7 @@ class PrivilegeService extends ChangeNotifier {
   void clearPrivileges() {
     _privileges = [];
     _hasLoadedFromCache = false;
+    _lastFetchTime = null;
     try {
       if (sl.isRegistered<SharedPreferences>()) {
         final prefs = sl<SharedPreferences>();

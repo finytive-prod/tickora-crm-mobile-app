@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:crm_mobile/core/theme/app_colors.dart';
@@ -48,6 +49,7 @@ class _LeadsScreenViewState extends State<LeadsScreenView>
     with WidgetsBindingObserver {
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  Timer? _searchDebounce;
 
   @override
   void initState() {
@@ -101,6 +103,7 @@ class _LeadsScreenViewState extends State<LeadsScreenView>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _searchDebounce?.cancel();
     _scrollController.dispose();
     _searchController.dispose();
     super.dispose();
@@ -148,16 +151,20 @@ class _LeadsScreenViewState extends State<LeadsScreenView>
     }
 
     final query = sanitized.trim();
-    context.read<LeadsBloc>().add(
-      FetchLeads(
-        page: 0,
-        size: 15,
-        statusId: selectedStatusId,
-        isActive: selectedIsActive ?? true,
-        filterParams: filterParams,
-        searchQuery: query.isNotEmpty ? query : null,
-      ),
-    );
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 450), () {
+      if (!mounted) return;
+      context.read<LeadsBloc>().add(
+        FetchLeads(
+          page: 0,
+          size: 15,
+          statusId: selectedStatusId,
+          isActive: selectedIsActive ?? true,
+          filterParams: filterParams,
+          searchQuery: query.isNotEmpty ? query : null,
+        ),
+      );
+    });
   }
 
   String _resolveAssigneeName(Lead lead, List<dynamic> owners) {
@@ -643,6 +650,7 @@ class _LeadsScreenViewState extends State<LeadsScreenView>
                 callStatus: lead.callStatus,
                 assignee: _resolveAssigneeName(lead, state.owners),
                 phone: lead.phone,
+                alternatePhone: lead.alternatePhone,
               ),
             );
           }

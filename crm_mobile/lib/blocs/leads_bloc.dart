@@ -24,6 +24,7 @@ import 'package:crm_mobile/usecases/quick_invite_lead_usecase.dart';
 import 'package:crm_mobile/blocs/leads_event.dart';
 import 'package:crm_mobile/blocs/leads_state.dart';
 import 'package:crm_mobile/core/services/notification_service.dart';
+import 'package:crm_mobile/core/services/auto_call_recording_uploader.dart';
 
 class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
   final GetLeadsUseCase getLeadsUseCase;
@@ -51,6 +52,21 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
   static List<dynamic>? _cachedOwners;
   static List<CustomField>? _cachedCustomFields;
   static List<FixedField>? _cachedFixedFields;
+
+  static List<dynamic>? get cachedStatuses => _cachedStatuses;
+  static List<LeadSource>? get cachedSources => _cachedSources;
+  static List<String>? get cachedPriorities => _cachedPriorities;
+  static List<dynamic>? get cachedOwners => _cachedOwners;
+
+  final Set<String> _inFlightAudios = {};
+  final Set<String> _inFlightCallLogs = {};
+  final Set<String> _inFlightAuditLogs = {};
+  final Set<String> _inFlightAttachments = {};
+  bool _isFetchingStatuses = false;
+  bool _isFetchingSources = false;
+  bool _isFetchingPriorities = false;
+  bool _isFetchingOwners = false;
+  bool _isFetchingCustomFields = false;
 
   LeadsBloc({
     required this.getLeadsUseCase,
@@ -147,6 +163,7 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
       (newLeads) {
         final allLeads = event.isLoadMore ? [...existingLeads, ...newLeads] : newLeads;
         final hasMore = newLeads.length >= event.size;
+        AutoCallRecordingUploader.registerKnownLeads(allLeads);
 
         List<dynamic> finalStatuses = (state is LeadsLoaded ? (state as LeadsLoaded).statuses : null) ?? currentStatuses ?? _cachedStatuses ?? [];
         List<LeadSource> finalSources = (state is LeadsLoaded ? (state as LeadsLoaded).sources : null) ?? currentSources ?? _cachedSources ?? [];
@@ -229,6 +246,7 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
       (newLeads) {
         final allLeads = event.isLoadMore ? [...existingLeads, ...newLeads] : newLeads;
         final hasMore = newLeads.length >= event.size;
+        AutoCallRecordingUploader.registerKnownLeads(allLeads);
 
         List<dynamic> finalStatuses = currentStatuses ?? [];
         List<LeadSource> finalSources = currentSources ?? [];
@@ -287,28 +305,34 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
       }
       return;
     }
-    final result = await getLeadStatusesUseCase();
-    result.fold(
-      (failure) {},
-      (statuses) {
-        _cachedStatuses = statuses;
-        if (state is LeadsLoaded) {
-          emit((state as LeadsLoaded).copyWith(statuses: statuses));
-        } else if (state is LeadDetailsLoaded) {
-          return;
-        } else {
-          emit(LeadsLoaded(
-            const [],
-            statuses: statuses,
-            sources: _cachedSources ?? const [],
-            priorities: _cachedPriorities ?? const [],
-            owners: (_cachedOwners ?? const []).cast(),
-            customFields: _cachedCustomFields ?? const [],
-            fixedFields: _cachedFixedFields ?? const [],
-          ));
-        }
-      },
-    );
+    if (_isFetchingStatuses) return;
+    _isFetchingStatuses = true;
+    try {
+      final result = await getLeadStatusesUseCase();
+      result.fold(
+        (failure) {},
+        (statuses) {
+          _cachedStatuses = statuses;
+          if (state is LeadsLoaded) {
+            emit((state as LeadsLoaded).copyWith(statuses: statuses));
+          } else if (state is LeadDetailsLoaded) {
+            return;
+          } else {
+            emit(LeadsLoaded(
+              const [],
+              statuses: statuses,
+              sources: _cachedSources ?? const [],
+              priorities: _cachedPriorities ?? const [],
+              owners: (_cachedOwners ?? const []).cast(),
+              customFields: _cachedCustomFields ?? const [],
+              fixedFields: _cachedFixedFields ?? const [],
+            ));
+          }
+        },
+      );
+    } finally {
+      _isFetchingStatuses = false;
+    }
   }
 
   Future<void> _onFetchLeadSources(FetchLeadSources event, Emitter<LeadsState> emit) async {
@@ -330,28 +354,34 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
       }
       return;
     }
-    final result = await getLeadSourcesUseCase();
-    result.fold(
-      (failure) {},
-      (sources) {
-        _cachedSources = sources;
-        if (state is LeadsLoaded) {
-          emit((state as LeadsLoaded).copyWith(sources: sources));
-        } else if (state is LeadDetailsLoaded) {
-          return;
-        } else {
-          emit(LeadsLoaded(
-            const [],
-            statuses: (_cachedStatuses ?? const []).cast(),
-            sources: sources,
-            priorities: _cachedPriorities ?? const [],
-            owners: (_cachedOwners ?? const []).cast(),
-            customFields: _cachedCustomFields ?? const [],
-            fixedFields: _cachedFixedFields ?? const [],
-          ));
-        }
-      },
-    );
+    if (_isFetchingSources) return;
+    _isFetchingSources = true;
+    try {
+      final result = await getLeadSourcesUseCase();
+      result.fold(
+        (failure) {},
+        (sources) {
+          _cachedSources = sources;
+          if (state is LeadsLoaded) {
+            emit((state as LeadsLoaded).copyWith(sources: sources));
+          } else if (state is LeadDetailsLoaded) {
+            return;
+          } else {
+            emit(LeadsLoaded(
+              const [],
+              statuses: (_cachedStatuses ?? const []).cast(),
+              sources: sources,
+              priorities: _cachedPriorities ?? const [],
+              owners: (_cachedOwners ?? const []).cast(),
+              customFields: _cachedCustomFields ?? const [],
+              fixedFields: _cachedFixedFields ?? const [],
+            ));
+          }
+        },
+      );
+    } finally {
+      _isFetchingSources = false;
+    }
   }
 
   Future<void> _onFetchLeadPriorities(FetchLeadPriorities event, Emitter<LeadsState> emit) async {
@@ -373,28 +403,34 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
       }
       return;
     }
-    final result = await getLeadPrioritiesUseCase();
-    result.fold(
-      (failure) {},
-      (priorities) {
-        _cachedPriorities = priorities;
-        if (state is LeadsLoaded) {
-          emit((state as LeadsLoaded).copyWith(priorities: priorities));
-        } else if (state is LeadDetailsLoaded) {
-          return;
-        } else {
-          emit(LeadsLoaded(
-            const [],
-            statuses: (_cachedStatuses ?? const []).cast(),
-            sources: _cachedSources ?? const [],
-            priorities: priorities,
-            owners: (_cachedOwners ?? const []).cast(),
-            customFields: _cachedCustomFields ?? const [],
-            fixedFields: _cachedFixedFields ?? const [],
-          ));
-        }
-      },
-    );
+    if (_isFetchingPriorities) return;
+    _isFetchingPriorities = true;
+    try {
+      final result = await getLeadPrioritiesUseCase();
+      result.fold(
+        (failure) {},
+        (priorities) {
+          _cachedPriorities = priorities;
+          if (state is LeadsLoaded) {
+            emit((state as LeadsLoaded).copyWith(priorities: priorities));
+          } else if (state is LeadDetailsLoaded) {
+            return;
+          } else {
+            emit(LeadsLoaded(
+              const [],
+              statuses: (_cachedStatuses ?? const []).cast(),
+              sources: _cachedSources ?? const [],
+              priorities: priorities,
+              owners: (_cachedOwners ?? const []).cast(),
+              customFields: _cachedCustomFields ?? const [],
+              fixedFields: _cachedFixedFields ?? const [],
+            ));
+          }
+        },
+      );
+    } finally {
+      _isFetchingPriorities = false;
+    }
   }
 
   Future<void> _onFetchStaffUsers(FetchStaffUsers event, Emitter<LeadsState> emit) async {
@@ -416,28 +452,37 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
       }
       return;
     }
-    final result = await getStaffUsersUseCase(search: event.search);
-    result.fold(
-      (failure) {},
-      (owners) {
-        _cachedOwners = owners;
-        if (state is LeadsLoaded) {
-          emit((state as LeadsLoaded).copyWith(owners: owners));
-        } else if (state is LeadDetailsLoaded) {
-          return;
-        } else {
-          emit(LeadsLoaded(
-            const [],
-            statuses: (_cachedStatuses ?? const []).cast(),
-            sources: _cachedSources ?? const [],
-            priorities: _cachedPriorities ?? const [],
-            owners: owners,
-            customFields: _cachedCustomFields ?? const [],
-            fixedFields: _cachedFixedFields ?? const [],
-          ));
-        }
-      },
-    );
+    if ((event.search == null || event.search!.isEmpty) && _isFetchingOwners) return;
+    final trackInFlight = event.search == null || event.search!.isEmpty;
+    if (trackInFlight) _isFetchingOwners = true;
+    try {
+      final result = await getStaffUsersUseCase(search: event.search);
+      result.fold(
+        (failure) {},
+        (owners) {
+          if (trackInFlight) {
+            _cachedOwners = owners;
+          }
+          if (state is LeadsLoaded) {
+            emit((state as LeadsLoaded).copyWith(owners: owners));
+          } else if (state is LeadDetailsLoaded) {
+            return;
+          } else {
+            emit(LeadsLoaded(
+              const [],
+              statuses: (_cachedStatuses ?? const []).cast(),
+              sources: _cachedSources ?? const [],
+              priorities: _cachedPriorities ?? const [],
+              owners: owners,
+              customFields: _cachedCustomFields ?? const [],
+              fixedFields: _cachedFixedFields ?? const [],
+            ));
+          }
+        },
+      );
+    } finally {
+      if (trackInFlight) _isFetchingOwners = false;
+    }
   }
 
   Future<void> _onFetchCustomFieldsForm(FetchCustomFieldsForm event, Emitter<LeadsState> emit) async {
@@ -462,32 +507,38 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
       }
       return;
     }
-    final result = await getCustomFieldsUseCase();
-    result.fold(
-      (failure) {},
-      (layout) {
-        _cachedFixedFields = layout.fixedFields;
-        _cachedCustomFields = layout.customFields;
-        if (state is LeadsLoaded) {
-          emit((state as LeadsLoaded).copyWith(
-            fixedFields: layout.fixedFields,
-            customFields: layout.customFields,
-          ));
-        } else if (state is LeadDetailsLoaded) {
-          return;
-        } else {
-          emit(LeadsLoaded(
-            const [],
-            statuses: (_cachedStatuses ?? const []).cast(),
-            sources: _cachedSources ?? const [],
-            priorities: _cachedPriorities ?? const [],
-            owners: (_cachedOwners ?? const []).cast(),
-            customFields: layout.customFields,
-            fixedFields: layout.fixedFields,
-          ));
-        }
-      },
-    );
+    if (_isFetchingCustomFields) return;
+    _isFetchingCustomFields = true;
+    try {
+      final result = await getCustomFieldsUseCase();
+      result.fold(
+        (failure) {},
+        (layout) {
+          _cachedFixedFields = layout.fixedFields;
+          _cachedCustomFields = layout.customFields;
+          if (state is LeadsLoaded) {
+            emit((state as LeadsLoaded).copyWith(
+              fixedFields: layout.fixedFields,
+              customFields: layout.customFields,
+            ));
+          } else if (state is LeadDetailsLoaded) {
+            return;
+          } else {
+            emit(LeadsLoaded(
+              const [],
+              statuses: (_cachedStatuses ?? const []).cast(),
+              sources: _cachedSources ?? const [],
+              priorities: _cachedPriorities ?? const [],
+              owners: (_cachedOwners ?? const []).cast(),
+              customFields: layout.customFields,
+              fixedFields: layout.fixedFields,
+            ));
+          }
+        },
+      );
+    } finally {
+      _isFetchingCustomFields = false;
+    }
   }
 
   Future<void> _onCreateLead(CreateLead event, Emitter<LeadsState> emit) async {
@@ -497,6 +548,7 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
     result.fold(
       (failure) => emit(LeadActionError(failure.message)),
       (_) {
+        AutoCallRecordingUploader.invalidatePhoneLookupCache();
         NotificationService.instance.recordSelfLeadCreated();
         emit(const LeadActionSuccess("Lead created successfully."));
         add(const FetchLeads());
@@ -514,6 +566,7 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
     result.fold(
       (failure) => emit(LeadActionError(failure.message)),
       (_) {
+        AutoCallRecordingUploader.invalidatePhoneLookupCache();
         NotificationService.instance.recordSelfLeadCreated();
         emit(const LeadActionSuccess("Lead invited successfully."));
         add(const FetchLeads());
@@ -528,6 +581,7 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
     result.fold(
       (failure) => emit(LeadActionError(failure.message)),
       (_) {
+        AutoCallRecordingUploader.invalidatePhoneLookupCache();
         emit(const LeadActionSuccess("Lead updated successfully."));
         add(FetchLeadDetails(event.leadId)); // Refresh the currently viewed details
       },
@@ -547,10 +601,29 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
         }
       },
       (leadDetail) {
+        AutoCallRecordingUploader.registerKnownLeads([leadDetail]);
         if (state is LeadDetailsLoaded) {
-          emit((state as LeadDetailsLoaded).copyWith(leadDetail: leadDetail));
+          final existing = state as LeadDetailsLoaded;
+          if (existing.leadDetail.id == leadDetail.id) {
+            emit(existing.copyWith(leadDetail: leadDetail));
+          } else {
+            emit(LeadDetailsLoaded(
+              leadDetail,
+              isAudiosLoading: true,
+              isCallLogsLoading: true,
+              isAuditLogsLoading: true,
+            ));
+            add(FetchLeadAudios(event.id));
+            add(FetchLeadCallLogs(event.id));
+            add(FetchLeadAuditLogs(event.id));
+          }
         } else {
-          emit(LeadDetailsLoaded(leadDetail));
+          emit(LeadDetailsLoaded(
+            leadDetail,
+            isAudiosLoading: true,
+            isCallLogsLoading: true,
+            isAuditLogsLoading: true,
+          ));
           add(FetchLeadAudios(event.id));
           add(FetchLeadCallLogs(event.id));
           add(FetchLeadAuditLogs(event.id));
@@ -560,50 +633,73 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
   }
 
   Future<void> _onFetchLeadAuditLogs(FetchLeadAuditLogs event, Emitter<LeadsState> emit) async {
-    if (state is LeadDetailsLoaded) {
-      emit((state as LeadDetailsLoaded).copyWith(isAuditLogsLoading: true, auditLogsError: null));
+    if (_inFlightAuditLogs.contains(event.id)) return;
+    _inFlightAuditLogs.add(event.id);
+    try {
+      final currentState = state;
+      if (currentState is LeadDetailsLoaded && currentState.leadDetail.id == event.id) {
+        emit(currentState.copyWith(isAuditLogsLoading: true, auditLogsError: null));
+      }
+      final result = await getLeadAuditLogsUseCase(event.id);
+      result.fold(
+        (failure) {
+          final latest = state;
+          if (latest is LeadDetailsLoaded && latest.leadDetail.id == event.id) {
+            emit(latest.copyWith(isAuditLogsLoading: false, auditLogsError: failure.message));
+          }
+        },
+        (auditLogs) {
+          final latest = state;
+          if (latest is LeadDetailsLoaded && latest.leadDetail.id == event.id) {
+            emit(latest.copyWith(isAuditLogsLoading: false, auditLogs: auditLogs));
+          }
+        },
+      );
+    } finally {
+      _inFlightAuditLogs.remove(event.id);
     }
-    final result = await getLeadAuditLogsUseCase(event.id);
-    result.fold(
-      (failure) {
-        if (state is LeadDetailsLoaded) {
-          emit((state as LeadDetailsLoaded).copyWith(isAuditLogsLoading: false, auditLogsError: failure.message));
-        }
-      },
-      (auditLogs) {
-        if (state is LeadDetailsLoaded) {
-          emit((state as LeadDetailsLoaded).copyWith(isAuditLogsLoading: false, auditLogs: auditLogs));
-        }
-      },
-    );
   }
 
   Future<void> _onFetchLeadAttachments(FetchLeadAttachments event, Emitter<LeadsState> emit) async {
-    if (state is LeadDetailsLoaded) {
-      emit((state as LeadDetailsLoaded).copyWith(isAttachmentsLoading: true, attachmentsError: null));
+    if (_inFlightAttachments.contains(event.id)) return;
+    _inFlightAttachments.add(event.id);
+    try {
+      final currentState = state;
+      if (currentState is LeadDetailsLoaded && currentState.leadDetail.id == event.id) {
+        emit(currentState.copyWith(isAttachmentsLoading: true, attachmentsError: null));
+      }
+      final result = await getLeadAttachmentsUseCase(event.id);
+      result.fold(
+        (failure) {
+          final latest = state;
+          if (latest is LeadDetailsLoaded && latest.leadDetail.id == event.id) {
+            emit(latest.copyWith(isAttachmentsLoading: false, attachmentsError: failure.message));
+          }
+        },
+        (attachments) {
+          final latest = state;
+          if (latest is LeadDetailsLoaded && latest.leadDetail.id == event.id) {
+            emit(latest.copyWith(isAttachmentsLoading: false, attachments: attachments));
+          }
+        },
+      );
+    } finally {
+      _inFlightAttachments.remove(event.id);
     }
-    final result = await getLeadAttachmentsUseCase(event.id);
-    result.fold(
-      (failure) {
-        if (state is LeadDetailsLoaded) {
-          emit((state as LeadDetailsLoaded).copyWith(isAttachmentsLoading: false, attachmentsError: failure.message));
-        }
-      },
-      (attachments) {
-        if (state is LeadDetailsLoaded) {
-          emit((state as LeadDetailsLoaded).copyWith(isAttachmentsLoading: false, attachments: attachments));
-        }
-      },
-    );
   }
 
   Future<void> _onUploadLeadAttachment(UploadLeadAttachment event, Emitter<LeadsState> emit) async {
     final currentState = state;
-    if (currentState is LeadDetailsLoaded) {
+    if (currentState is LeadDetailsLoaded && currentState.leadDetail.id == event.leadId) {
       emit(currentState.copyWith(isAttachmentsLoading: true, attachmentsError: null));
       final result = await uploadLeadAttachmentUseCase(event.leadId, event.filePath);
       result.fold(
-        (failure) => emit(currentState.copyWith(isAttachmentsLoading: false, attachmentsError: failure.message)),
+        (failure) {
+          final latest = state;
+          if (latest is LeadDetailsLoaded && latest.leadDetail.id == event.leadId) {
+            emit(latest.copyWith(isAttachmentsLoading: false, attachmentsError: failure.message));
+          }
+        },
         (_) {
           add(FetchLeadAttachments(event.leadId));
         },
@@ -612,48 +708,64 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
   }
 
   Future<void> _onFetchLeadAudios(FetchLeadAudios event, Emitter<LeadsState> emit) async {
-    final currentState = state;
-    if (currentState is LeadDetailsLoaded) {
-      emit(currentState.copyWith(isAudiosLoading: true, audiosError: null));
-      final result = await getLeadAudiosUseCase(event.id);
-      result.fold(
-        (failure) {
-          if (state is LeadDetailsLoaded) {
-            emit((state as LeadDetailsLoaded).copyWith(isAudiosLoading: false, audiosError: failure.message));
-          }
-        },
-        (audios) {
-          if (state is LeadDetailsLoaded) {
-            emit((state as LeadDetailsLoaded).copyWith(isAudiosLoading: false, audios: audios));
-          }
-        },
-      );
+    if (_inFlightAudios.contains(event.id)) return;
+    _inFlightAudios.add(event.id);
+    try {
+      final currentState = state;
+      if (currentState is LeadDetailsLoaded && currentState.leadDetail.id == event.id) {
+        emit(currentState.copyWith(isAudiosLoading: true, audiosError: null));
+        final result = await getLeadAudiosUseCase(event.id);
+        result.fold(
+          (failure) {
+            final latest = state;
+            if (latest is LeadDetailsLoaded && latest.leadDetail.id == event.id) {
+              emit(latest.copyWith(isAudiosLoading: false, audiosError: failure.message));
+            }
+          },
+          (audios) {
+            final latest = state;
+            if (latest is LeadDetailsLoaded && latest.leadDetail.id == event.id) {
+              emit(latest.copyWith(isAudiosLoading: false, audios: audios));
+            }
+          },
+        );
+      }
+    } finally {
+      _inFlightAudios.remove(event.id);
     }
   }
 
   Future<void> _onFetchLeadCallLogs(FetchLeadCallLogs event, Emitter<LeadsState> emit) async {
-    final currentState = state;
-    if (currentState is LeadDetailsLoaded) {
-      emit(currentState.copyWith(isCallLogsLoading: true, callLogsError: null));
-      final result = await getLeadCallLogsUseCase(event.id);
-      result.fold(
-        (failure) {
-          if (state is LeadDetailsLoaded) {
-            emit((state as LeadDetailsLoaded).copyWith(isCallLogsLoading: false, callLogsError: failure.message));
-          }
-        },
-        (callLogs) {
-          if (state is LeadDetailsLoaded) {
-            emit((state as LeadDetailsLoaded).copyWith(isCallLogsLoading: false, callLogs: callLogs));
-          }
-        },
-      );
+    if (_inFlightCallLogs.contains(event.id)) return;
+    _inFlightCallLogs.add(event.id);
+    try {
+      final currentState = state;
+      if (currentState is LeadDetailsLoaded && currentState.leadDetail.id == event.id) {
+        emit(currentState.copyWith(isCallLogsLoading: true, callLogsError: null));
+        final result = await getLeadCallLogsUseCase(event.id);
+        result.fold(
+          (failure) {
+            final latest = state;
+            if (latest is LeadDetailsLoaded && latest.leadDetail.id == event.id) {
+              emit(latest.copyWith(isCallLogsLoading: false, callLogsError: failure.message));
+            }
+          },
+          (callLogs) {
+            final latest = state;
+            if (latest is LeadDetailsLoaded && latest.leadDetail.id == event.id) {
+              emit(latest.copyWith(isCallLogsLoading: false, callLogs: callLogs));
+            }
+          },
+        );
+      }
+    } finally {
+      _inFlightCallLogs.remove(event.id);
     }
   }
 
   Future<void> _onUploadLeadAudio(UploadLeadAudio event, Emitter<LeadsState> emit) async {
     final currentState = state;
-    if (currentState is LeadDetailsLoaded) {
+    if (currentState is LeadDetailsLoaded && currentState.leadDetail.id == event.leadId) {
       emit(currentState.copyWith(isAudiosLoading: true, audiosError: null));
       final result = await uploadLeadAudioUseCase(
         event.leadId,
@@ -668,7 +780,12 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
         callStatus: event.callStatus,
       );
       result.fold(
-        (failure) => emit(currentState.copyWith(isAudiosLoading: false, audiosError: failure.message)),
+        (failure) {
+          final latest = state;
+          if (latest is LeadDetailsLoaded && latest.leadDetail.id == event.leadId) {
+            emit(latest.copyWith(isAudiosLoading: false, audiosError: failure.message));
+          }
+        },
         (_) {
           add(FetchLeadAudios(event.leadId));
         },

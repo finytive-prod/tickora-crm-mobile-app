@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:crm_mobile/core/services/auto_call_recording_uploader.dart';
-import 'package:crm_mobile/core/services/direct_call_helper.dart';
+import 'package:crm_mobile/widgets/call_number_picker_sheet.dart';
 import 'package:crm_mobile/core/theme/app_colors.dart';
 
 class LeadCard extends StatelessWidget {
@@ -22,6 +21,7 @@ class LeadCard extends StatelessWidget {
   final Color priorityColor;
   final String assignee;
   final String phone;
+  final String? alternatePhone;
   final String? createdByName;
   final DateTime? createdAt;
   final String? callStatus;
@@ -45,6 +45,7 @@ class LeadCard extends StatelessWidget {
     required this.priorityColor,
     required this.assignee,
     required this.phone,
+    this.alternatePhone,
     this.createdByName,
     this.createdAt,
     this.callStatus,
@@ -203,16 +204,13 @@ class LeadCard extends StatelessWidget {
                         // Call Action
                         InkWell(
                           onTap: () async {
-                            if (leadId != null && leadId!.isNotEmpty) {
-                              AutoCallRecordingUploader.makeCallAndAutoUpload(
-                                context: context,
-                                leadId: leadId!,
-                                phoneNumber: phone,
-                                leadName: name,
-                              );
-                            } else {
-                              await DirectCallHelper.makeCall(phone);
-                            }
+                            await LeadCallHelper.initiateLeadCall(
+                              context: context,
+                              leadId: leadId,
+                              primaryPhone: phone,
+                              alternatePhone: alternatePhone,
+                              leadName: name,
+                            );
                           },
                           borderRadius: BorderRadius.circular(16),
                           child: Container(

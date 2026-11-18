@@ -13,8 +13,7 @@ import 'package:crm_mobile/core/services/privilege_service.dart';
 import 'package:crm_mobile/screens/leads/lead_details_screen.dart';
 import 'edit_followup_screen.dart';
 import 'add_followup_screen.dart';
-import 'package:crm_mobile/core/services/auto_call_recording_uploader.dart';
-import 'package:crm_mobile/core/services/direct_call_helper.dart';
+import 'package:crm_mobile/widgets/call_number_picker_sheet.dart';
 
 class LeadFollowUpDetailsScreen extends StatelessWidget {
   final String leadId;
@@ -506,9 +505,35 @@ class _LeadFollowUpDetailsViewState extends State<LeadFollowUpDetailsView> {
                       padding: const EdgeInsets.all(16.0),
                       child: Column(
                         children: [
-                          _buildDetailRow(Icons.phone_iphone, 'Phone', leadDetails.phone.isNotEmpty ? leadDetails.phone : 'Not Specified', leadId: leadDetails.id, leadName: displayName),
+                          _buildDetailRow(
+                            Icons.phone_iphone,
+                            'Phone',
+                            leadDetails.phone.isNotEmpty ? leadDetails.phone : 'Not Specified',
+                            leadId: leadDetails.id,
+                            leadName: displayName,
+                            primaryPhone: leadDetails.phone,
+                            alternatePhone: leadDetails.alternatePhone,
+                            extraPhoneOptions: extractLeadDetailCustomPhoneOptions(
+                              leadDetails.customFields,
+                            ),
+                            preferredPhone: leadDetails.phone,
+                          ),
                           const Divider(height: 24, color: AppColors.borderEnabled),
-                          _buildDetailRow(Icons.phone_callback, 'Alternate Phone', leadDetails.alternatePhone != null && leadDetails.alternatePhone!.isNotEmpty ? leadDetails.alternatePhone! : 'Not Specified', leadId: leadDetails.id, leadName: displayName),
+                          _buildDetailRow(
+                            Icons.phone_callback,
+                            'Alternate Phone',
+                            leadDetails.alternatePhone != null && leadDetails.alternatePhone!.isNotEmpty
+                                ? leadDetails.alternatePhone!
+                                : 'Not Specified',
+                            leadId: leadDetails.id,
+                            leadName: displayName,
+                            primaryPhone: leadDetails.phone,
+                            alternatePhone: leadDetails.alternatePhone,
+                            extraPhoneOptions: extractLeadDetailCustomPhoneOptions(
+                              leadDetails.customFields,
+                            ),
+                            preferredPhone: leadDetails.alternatePhone,
+                          ),
                           const Divider(height: 24, color: AppColors.borderEnabled),
                           _buildDetailRow(Icons.mail_outline, 'Email', leadDetails.email.isNotEmpty ? leadDetails.email : 'Not Specified'),
                           const Divider(height: 24, color: AppColors.borderEnabled),
@@ -569,6 +594,10 @@ class _LeadFollowUpDetailsViewState extends State<LeadFollowUpDetailsView> {
     String value, {
     String? leadId,
     String? leadName,
+    String? primaryPhone,
+    String? alternatePhone,
+    Iterable<LeadPhoneOption> extraPhoneOptions = const [],
+    String? preferredPhone,
   }) {
     final isPhone = (label.toLowerCase().contains('phone')) && value.isNotEmpty && value != 'Not Specified';
 
@@ -610,17 +639,16 @@ class _LeadFollowUpDetailsViewState extends State<LeadFollowUpDetailsView> {
               child: const Icon(Icons.phone, size: 16, color: AppColors.primary),
             ),
             tooltip: 'Call Phone Number',
-            onPressed: () {
-              if (leadId != null && leadId.isNotEmpty) {
-                AutoCallRecordingUploader.makeCallAndAutoUpload(
-                  context: context,
-                  leadId: leadId,
-                  phoneNumber: value,
-                  leadName: leadName ?? '',
-                );
-              } else {
-                DirectCallHelper.makeCall(value);
-              }
+            onPressed: () async {
+              await LeadCallHelper.initiateLeadCall(
+                context: context,
+                leadId: leadId,
+                primaryPhone: primaryPhone ?? value,
+                alternatePhone: alternatePhone,
+                extraOptions: extraPhoneOptions,
+                leadName: leadName ?? '',
+                preferredPhone: preferredPhone ?? value,
+              );
             },
           ),
         ] else if (label == 'Email' && value.isNotEmpty && value != 'Not Specified') ...[

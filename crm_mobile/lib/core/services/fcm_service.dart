@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crm_mobile/core/network/api_client.dart';
 import 'package:crm_mobile/core/network/api_constants.dart';
 import 'package:crm_mobile/core/services/notification_service.dart';
@@ -60,6 +61,9 @@ class FcmService {
       FlutterLocalNotificationsPlugin();
 
   bool _isInitialized = false;
+  Future<void>? _initFuture;
+  Future<void>? _tokenRegistrationFuture;
+  String? _lastAttemptedToken;
 
   /// The Android notification channel used for foreground notifications.
   static const AndroidNotificationChannel _channel = AndroidNotificationChannel(
@@ -83,11 +87,21 @@ class FcmService {
   );
 
   /// Initialize the FCM service. Call this on app startup or user authentication.
-  Future<void> initialize() async {
-    await _setupLocalNotifications();
-    await _requestPermission();
+  Future<void> initialize() {
+    if (_initFuture != null) return _initFuture!;
+    _initFuture = _initializeInternal().whenComplete(() {
+      _initFuture = null;
+    });
+    return _initFuture!;
+  }
+
+  Future<void> _initializeInternal() async {
+    if (!_isInitialized) {
+      await _setupLocalNotifications();
+      await _requestPermission();
+    }
     await _getTokenAndRegister();
-    
+
     if (!_isInitialized) {
       _listenForTokenRefresh();
       _listenForForegroundMessages();
@@ -149,7 +163,28 @@ class FcmService {
   }
 
   /// Sends the FCM device token to backend endpoints.
-  Future<void> _sendTokenToBackend(String token) async {
+  Future<void> _sendTokenToBackend(String token) {
+    final trimmed = token.trim();
+    if (trimmed.isEmpty || trimmed == _lastAttemptedToken) {
+      return Future.value();
+    }
+    if (sl.isRegistered<SharedPreferences>()) {
+      final authToken = sl<SharedPreferences>().getString('token');
+      if (authToken == null || authToken.isEmpty) {
+        return Future.value();
+      }
+    }
+    if (_tokenRegistrationFuture != null) {
+      return _tokenRegistrationFuture!;
+    }
+    _lastAttemptedToken = trimmed;
+    _tokenRegistrationFuture = _performTokenSend(trimmed).whenComplete(() {
+      _tokenRegistrationFuture = null;
+    });
+    return _tokenRegistrationFuture!;
+  }
+
+  Future<void> _performTokenSend(String token) async {
     final logger = sl.isRegistered<Logger>() ? sl<Logger>() : null;
     logger?.i('FCM Token generated: $token');
 
@@ -397,6 +432,7 @@ class FcmService {
       await _messaging.deleteToken();
     } catch (_) {}
     _isInitialized = false;
+    _lastAttemptedToken = null;
     final logger = sl.isRegistered<Logger>() ? sl<Logger>() : null;
     logger?.i('FCM token deleted (user logged out)');
   }

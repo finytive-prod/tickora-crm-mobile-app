@@ -31,6 +31,7 @@ import 'package:crm_mobile/screens/leads/widgets/lead_call_logs_tab.dart';
 import 'package:crm_mobile/screens/leads/widgets/lead_documents_tab.dart';
 import 'package:crm_mobile/core/services/privilege_service.dart';
 import 'package:crm_mobile/widgets/confirmation_dialog.dart';
+import 'package:crm_mobile/widgets/call_number_picker_sheet.dart';
 
 class LeadDetailsScreen extends StatelessWidget {
   final String leadId;
@@ -76,6 +77,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
   FollowUp? _leadFollowUp;
   List<FollowUp> _allLeadFollowUps = [];
   bool _isLoadingFollowUp = false;
+  bool _hasFetchedFollowUp = false;
   String? _followUpError;
   String _selectedFollowUpFilter = 'Today';
   final TextEditingController _noteController = TextEditingController();
@@ -103,6 +105,52 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
   List<LeadSource> _availableSources = [];
   List<StaffUser> _availableOwners = [];
   List<String> _availablePriorities = ['HIGH', 'MEDIUM', 'LOW'];
+
+  Future<void> _initiateLeadDetailCall({
+    required LeadDetail lead,
+    required String leadName,
+    String? fallbackPhone,
+    String? preferredPhone,
+  }) async {
+    final customPhoneOptions = extractLeadDetailCustomPhoneOptions(
+      lead.customFields,
+    );
+    final effectivePrimary = isUsablePhoneNumber(lead.phone)
+        ? lead.phone
+        : (fallbackPhone ?? '');
+
+    await LeadCallHelper.initiateLeadCall(
+      context: context,
+      leadId: lead.id,
+      primaryPhone: effectivePrimary,
+      alternatePhone: lead.alternatePhone,
+      extraOptions: customPhoneOptions,
+      leadName: leadName,
+      preferredPhone: preferredPhone,
+      onBeforeDial: () {
+        _lastCallTimestamp = DateTime.now().millisecondsSinceEpoch;
+      },
+      onDial: (selectedNumber) async {
+        if (!mounted) return;
+        AutoCallRecordingUploader.makeCallAndAutoUpload(
+          context: context,
+          leadId: lead.id,
+          phoneNumber: selectedNumber,
+          leadName: leadName,
+          onUploadSuccess: () {
+            if (mounted) {
+              context.read<LeadsBloc>().add(FetchLeadAudios(lead.id));
+              context.read<LeadsBloc>().add(FetchLeadCallLogs(lead.id));
+              _fetchLocalRecordings(
+                selectedNumber,
+                _collectUsableLeadPhones(lead),
+              );
+            }
+          },
+        );
+      },
+    );
+  }
 
   String _getResolvedCallType(LeadAudio audio, String phoneNumber) {
     if (_resolvedCallTypes.containsKey(audio.id)) {
@@ -174,23 +222,8 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
 
     // 1. Check tracked call history for matching call timestamp within 1 minute
     if (_trackedCallHistory.isNotEmpty && audioMs > 0) {
-      final cleanLeadPhone = phoneNumber.replaceAll(RegExp(r'[^0-9]'), '');
-      final leadLast10 = cleanLeadPhone.length >= 10
-          ? cleanLeadPhone.substring(cleanLeadPhone.length - 10)
-          : cleanLeadPhone;
-
       for (final c in _trackedCallHistory) {
-        final cleanCPhone = c.phoneNumber.replaceAll(RegExp(r'[^0-9]'), '');
-        final cLast10 = cleanCPhone.length >= 10
-            ? cleanCPhone.substring(cleanCPhone.length - 10)
-            : cleanCPhone;
-
-        final isPhoneMatch =
-            cleanLeadPhone.isEmpty ||
-            cLast10 == leadLast10 ||
-            cleanCPhone.contains(leadLast10) ||
-            leadLast10.contains(cLast10);
-        if (isPhoneMatch) {
+        if (AutoCallRecordingUploader.phonesMatch(c.phoneNumber, phoneNumber)) {
           final diff1 = (c.timestamp - audioMs).abs();
           final diff2 = (c.startTime - audioMs).abs();
 
@@ -258,20 +291,26 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
     StaffPhoneResolver.getOrFetchStaffPhone().then((phone) {
       if (mounted) setState(() {});
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _triggerAutoSync();
-    });
   }
 
   void _loadDropdownData() async {
     try {
-      if (sl.isRegistered<GetLeadSourcesUseCase>()) {
+      final cachedSources = LeadsBloc.cachedSources;
+      if (cachedSources != null && cachedSources.isNotEmpty) {
+        if (mounted) setState(() => _availableSources = List<LeadSource>.from(cachedSources));
+      } else if (sl.isRegistered<GetLeadSourcesUseCase>()) {
         final res = await sl<GetLeadSourcesUseCase>()();
         res.fold((_) {}, (sources) {
           if (mounted) setState(() => _availableSources = sources);
         });
       }
-      if (sl.isRegistered<GetStaffUsersUseCase>()) {
+
+      final cachedOwners = LeadsBloc.cachedOwners;
+      if (cachedOwners != null && cachedOwners.isNotEmpty) {
+        final sortedOwners = cachedOwners.cast<StaffUser>().toList()
+          ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+        if (mounted) setState(() => _availableOwners = sortedOwners);
+      } else if (sl.isRegistered<GetStaffUsersUseCase>()) {
         final res = await sl<GetStaffUsersUseCase>()();
         res.fold((_) {}, (owners) {
           final sortedOwners = List<StaffUser>.from(owners)
@@ -281,7 +320,11 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
           if (mounted) setState(() => _availableOwners = sortedOwners);
         });
       }
-      if (sl.isRegistered<GetLeadPrioritiesUseCase>()) {
+
+      final cachedPriorities = LeadsBloc.cachedPriorities;
+      if (cachedPriorities != null && cachedPriorities.isNotEmpty) {
+        if (mounted) setState(() => _availablePriorities = List<String>.from(cachedPriorities));
+      } else if (sl.isRegistered<GetLeadPrioritiesUseCase>()) {
         final res = await sl<GetLeadPrioritiesUseCase>()();
         res.fold((_) {}, (priorities) {
           if (mounted && priorities.isNotEmpty) {
@@ -310,33 +353,13 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
   void _triggerAutoSync() {
     if (!mounted) return;
     final blocState = context.read<LeadsBloc>().state;
-    final lead = blocState is LeadDetailsLoaded
-        ? blocState.leadDetail
-        : _lastLeadDetail;
-
-    AutoCallRecordingUploader.syncRecentCallsIfAvailable(
-      knownLeads: lead != null ? [lead] : null,
-      onUploadSuccess: () {
-        if (!mounted) return;
-        final currentLeadId =
-            (context.read<LeadsBloc>().state is LeadDetailsLoaded)
-            ? (context.read<LeadsBloc>().state as LeadDetailsLoaded)
-                  .leadDetail
-                  .id
-            : (lead?.id ?? widget.leadId);
-        context.read<LeadsBloc>().add(FetchLeadAudios(currentLeadId));
-        context.read<LeadsBloc>().add(FetchLeadCallLogs(currentLeadId));
-        if (lead != null && lead.phone.isNotEmpty) {
-          _fetchLocalRecordings(lead.phone);
-        }
-      },
-    );
+    final detailsState = blocState is LeadDetailsLoaded
+        ? blocState
+        : _lastDetailsLoadedState;
+    final lead = detailsState?.leadDetail ?? _lastLeadDetail;
 
     if (lead != null) {
-      _triggerFastResumeRecordingSync(
-        lead,
-        blocState is LeadDetailsLoaded ? blocState : null,
-      );
+      _triggerFastResumeRecordingSync(lead, detailsState);
     }
   }
 
@@ -347,28 +370,33 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
     LeadDetailsLoaded? blocState,
   ) {
     if (_isResumeSyncInProgress) return;
+    final phones = _collectUsableLeadPhones(lead);
+    if (phones.isEmpty) return;
     _isResumeSyncInProgress = true;
 
-    Future.delayed(const Duration(milliseconds: 1000), () async {
+    Future.delayed(const Duration(milliseconds: 2000), () async {
       if (!mounted) {
         _isResumeSyncInProgress = false;
         return;
       }
       try {
-        await AutoCallRecordingUploader.autoScanAndUploadLeadRecordings(
-          context: context,
-          leadId: lead.id,
-          phoneNumber: lead.phone,
-          existingServerAudios: blocState?.audios ?? [],
-          existingServerCallLogs: blocState?.callLogs?.callHistory ?? [],
-          onUploadSuccess: () {
-            if (mounted) {
-              context.read<LeadsBloc>().add(FetchLeadAudios(lead.id));
-              context.read<LeadsBloc>().add(FetchLeadCallLogs(lead.id));
-              _fetchLocalRecordings(lead.phone);
-            }
-          },
-        );
+        for (final scanPhone in phones) {
+          if (!mounted) break;
+          await AutoCallRecordingUploader.autoScanAndUploadLeadRecordings(
+            context: context,
+            leadId: lead.id,
+            phoneNumber: scanPhone,
+            existingServerAudios: blocState?.audios,
+            existingServerCallLogs: blocState?.callLogs?.callHistory,
+            onUploadSuccess: () {
+              if (mounted) {
+                context.read<LeadsBloc>().add(FetchLeadAudios(lead.id));
+                context.read<LeadsBloc>().add(FetchLeadCallLogs(lead.id));
+                _fetchLocalRecordings(scanPhone, phones);
+              }
+            },
+          );
+        }
       } finally {
         _isResumeSyncInProgress = false;
       }
@@ -376,6 +404,15 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
   }
 
   void _fetchLeadStatuses() async {
+    final cached = LeadsBloc.cachedStatuses;
+    if (cached != null && cached.isNotEmpty) {
+      if (mounted) {
+        setState(() {
+          _availableStatuses = cached.cast<LeadStatus>().toList();
+        });
+      }
+      return;
+    }
     final result = await sl<SettingsRepository>().getLeadStatuses();
     result.fold((_) {}, (statuses) {
       if (mounted) {
@@ -386,8 +423,50 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
     });
   }
 
-  void _fetchLocalRecordings(String phoneNumber) async {
+  List<String> _collectUsableLeadPhones(LeadDetail? lead) {
+    if (lead == null) return const [];
+    final seenKeys = <String>{};
+    final result = <String>[];
+    void addIfUsable(String? raw) {
+      if (!AutoCallRecordingUploader.isUsablePhone(raw)) return;
+      final trimmed = raw!.trim();
+      final digits = AutoCallRecordingUploader.usablePhoneDigits(trimmed);
+      final key = digits.length >= 10 ? digits.substring(digits.length - 10) : digits;
+      if (seenKeys.add(key)) {
+        result.add(trimmed);
+      }
+    }
+
+    addIfUsable(lead.phone);
+    addIfUsable(lead.alternatePhone);
+    for (final opt in extractLeadDetailCustomPhoneOptions(lead.customFields)) {
+      addIfUsable(opt.phoneNumber);
+    }
+    return result;
+  }
+
+  void _fetchLocalRecordings(
+    String phoneNumber, [
+    List<String>? allLeadPhones,
+  ]) async {
     if (_isLoadingRecordings) return;
+    final phonesToQuery = <String>[];
+    final seenKeys = <String>{};
+    for (final raw in [phoneNumber, ...?allLeadPhones]) {
+      if (!AutoCallRecordingUploader.isUsablePhone(raw)) continue;
+      final digits = AutoCallRecordingUploader.usablePhoneDigits(raw);
+      final key = digits.length >= 10 ? digits.substring(digits.length - 10) : digits;
+      if (seenKeys.add(key)) {
+        phonesToQuery.add(raw.trim());
+      }
+    }
+    if (phonesToQuery.isEmpty) {
+      if (mounted && _localRecordings.isNotEmpty) {
+        setState(() => _localRecordings = []);
+      }
+      return;
+    }
+
     if (mounted) {
       setState(() {
         _isLoadingRecordings = true;
@@ -406,12 +485,22 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
       });
 
       if (hasPermission) {
-        final paths = await callRecordingService.getAllSystemRecordings(
-          phoneNumber,
-        );
+        final merged = <Map<String, dynamic>>[];
+        final seenPaths = <String>{};
+        for (final queryPhone in phonesToQuery) {
+          final paths = await callRecordingService.getAllSystemRecordings(
+            queryPhone,
+          );
+          for (final rec in paths) {
+            final recPath = rec['path']?.toString() ?? '';
+            if (recPath.isNotEmpty && seenPaths.add(recPath)) {
+              merged.add(rec);
+            }
+          }
+        }
         if (!mounted) return;
         setState(() {
-          _localRecordings = paths;
+          _localRecordings = merged;
         });
       }
     } catch (e) {
@@ -672,23 +761,8 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
   }
 
   String _resolveLeadPhone(LeadDetail? lead) {
-    if (lead == null) return '';
-    final p = lead.phone.trim();
-    if (p.isNotEmpty) return p;
-    final alt = lead.alternatePhone?.trim() ?? '';
-    if (alt.isNotEmpty) return alt;
-    for (final cf in lead.customFields) {
-      final name = cf.fieldName.toLowerCase();
-      final label = cf.label.toLowerCase();
-      if (name.contains('phone') ||
-          name.contains('mobile') ||
-          label.contains('phone') ||
-          label.contains('mobile')) {
-        final val = cf.value?.toString().trim() ?? '';
-        if (val.isNotEmpty) return val;
-      }
-    }
-    return '';
+    final phones = _collectUsableLeadPhones(lead);
+    return phones.isNotEmpty ? phones.first : '';
   }
 
 
@@ -727,23 +801,12 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                       tooltip: 'Call Lead',
                       onPressed: () async {
                         if (effectiveLead != null && leadPhone.isNotEmpty) {
-                          _lastCallTimestamp =
-                              DateTime.now().millisecondsSinceEpoch;
-                          AutoCallRecordingUploader.makeCallAndAutoUpload(
-                            context: context,
-                            leadId: effectiveLead.id,
-                            phoneNumber: leadPhone,
+                          await _initiateLeadDetailCall(
+                            lead: effectiveLead,
                             leadName:
                                 '${effectiveLead.firstName} ${effectiveLead.lastName}'
                                     .trim(),
-                            onUploadSuccess: () {
-                              if (context.mounted) {
-                                context.read<LeadsBloc>().add(
-                                  FetchLeadAudios(effectiveLead.id),
-                                );
-                                _fetchLocalRecordings(leadPhone);
-                              }
-                            },
+                            fallbackPhone: leadPhone,
                           );
                         } else if (effectiveLead != null) {
                           ScaffoldMessenger.of(context).showSnackBar(
@@ -828,8 +891,9 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
         body: BlocConsumer<LeadsBloc, LeadsState>(
           listener: (context, state) {
             if (state is LeadDetailsLoaded) {
+              if (state.leadDetail.id != widget.leadId) return;
               final leadId = state.leadDetail.id;
-              if (_leadFollowUp == null &&
+              if (!_hasFetchedFollowUp &&
                   !_isLoadingFollowUp &&
                   _followUpError == null) {
                 _fetchFollowUpDetails(leadId);
@@ -860,14 +924,18 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
             }
           },
           builder: (context, state) {
-            if (state is LeadDetailsLoaded) {
-              _lastLeadDetail = state.leadDetail;
-              _lastDetailsLoadedState = state;
+            final matchingLoadedState =
+                (state is LeadDetailsLoaded &&
+                        state.leadDetail.id == widget.leadId)
+                    ? state
+                    : null;
+            if (matchingLoadedState != null) {
+              _lastLeadDetail = matchingLoadedState.leadDetail;
+              _lastDetailsLoadedState = matchingLoadedState;
             }
 
-            final effectiveState = state is LeadDetailsLoaded
-                ? state
-                : _lastDetailsLoadedState;
+            final effectiveState =
+                matchingLoadedState ?? _lastDetailsLoadedState;
 
             if (_lastLeadDetail == null || effectiveState == null) {
               if (state is LeadDetailsLoading || state is LeadActionLoading) {
@@ -1039,21 +1107,10 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                                 const SizedBox(height: 6),
                                 InkWell(
                                   onTap: () async {
-                                    _lastCallTimestamp =
-                                        DateTime.now().millisecondsSinceEpoch;
-                                    AutoCallRecordingUploader.makeCallAndAutoUpload(
-                                      context: context,
-                                      leadId: lead.id,
-                                      phoneNumber: leadPhone,
+                                    await _initiateLeadDetailCall(
+                                      lead: lead,
                                       leadName: displayName,
-                                      onUploadSuccess: () {
-                                        if (context.mounted) {
-                                          context.read<LeadsBloc>().add(
-                                            FetchLeadAudios(lead.id),
-                                          );
-                                          _fetchLocalRecordings(leadPhone);
-                                        }
-                                      },
+                                      fallbackPhone: leadPhone,
                                     );
                                   },
                                   borderRadius: BorderRadius.circular(16),
@@ -1337,6 +1394,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
 
           setState(() {
             _isLoadingFollowUp = false;
+            _hasFetchedFollowUp = true;
             _allLeadFollowUps = list;
             _leadFollowUp = target;
             if (list.isNotEmpty) {
@@ -2011,7 +2069,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                 setState(() {
                   _activeTabIndex = index;
                 });
-                if (index == 1) {
+                if (index == 1 && !_hasFetchedFollowUp && !_isLoadingFollowUp) {
                   _fetchFollowUpDetails(state.leadDetail.id);
                 } else if (index == 2 &&
                     state.auditLogs == null &&
@@ -2020,7 +2078,10 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                     FetchLeadAuditLogs(state.leadDetail.id),
                   );
                 } else if (index == 3) {
-                  _fetchLocalRecordings(state.leadDetail.phone);
+                  _fetchLocalRecordings(
+                    _resolveLeadPhone(state.leadDetail),
+                    _collectUsableLeadPhones(state.leadDetail),
+                  );
                   if (state.callLogs == null && !state.isCallLogsLoading) {
                     context.read<LeadsBloc>().add(
                       FetchLeadCallLogs(state.leadDetail.id),
@@ -2150,21 +2211,11 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                           ),
                           tooltip: 'Call Lead',
                           onPressed: () async {
-                            _lastCallTimestamp =
-                                DateTime.now().millisecondsSinceEpoch;
-                            AutoCallRecordingUploader.makeCallAndAutoUpload(
-                              context: context,
-                              leadId: lead.id,
-                              phoneNumber: lead.phone,
-                              leadName: '${lead.firstName} ${lead.lastName}',
-                              onUploadSuccess: () {
-                                if (context.mounted) {
-                                  context.read<LeadsBloc>().add(
-                                    FetchLeadAudios(lead.id),
-                                  );
-                                  _fetchLocalRecordings(lead.phone);
-                                }
-                              },
+                            await _initiateLeadDetailCall(
+                              lead: lead,
+                              leadName: '${lead.firstName} ${lead.lastName}'
+                                  .trim(),
+                              preferredPhone: lead.phone,
                             );
                           },
                         ),
@@ -2212,21 +2263,10 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                       ),
                       tooltip: 'Call Alternate Phone',
                       onPressed: () async {
-                        _lastCallTimestamp =
-                            DateTime.now().millisecondsSinceEpoch;
-                        AutoCallRecordingUploader.makeCallAndAutoUpload(
-                          context: context,
-                          leadId: lead.id,
-                          phoneNumber: lead.alternatePhone!,
-                          leadName: '${lead.firstName} ${lead.lastName}',
-                          onUploadSuccess: () {
-                            if (context.mounted) {
-                              context.read<LeadsBloc>().add(
-                                FetchLeadAudios(lead.id),
-                              );
-                              _fetchLocalRecordings(lead.alternatePhone!);
-                            }
-                          },
+                        await _initiateLeadDetailCall(
+                          lead: lead,
+                          leadName: '${lead.firstName} ${lead.lastName}'.trim(),
+                          preferredPhone: lead.alternatePhone,
                         );
                       },
                     ),

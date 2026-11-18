@@ -48,11 +48,6 @@ class _DashboardViewState extends State<DashboardView> {
     super.initState();
     _applyCallQuickFilter('Today', fetch: false);
     _fetchCallReport();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        context.read<DashboardBloc>().add(const FetchDashboardPreferences());
-      }
-    });
   }
 
   void _applyCallQuickFilter(String filter, {bool fetch = true}) {

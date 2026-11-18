@@ -250,8 +250,12 @@ class LeadDetailModel extends LeadDetail {
       lastName: json['lastName'] ?? '',
       companyName: json['companyName'] ?? '',
       email: json['email'] ?? '',
-      phone: json['phone'] ?? '',
-      alternatePhone: json['alternatePhone'],
+      phone: json['phone']?.toString() ?? '',
+      alternatePhone:
+          json['alternatePhone']?.toString() ??
+          json['altPhone']?.toString() ??
+          json['alternativePhone']?.toString() ??
+          json['alternate_phone']?.toString(),
       source: json['source'] != null ? LeadSourceModel.fromJson(json['source']) : null,
       status: json['status'] != null ? LeadStatusModel.fromJson(json['status']) : null,
       score: json['score'] is int ? json['score'] : (json['score'] != null ? int.tryParse(json['score'].toString()) : null),

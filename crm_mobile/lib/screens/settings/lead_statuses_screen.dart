@@ -10,7 +10,6 @@ import 'package:crm_mobile/widgets/spinning_logo.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:crm_mobile/core/utils/form_validator_utils.dart';
 import 'package:crm_mobile/widgets/confirmation_dialog.dart';
-import 'package:crm_mobile/core/services/privilege_service.dart';
 
 class LeadStatusesScreen extends StatelessWidget {
   const LeadStatusesScreen({super.key});
@@ -87,8 +86,41 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
     context.read<SettingsBloc>().add(CreateLeadStatus(statusData));
   }
 
+  int _getStatusStage(LeadStatus status) {
+    if (status.level == 1 || status.isDefault || status.statusName.trim().toLowerCase() == 'fresh') {
+      return 1;
+    }
+    final nameLower = status.statusName.trim().toLowerCase();
+    if (status.level == 3 ||
+        status.isClosed ||
+        nameLower.contains('won') ||
+        nameLower.contains('lost') ||
+        nameLower.contains('closed') ||
+        nameLower.contains('rejected') ||
+        nameLower.contains('dropped')) {
+      return 3;
+    }
+    return 2;
+  }
+
+  void _sortStatuses() {
+    _statuses.sort((a, b) {
+      final stageA = _getStatusStage(a);
+      final stageB = _getStatusStage(b);
+      // Stage 1 first, Stage 2 in between, Stage 3 at the very end
+      if (stageA != stageB) {
+        return stageA.compareTo(stageB);
+      }
+      if (a.displayOrder != b.displayOrder) {
+        return a.displayOrder.compareTo(b.displayOrder);
+      }
+      return a.statusName.toLowerCase().compareTo(b.statusName.toLowerCase());
+    });
+  }
+
   Future<void> _deleteStatus(LeadStatus status) async {
-    if (status.level == 1) {
+    final stage = _getStatusStage(status);
+    if (stage == 1) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Stage 1 status is fixed and cannot be deleted.'),
@@ -97,7 +129,7 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
       );
       return;
     }
-    if (status.level == 3) {
+    if (stage == 3) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Stage 3 status is managed by the system and cannot be deleted.'),
@@ -144,9 +176,10 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
       listener: (context, state) {
         if (state is LeadStatusesLoaded) {
           _statuses = List.from(state.statuses);
-          _statuses.sort((a, b) => a.displayOrder.compareTo(b.displayOrder));
+          _sortStatuses();
           _hasLoadedData = true;
           _isLocalLoading = false;
+          _errorMessage = null;
           _orderController.text = (_statuses.length + 1).toString();
         } else if (state is LeadStatusCreated) {
           _isLocalLoading = false;
@@ -193,6 +226,14 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
         }
       },
       builder: (context, state) {
+        // Ensure statuses are populated if state is already loaded
+        if (state is LeadStatusesLoaded && (!_hasLoadedData || _statuses.isEmpty)) {
+          _statuses = List.from(state.statuses);
+          _sortStatuses();
+          _hasLoadedData = true;
+          _orderController.text = (_statuses.length + 1).toString();
+        }
+
         final showLoader = state is SettingsLoading && !_hasLoadedData;
 
         return Scaffold(
@@ -239,7 +280,7 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
                               ),
                               const SizedBox(height: 4),
                               const Text(
-                                'Drag & drop items to reorder. Tap star to set default.',
+                                'Organized by Stage 1, Stage 2 & Stage 3. Drag & drop within stages to reorder.',
                                 style: TextStyle(color: AppColors.textHint, fontSize: 12),
                               ),
                               if (_errorMessage != null) ...[
@@ -253,181 +294,282 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
                           ),
                         ),
 
-                        // Reorderable List of current statuses
-                        Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: AppColors.borderEnabled),
-                          ),
-                          child: ReorderableListView.builder(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            buildDefaultDragHandles: false,
-                            itemCount: _statuses.length,
-                            onReorder: (oldIndex, newIndex) async {
-                              if (_isLocalLoading) return;
-                              final item = _statuses[oldIndex];
-                              var targetIdx = newIndex;
-                              if (targetIdx > oldIndex) {
-                                targetIdx -= 1;
-                              }
-                              if (oldIndex == targetIdx) return;
+                        // Empty State if no statuses exist
+                        if (_statuses.isEmpty)
+                          Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 16),
+                            width: double.infinity,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: AppColors.borderEnabled),
+                            ),
+                            child: const Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.info_outline, size: 40, color: AppColors.textHint),
+                                SizedBox(height: 12),
+                                Text(
+                                  'No lead statuses configured yet',
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  'Create a new status using the form below.',
+                                  style: TextStyle(fontSize: 12, color: AppColors.textHint),
+                                ),
+                              ],
+                            ),
+                          )
+                        else
+                          // Reorderable List of current statuses
+                          Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: AppColors.borderEnabled),
+                            ),
+                            child: ReorderableListView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              buildDefaultDragHandles: false,
+                              itemCount: _statuses.length,
+                              onReorder: (oldIndex, newIndex) async {
+                                if (_isLocalLoading) return;
+                                final item = _statuses[oldIndex];
+                                var targetIdx = newIndex;
+                                if (targetIdx > oldIndex) {
+                                  targetIdx -= 1;
+                                }
+                                if (oldIndex == targetIdx) return;
 
-                              // Stage 1 (level 1) is fixed at the first position
-                              if (item.level == 1 || targetIdx == 0) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Stage 1 status is fixed at the first position and cannot be changed.'),
-                                    backgroundColor: Colors.red,
-                                  ),
-                                );
-                                return;
-                              }
+                                final itemStage = _getStatusStage(item);
 
-                              final targetItem = _statuses[targetIdx];
-                              // Moving from Stage 3 to Stage 1 check
-                              if (item.level == 3 && targetItem.level == 1) {
-                                final isAdmin = sl<PrivilegeService>().isAdminOrSuperAdmin();
-                                if (!isAdmin) {
+                                // Stage 1 is fixed at the first position
+                                if (itemStage == 1 || targetIdx == 0) {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(
-                                      content: Text('Only Admin and Super Admin can move a status from Stage 3 to Stage 1.'),
+                                      content: Text('Stage 1 status is fixed at the first position and cannot be changed.'),
                                       backgroundColor: Colors.red,
                                     ),
                                   );
                                   return;
                                 }
-                                final confirmed = await ConfirmationDialog.show(
-                                  context,
-                                  title: 'Confirm Status Reorder',
-                                  message: 'Are you sure you want to move "${item.statusName}" from Stage 3 to Stage 1?',
-                                  confirmLabel: 'Move',
-                                  isDestructive: false,
-                                );
-                                if (confirmed != true) return;
-                              }
 
-                              setState(() {
-                                final moved = _statuses.removeAt(oldIndex);
-                                _statuses.insert(targetIdx, moved);
+                                final targetItem = _statuses[targetIdx];
+                                final targetStage = _getStatusStage(targetItem);
 
-                                // Trigger PATCH reorder API
-                                context.read<SettingsBloc>().add(
-                                      ReorderLeadStatus(moved.id, targetIdx + 1),
+                                // Prevent moving between different stages
+                                if (itemStage != targetStage) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        itemStage == 2
+                                            ? 'Stage 2 statuses must stay in between Stage 1 and Stage 3.'
+                                            : 'Stage 3 statuses must remain at the last position.',
+                                      ),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
+                                  return;
+                                }
+
+                                setState(() {
+                                  final moved = _statuses.removeAt(oldIndex);
+                                  _statuses.insert(targetIdx, moved);
+
+                                  // Trigger PATCH reorder API
+                                  context.read<SettingsBloc>().add(
+                                        ReorderLeadStatus(moved.id, targetIdx + 1),
+                                      );
+                                });
+
+                                // Automatically scroll the screen back up to top after drag/reorder
+                                WidgetsBinding.instance.addPostFrameCallback((_) {
+                                  if (_scrollController.hasClients) {
+                                    _scrollController.animateTo(
+                                      0,
+                                      duration: const Duration(milliseconds: 500),
+                                      curve: Curves.easeOutCubic,
                                     );
-                              });
+                                  }
+                                });
+                              },
+                              itemBuilder: (context, index) {
+                                final status = _statuses[index];
+                                final color = _hexToColor(status.color);
+                                final stage = _getStatusStage(status);
+                                final isStage1 = stage == 1;
+                                final isStage3 = stage == 3;
 
-                              // Automatically scroll the screen back up to top after drag/reorder
-                              WidgetsBinding.instance.addPostFrameCallback((_) {
-                                if (_scrollController.hasClients) {
-                                  _scrollController.animateTo(
-                                    0,
-                                    duration: const Duration(milliseconds: 500),
-                                    curve: Curves.easeOutCubic,
+                                final String stageText = isStage1
+                                    ? 'Stage 1'
+                                    : isStage3
+                                        ? 'Stage 3'
+                                        : 'Stage 2';
+                                final Color stageBg = isStage1
+                                    ? const Color(0xFFEFF6FF)
+                                    : isStage3
+                                        ? const Color(0xFFFEF2F2)
+                                        : const Color(0xFFF5F3FF);
+                                final Color stageColor = isStage1
+                                    ? const Color(0xFF2563EB)
+                                    : isStage3
+                                        ? const Color(0xFFDC2626)
+                                        : const Color(0xFF7C3AED);
+
+                                final bool showStageHeader = index == 0 ||
+                                    stage != _getStatusStage(_statuses[index - 1]);
+
+                                Widget? headerWidget;
+                                if (showStageHeader) {
+                                  final headerTitle = isStage1
+                                      ? 'STAGE 1: INITIAL STAGE (Fixed)'
+                                      : isStage3
+                                          ? 'STAGE 3: CLOSED / FINAL OUTCOME (Last)'
+                                          : 'STAGE 2: IN-PROGRESS PIPELINE';
+                                  final headerIcon = isStage1
+                                      ? Icons.flag_rounded
+                                      : isStage3
+                                          ? Icons.check_circle_rounded
+                                          : Icons.hourglass_top_rounded;
+
+                                  headerWidget = Container(
+                                    width: double.infinity,
+                                    margin: EdgeInsets.only(
+                                      top: index == 0 ? 8 : 16,
+                                      bottom: 6,
+                                      left: 12,
+                                      right: 12,
+                                    ),
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                                    decoration: BoxDecoration(
+                                      color: stageBg,
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(color: stageColor.withValues(alpha: 0.25)),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(headerIcon, size: 15, color: stageColor),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            headerTitle,
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w800,
+                                              letterSpacing: 0.3,
+                                              color: stageColor,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   );
                                 }
-                              });
-                            },
-                            itemBuilder: (context, index) {
-                              final status = _statuses[index];
-                              final color = _hexToColor(status.color);
-                              final isStage1 = status.level == 1;
-                              final isStage3 = status.level == 3;
 
-                              final String stageText = isStage1
-                                  ? 'Stage 1 (Fixed)'
-                                  : isStage3
-                                      ? 'Stage 3 (Closed)'
-                                      : 'Stage 2 (Customizable)';
-                              final Color stageBg = isStage1
-                                  ? const Color(0xFFEFF6FF)
-                                  : isStage3
-                                      ? const Color(0xFFFEF2F2)
-                                      : const Color(0xFFF5F3FF);
-                              final Color stageColor = isStage1
-                                  ? const Color(0xFF2563EB)
-                                  : isStage3
-                                      ? const Color(0xFFDC2626)
-                                      : const Color(0xFF7C3AED);
-
-                              return ListTile(
-                                key: ValueKey(status.id),
-                                leading: Container(
-                                  width: 12,
-                                  height: 12,
-                                  decoration: BoxDecoration(
-                                    color: color,
-                                    shape: BoxShape.circle,
+                                return Container(
+                                  key: ValueKey(status.id),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      if (headerWidget != null) headerWidget,
+                                      ListTile(
+                                        leading: Container(
+                                          width: 14,
+                                          height: 14,
+                                          decoration: BoxDecoration(
+                                            color: color,
+                                            shape: BoxShape.circle,
+                                            border: Border.all(color: Colors.white, width: 1.5),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: color.withValues(alpha: 0.4),
+                                                blurRadius: 4,
+                                                spreadRadius: 0.5,
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        title: Text(
+                                          status.statusName,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 14,
+                                            color: AppColors.textPrimary,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        subtitle: Padding(
+                                          padding: const EdgeInsets.only(top: 4.0),
+                                          child: Row(
+                                            children: [
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                decoration: BoxDecoration(
+                                                  color: stageBg,
+                                                  borderRadius: BorderRadius.circular(4),
+                                                ),
+                                                child: Text(
+                                                  stageText,
+                                                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: stageColor),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Text(
+                                                'Order: ${status.displayOrder > 0 ? status.displayOrder : (index + 1)}',
+                                                style: const TextStyle(fontSize: 11, color: AppColors.textHint),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        trailing: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            GestureDetector(
+                                              onTap: (_isLocalLoading || isStage1)
+                                                  ? null
+                                                  : () {
+                                                      context
+                                                          .read<SettingsBloc>()
+                                                          .add(SetDefaultLeadStatus(status.id));
+                                                    },
+                                              child: status.isDefault || isStage1
+                                                  ? const Icon(Icons.star, color: Colors.amber, size: 22)
+                                                  : const Icon(Icons.star_border, color: Colors.grey, size: 22),
+                                            ),
+                                            const SizedBox(width: 14),
+                                            if (!isStage1 && !isStage3)
+                                              GestureDetector(
+                                                onTap: _isLocalLoading ? null : () => _deleteStatus(status),
+                                                child: const Icon(Icons.delete_outline, color: AppColors.primary, size: 20),
+                                              )
+                                            else
+                                              const SizedBox(width: 20),
+                                            const SizedBox(width: 10),
+                                            if (!isStage1)
+                                              ReorderableDragStartListener(
+                                                index: index,
+                                                child: const Icon(Icons.drag_handle, color: Colors.grey, size: 20),
+                                              )
+                                            else
+                                              const SizedBox(width: 20),
+                                          ],
+                                        ),
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                                      ),
+                                      if (index < _statuses.length - 1 &&
+                                          _getStatusStage(_statuses[index + 1]) == stage)
+                                        const Divider(height: 1, indent: 44, endIndent: 16, color: Color(0xFFF3F4F6)),
+                                    ],
                                   ),
-                                ),
-                                title: Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        status.statusName,
-                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: stageBg,
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                      child: Text(
-                                        stageText,
-                                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: stageColor),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                subtitle: Text(
-                                  'Order: ${status.displayOrder}',
-                                  style: const TextStyle(fontSize: 12, color: AppColors.textHint),
-                                ),
-                                trailing: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    GestureDetector(
-                                      onTap: (_isLocalLoading || isStage1)
-                                          ? null
-                                          : () {
-                                              context
-                                                  .read<SettingsBloc>()
-                                                  .add(SetDefaultLeadStatus(status.id));
-                                            },
-                                      child: status.isDefault
-                                          ? const Icon(Icons.star, color: Colors.amber, size: 22)
-                                          : (isStage1 ? const SizedBox(width: 22) : const Icon(Icons.star_border, color: Colors.grey, size: 22)),
-                                    ),
-                                    const SizedBox(width: 16),
-                                    if (!isStage1 && !isStage3)
-                                      GestureDetector(
-                                        onTap: _isLocalLoading ? null : () => _deleteStatus(status),
-                                        child: const Icon(Icons.delete_outline, color: AppColors.primary, size: 20),
-                                      )
-                                    else
-                                      const SizedBox(width: 20),
-                                    const SizedBox(width: 12),
-                                    if (!isStage1)
-                                      ReorderableDragStartListener(
-                                        index: index,
-                                        child: const Icon(Icons.drag_handle, color: Colors.grey, size: 20),
-                                      )
-                                    else
-                                      const SizedBox(width: 20),
-                                  ],
-                                ),
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                              );
-                            },
+                                );
+                              },
+                            ),
                           ),
-                        ),
 
                         const SizedBox(height: 12),
 
@@ -493,7 +635,7 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
                                               pickerColor: _hexToColor(_selectedColor),
                                               onColorChanged: (color) {
                                                 setState(() {
-                                                  _selectedColor = '#${color.value.toRadixString(16).substring(2, 8).toUpperCase()}';
+                                                  _selectedColor = '#${color.toARGB32().toRadixString(16).substring(2, 8).toUpperCase()}';
                                                 });
                                               },
                                               pickerAreaHeightPercent: 0.8,
@@ -524,7 +666,7 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
                                           border: Border.all(color: AppColors.borderEnabled, width: 2),
                                           boxShadow: [
                                             BoxShadow(
-                                                color: _hexToColor(_selectedColor).withOpacity(0.4),
+                                                color: _hexToColor(_selectedColor).withValues(alpha: 0.4),
                                                 blurRadius: 6,
                                                 spreadRadius: 1)
                                           ],
@@ -572,7 +714,7 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
                                     ),
                                     Switch(
                                       value: _isDefault,
-                                      activeColor: AppColors.primary,
+                                      activeTrackColor: AppColors.primary,
                                       onChanged: _isLocalLoading ? null : (val) {
                                         setState(() {
                                           _isDefault = val;
