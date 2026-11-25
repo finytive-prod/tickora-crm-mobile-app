@@ -433,6 +433,7 @@ class SettingsRepositoryImpl implements SettingsRepository {
       final queryParams = <String, dynamic>{
         'page': page,
         'size': size,
+        'sort': 'createdAt,desc',
       };
       if (status.toUpperCase() == 'INACTIVE') {
         queryParams['isActive'] = false;
@@ -446,13 +447,26 @@ class SettingsRepositoryImpl implements SettingsRepository {
 
       // 1. Try /identity/users/staff (primary endpoint containing full user info with email)
       try {
-        final response = await apiClient.get(
-          '$identityBaseUrl/users/staff',
-          queryParameters: queryParams,
-        );
+        dynamic response;
+        try {
+          response = await apiClient.get(
+            '$identityBaseUrl/users/staff',
+            queryParameters: queryParams,
+          );
+        } on DioException catch (e) {
+          if (e.response?.statusCode == 400) {
+            final fallbackParams = Map<String, dynamic>.from(queryParams)..remove('sort');
+            response = await apiClient.get(
+              '$identityBaseUrl/users/staff',
+              queryParameters: fallbackParams,
+            );
+          } else {
+            rethrow;
+          }
+        }
 
         final body = response.data;
-        if (body != null && body['success'] == true && body['data'] != null) {
+        if (body != null && (body['success'] == true || response.statusCode == 200) && body['data'] != null) {
           final List<dynamic> content;
           if (body['data'] is List) {
             content = body['data'];
@@ -462,21 +476,32 @@ class SettingsRepositoryImpl implements SettingsRepository {
             content = [];
           }
           final staff = content.map((json) => StaffMemberModel.fromJson(json)).toList();
-          if (staff.isNotEmpty) {
-            return Right(staff);
-          }
+          return Right(staff);
         }
       } catch (_) {}
 
       // 2. Try /identity/users (fallback identity endpoint)
       try {
-        final response = await apiClient.get(
-          '$identityBaseUrl/users',
-          queryParameters: queryParams,
-        );
+        dynamic response;
+        try {
+          response = await apiClient.get(
+            '$identityBaseUrl/users',
+            queryParameters: queryParams,
+          );
+        } on DioException catch (e) {
+          if (e.response?.statusCode == 400) {
+            final fallbackParams = Map<String, dynamic>.from(queryParams)..remove('sort');
+            response = await apiClient.get(
+              '$identityBaseUrl/users',
+              queryParameters: fallbackParams,
+            );
+          } else {
+            rethrow;
+          }
+        }
 
         final body = response.data;
-        if (body != null && body['success'] == true && body['data'] != null) {
+        if (body != null && (body['success'] == true || response.statusCode == 200) && body['data'] != null) {
           final List<dynamic> content;
           if (body['data'] is List) {
             content = body['data'];
@@ -486,9 +511,7 @@ class SettingsRepositoryImpl implements SettingsRepository {
             content = [];
           }
           final staff = content.map((json) => StaffMemberModel.fromJson(json)).toList();
-          if (staff.isNotEmpty) {
-            return Right(staff);
-          }
+          return Right(staff);
         }
       } catch (_) {}
 
@@ -573,8 +596,32 @@ class SettingsRepositoryImpl implements SettingsRepository {
       final body = response.data;
       if (body != null && (body['success'] == true || response.statusCode == 201 || response.statusCode == 200)) {
         final Map<String, dynamic> staffJson = (body is Map<String, dynamic> && body.containsKey('data') && body['data'] is Map<String, dynamic>)
-            ? body['data']
-            : (body is Map<String, dynamic> ? body : data);
+            ? Map<String, dynamic>.from(body['data'])
+            : (body is Map<String, dynamic> ? Map<String, dynamic>.from(body) : Map<String, dynamic>.from(data));
+
+        if (staffJson['id'] == null || staffJson['id'].toString().isEmpty) {
+          staffJson['id'] = (body is Map && body['id'] != null) ? body['id'].toString() : 'temp_${DateTime.now().millisecondsSinceEpoch}';
+        }
+        if (staffJson['createdAt'] == null || staffJson['createdAt'].toString().isEmpty) {
+          staffJson['createdAt'] = DateTime.now().toIso8601String();
+        }
+        if (staffJson['fullName'] == null || staffJson['fullName'].toString().isEmpty) {
+          staffJson['fullName'] = data['fullName'] ?? '${data['firstName'] ?? ''} ${data['lastName'] ?? ''}'.trim();
+        }
+        if (staffJson['email'] == null || staffJson['email'].toString().isEmpty) {
+          staffJson['email'] = data['email'] ?? '';
+        }
+        if (staffJson['phone'] == null || staffJson['phone'].toString().isEmpty) {
+          staffJson['phone'] = data['phone'] ?? data['phoneNumber'] ?? '';
+        }
+        if (staffJson['accountStatus'] == null || staffJson['accountStatus'].toString().isEmpty) {
+          staffJson['accountStatus'] = 'ACTIVE';
+        }
+        if (staffJson['roles'] == null) {
+          final r = data['role'] ?? data['roleId'] ?? 'STAFF';
+          staffJson['roles'] = [r.toString()];
+        }
+
         final staffMember = StaffMemberModel.fromJson(staffJson);
         return Right(staffMember);
       } else {

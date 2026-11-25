@@ -8,12 +8,35 @@ abstract class CustomerEvent extends Equatable {
 }
 
 class FetchCustomers extends CustomerEvent {
+  final int page;
+  final int size;
   final String? searchQuery;
+  final bool isRefresh;
 
-  const FetchCustomers({this.searchQuery});
+  const FetchCustomers({
+    this.page = 0,
+    this.size = 20,
+    this.searchQuery,
+    this.isRefresh = false,
+  });
 
   @override
-  List<Object?> get props => [searchQuery];
+  List<Object?> get props => [page, size, searchQuery, isRefresh];
+}
+
+class LoadMoreCustomers extends CustomerEvent {
+  final int page;
+  final int size;
+  final String? searchQuery;
+
+  const LoadMoreCustomers({
+    required this.page,
+    this.size = 20,
+    this.searchQuery,
+  });
+
+  @override
+  List<Object?> get props => [page, size, searchQuery];
 }
 
 class FetchCustomerTypes extends CustomerEvent {}

@@ -125,3 +125,17 @@ class Customer {
     return trimmed.substring(0, trimmed.length >= 2 ? 2 : 1).toUpperCase();
   }
 }
+
+class CustomerListResponse {
+  final List<Customer> customers;
+  final int totalCount;
+  final int totalPages;
+  final int currentPage;
+
+  const CustomerListResponse({
+    required this.customers,
+    required this.totalCount,
+    this.totalPages = 1,
+    this.currentPage = 0,
+  });
+}

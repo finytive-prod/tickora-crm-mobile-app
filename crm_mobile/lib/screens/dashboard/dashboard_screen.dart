@@ -162,11 +162,20 @@ class _DashboardViewState extends State<DashboardView> {
             : null,
         title: Row(
           children: [
-            Image.asset(
-              'assets/images/logo.webp',
-              width: 28,
-              height: 28,
-              errorBuilder: (_, __, ___) => const Icon(Icons.dashboard_customize_outlined, color: AppColors.primary),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: Image.asset(
+                'assets/images/logo.png',
+                width: 28,
+                height: 28,
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => Image.asset(
+                  'assets/images/logo.webp',
+                  width: 28,
+                  height: 28,
+                  errorBuilder: (_, __, ___) => const Icon(Icons.dashboard_customize_outlined, color: AppColors.primary),
+                ),
+              ),
             ),
             const SizedBox(width: 10),
             const Text(
@@ -693,7 +702,7 @@ class _DashboardViewState extends State<DashboardView> {
                     'Not Connected',
                     totalNotConnected.toString(),
                     Icons.phone_missed_outlined,
-                    const Color(0xFFDC2626),
+                    AppColors.primary,
                   ),
                 ),
               ],
@@ -827,8 +836,8 @@ class _DashboardViewState extends State<DashboardView> {
         'title': 'LOST LEADS',
         'value': '${metrics.lostLeads}',
         'icon': Icons.cancel_outlined,
-        'iconBg': const Color(0xFFFEE2E2),
-        'iconColor': const Color(0xFFEF4444),
+        'iconBg': AppColors.secondary,
+        'iconColor': AppColors.primary,
       },
       {
         'key': DashboardWidgetKeys.todaysFollowups,
@@ -843,8 +852,8 @@ class _DashboardViewState extends State<DashboardView> {
         'title': 'OVERDUE FOLLOW-UPS',
         'value': '${metrics.overdueFollowups}',
         'icon': Icons.warning_amber_rounded,
-        'iconBg': const Color(0xFFFFE4E6),
-        'iconColor': const Color(0xFFF43F5E),
+        'iconBg': AppColors.secondary,
+        'iconColor': AppColors.primary,
       },
       {
         'key': DashboardWidgetKeys.revenueThisMonth,
@@ -1180,7 +1189,7 @@ class _DashboardViewState extends State<DashboardView> {
                         width: 26,
                         height: 26,
                         decoration: const BoxDecoration(
-                          color: Color(0xFFEF4444),
+                          color: AppColors.primary,
                           shape: BoxShape.circle,
                         ),
                       ),
@@ -1192,7 +1201,7 @@ class _DashboardViewState extends State<DashboardView> {
                           style: const TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 13,
-                            color: Color(0xFFDC2626),
+                            color: AppColors.primary,
                           ),
                         ),
                       ),
@@ -1268,7 +1277,7 @@ class _DashboardViewState extends State<DashboardView> {
         style: const TextStyle(
           fontSize: 12,
           fontWeight: FontWeight.bold,
-          color: Color(0xFFEF4444),
+          color: AppColors.primary,
         ),
       ),
     );

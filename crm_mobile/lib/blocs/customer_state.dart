@@ -14,12 +14,41 @@ class CustomerLoading extends CustomerState {}
 
 class CustomersLoaded extends CustomerState {
   final List<Customer> customers;
+  final int totalCount;
+  final int currentPage;
+  final bool hasMore;
+  final bool isLoadingMore;
   final String? searchQuery;
 
-  const CustomersLoaded({required this.customers, this.searchQuery});
+  const CustomersLoaded({
+    required this.customers,
+    this.totalCount = 0,
+    this.currentPage = 0,
+    this.hasMore = true,
+    this.isLoadingMore = false,
+    this.searchQuery,
+  });
+
+  CustomersLoaded copyWith({
+    List<Customer>? customers,
+    int? totalCount,
+    int? currentPage,
+    bool? hasMore,
+    bool? isLoadingMore,
+    String? searchQuery,
+  }) {
+    return CustomersLoaded(
+      customers: customers ?? this.customers,
+      totalCount: totalCount ?? this.totalCount,
+      currentPage: currentPage ?? this.currentPage,
+      hasMore: hasMore ?? this.hasMore,
+      isLoadingMore: isLoadingMore ?? this.isLoadingMore,
+      searchQuery: searchQuery ?? this.searchQuery,
+    );
+  }
 
   @override
-  List<Object?> get props => [customers, searchQuery];
+  List<Object?> get props => [customers, totalCount, currentPage, hasMore, isLoadingMore, searchQuery];
 }
 
 class CustomerTypesLoaded extends CustomerState {

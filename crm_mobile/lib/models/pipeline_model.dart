@@ -103,7 +103,32 @@ class PipelineLeadItem {
     return name.isNotEmpty ? name : (leadNumber.isNotEmpty ? leadNumber : 'Unnamed Lead');
   }
 
+  static String _formatOwnerName(String? input) {
+    if (input == null) return 'Unassigned';
+    final trimmed = input.trim();
+    if (trimmed.isEmpty || trimmed == '-' || trimmed.toLowerCase() == 'unassigned') {
+      return 'Unassigned';
+    }
+    if (trimmed.contains('@')) {
+      final username = trimmed.split('@').first;
+      final parts = username.split(RegExp(r'[._\-]'));
+      final formatted = parts
+          .where((p) => p.trim().isNotEmpty)
+          .map((p) => p[0].toUpperCase() + (p.length > 1 ? p.substring(1).toLowerCase() : ''))
+          .join(' ');
+      if (formatted.isNotEmpty) return formatted;
+    }
+    return trimmed;
+  }
+
   factory PipelineLeadItem.fromJson(Map<String, dynamic> json) {
+    final rawOwner = json['ownerUsername']?.toString() ??
+        json['ownerUserName']?.toString() ??
+        json['ownerName']?.toString() ??
+        json['assignedToName']?.toString() ??
+        json['assignedTo']?.toString() ??
+        'Unassigned';
+
     return PipelineLeadItem(
       id: json['id']?.toString() ?? '',
       leadNumber: json['leadNumber']?.toString() ?? '',
@@ -114,7 +139,7 @@ class PipelineLeadItem {
       phone: json['phone']?.toString() ?? '',
       priority: json['priority']?.toString() ?? 'MEDIUM',
       ownerUserId: json['ownerUserId']?.toString() ?? '',
-      ownerUsername: json['ownerUsername']?.toString() ?? json['ownerUserName']?.toString() ?? 'Unassigned',
+      ownerUsername: _formatOwnerName(rawOwner),
       createdAt: json['createdAt']?.toString() ?? '',
     );
   }

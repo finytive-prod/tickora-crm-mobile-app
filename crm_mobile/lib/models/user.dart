@@ -9,6 +9,7 @@ class User extends Equatable {
   final String userName;
   final String role;
   final List<String> privileges;
+  final String refreshToken;
 
   const User({
     required this.accessToken,
@@ -18,6 +19,7 @@ class User extends Equatable {
     required this.userName,
     required this.role,
     required this.privileges,
+    this.refreshToken = '',
   });
 
   @override

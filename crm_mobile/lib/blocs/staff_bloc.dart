@@ -33,6 +33,7 @@ class StaffBloc extends Bloc<StaffEvent, StaffState> {
     on<UpdateStaffMemberEvent>(_onUpdateStaffMember);
     on<ToggleStaffStatusEvent>(_onToggleStaffStatus);
     on<CreateStaffMemberEvent>(_onCreateStaffMember);
+    on<AddNewlyCreatedStaffMember>(_onAddNewlyCreatedStaffMember);
     on<FetchStaffDetailEvent>(_onFetchStaffDetail);
   }
 
@@ -57,53 +58,121 @@ class StaffBloc extends Bloc<StaffEvent, StaffState> {
     final statsResult = results[0] as Either<Failure, StaffStats>;
     final membersResult = results[1] as Either<Failure, List<StaffMember>>;
 
-    statsResult.fold((_) => null, (s) => stats = s);
-
-    if (stats == null) {
-      final fallbackCounts = await Future.wait([
-        getStaffMembersUseCase(page: 0, size: 1000, status: 'ACTIVE'),
-        getStaffMembersUseCase(page: 0, size: 1000, status: 'INACTIVE'),
-      ]);
-      int activeCount = 0;
-      int inactiveCount = 0;
-      fallbackCounts[0].fold((_) {}, (list) => activeCount = list.length);
-      fallbackCounts[1].fold((_) {}, (list) => inactiveCount = list.length);
-      stats = StaffStats(
-        activeMembers: activeCount,
-        inactiveMembers: inactiveCount,
-        totalMembers: activeCount + inactiveCount,
-      );
-    }
+    bool hasServerStats = false;
+    statsResult.fold((_) => null, (s) {
+      stats = s;
+      hasServerStats = true;
+    });
 
     membersResult.fold(
       (failure) => emit(StaffError(failure.message)),
-      (staffMembers) => emit(StaffLoaded(
-        staffMembers: staffMembers,
-        stats: stats,
-        currentPage: event.page,
-        hasMore: staffMembers.length >= event.size,
-        currentStatus: event.status,
-        searchQuery: event.searchQuery,
-      )),
+      (staffMembers) {
+        // Deduplicate staff members by ID
+        final seen = <String>{};
+        final uniqueStaff = staffMembers.where((s) => seen.add(s.id)).toList();
+
+        // If backend returned more than requested page size (e.g. 40 items when size is 20),
+        // the endpoint returned all records unpaginated.
+        final bool isUnpaginated = staffMembers.length > event.size;
+
+        // If stats is missing, calculate from unique staff members
+        if (stats == null) {
+          final activeCount = uniqueStaff.where((s) => s.isActive).length;
+          final inactiveCount = uniqueStaff.length - activeCount;
+          stats = StaffStats(
+            activeMembers: activeCount,
+            inactiveMembers: inactiveCount,
+            totalMembers: uniqueStaff.length,
+          );
+        }
+
+        // Determine target count from stats if server actually returned it
+        final int targetCount = (event.status.toUpperCase() == 'INACTIVE')
+            ? stats!.inactiveMembers
+            : stats!.activeMembers;
+
+        bool hasMore;
+        if (isUnpaginated) {
+          hasMore = false;
+        } else if (hasServerStats && targetCount > 0 && uniqueStaff.length >= targetCount) {
+          hasMore = false;
+        } else {
+          hasMore = staffMembers.length >= event.size && staffMembers.isNotEmpty;
+        }
+
+        emit(StaffLoaded(
+          staffMembers: uniqueStaff,
+          stats: stats,
+          currentPage: event.page,
+          hasMore: hasMore,
+          currentStatus: event.status,
+          searchQuery: event.searchQuery,
+        ));
+      },
     );
   }
 
   Future<void> _onLoadMoreStaffMembers(LoadMoreStaffMembers event, Emitter<StaffState> emit) async {
     final currentState = state;
     if (currentState is StaffLoaded) {
+      if (!currentState.hasMore || currentState.isLoadingMore) {
+        return;
+      }
+
       emit(currentState.copyWith(isLoadingMore: true));
-      final result = await getStaffMembersUseCase(page: event.page, size: event.size, status: event.status, searchQuery: event.searchQuery);
+      final result = await getStaffMembersUseCase(
+        page: event.page,
+        size: event.size,
+        status: event.status,
+        searchQuery: event.searchQuery,
+      );
+
       result.fold(
         (failure) => emit(currentState.copyWith(isLoadingMore: false)),
-        (newStaff) => emit(StaffLoaded(
-          staffMembers: [...currentState.staffMembers, ...newStaff],
-          stats: currentState.stats,
-          currentPage: event.page,
-          hasMore: newStaff.length >= event.size,
-          isLoadingMore: false,
-          currentStatus: event.status,
-          searchQuery: event.searchQuery,
-        )),
+        (newStaff) {
+          final existingIds = currentState.staffMembers.map((s) => s.id).toSet();
+          final uniqueNewStaff = <StaffMember>[];
+          for (final s in newStaff) {
+            if (!existingIds.contains(s.id)) {
+              existingIds.add(s.id);
+              uniqueNewStaff.add(s);
+            }
+          }
+
+          // If no new unique staff members were returned (or backend sent repeated items), stop pagination!
+          if (uniqueNewStaff.isEmpty) {
+            emit(currentState.copyWith(
+              hasMore: false,
+              isLoadingMore: false,
+            ));
+            return;
+          }
+
+          final updatedList = [...currentState.staffMembers, ...uniqueNewStaff];
+
+          final int targetCount = (currentState.stats != null)
+              ? (event.status.toUpperCase() == 'INACTIVE'
+                  ? currentState.stats!.inactiveMembers
+                  : currentState.stats!.activeMembers)
+              : -1;
+
+          bool hasMore;
+          if (targetCount > 0 && updatedList.length >= targetCount) {
+            hasMore = false;
+          } else {
+            hasMore = newStaff.length >= event.size;
+          }
+
+          emit(StaffLoaded(
+            staffMembers: updatedList,
+            stats: currentState.stats,
+            currentPage: event.page,
+            hasMore: hasMore,
+            isLoadingMore: false,
+            currentStatus: event.status,
+            searchQuery: event.searchQuery,
+          ));
+        },
       );
     }
   }
@@ -133,5 +202,41 @@ class StaffBloc extends Bloc<StaffEvent, StaffState> {
       (failure) => emit(StaffCreateError(failure.message)),
       (member) => emit(StaffCreateSuccess(member)),
     );
+  }
+
+  void _onAddNewlyCreatedStaffMember(AddNewlyCreatedStaffMember event, Emitter<StaffState> emit) {
+    final currentState = state;
+    if (currentState is StaffLoaded) {
+      final filteredList = currentState.staffMembers.where((s) => s.id != event.staffMember.id).toList();
+      final updatedList = [event.staffMember, ...filteredList];
+
+      StaffStats? updatedStats;
+      if (currentState.stats != null) {
+        final activeDelta = event.staffMember.isActive ? 1 : 0;
+        final inactiveDelta = event.staffMember.isActive ? 0 : 1;
+        updatedStats = StaffStats(
+          activeMembers: currentState.stats!.activeMembers + activeDelta,
+          inactiveMembers: currentState.stats!.inactiveMembers + inactiveDelta,
+          totalMembers: currentState.stats!.totalMembers + 1,
+        );
+      }
+
+      emit(currentState.copyWith(
+        staffMembers: updatedList,
+        stats: updatedStats ?? currentState.stats,
+      ));
+    } else {
+      emit(StaffLoaded(
+        staffMembers: [event.staffMember],
+        stats: StaffStats(
+          activeMembers: event.staffMember.isActive ? 1 : 0,
+          inactiveMembers: event.staffMember.isActive ? 0 : 1,
+          totalMembers: 1,
+        ),
+        currentPage: 0,
+        hasMore: false,
+        currentStatus: event.staffMember.isActive ? 'ACTIVE' : 'INACTIVE',
+      ));
+    }
   }
 }

@@ -434,7 +434,7 @@ class _InAppAudioPlayerModalState extends State<InAppAudioPlayerModal> {
               padding: const EdgeInsets.symmetric(vertical: 16.0),
               child: Text(
                 _errorMessage!,
-                style: const TextStyle(color: Colors.red, fontSize: 13),
+                style: const TextStyle(color: AppColors.primary, fontSize: 13),
               ),
             ),
           ] else ...[

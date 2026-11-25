@@ -129,6 +129,7 @@ class _AddEditCustomerViewState extends State<_AddEditCustomerView> {
     final data = {
         "customerType": _selectedType ?? "INDIVIDUAL",
         "customerName": _nameController.text.trim(),
+        "name": _nameController.text.trim(),
         "companyName": _isCompanyType ? _companyController.text.trim() : "",
         "email": _emailController.text.trim(),
         "phone": _phoneController.text.trim(),

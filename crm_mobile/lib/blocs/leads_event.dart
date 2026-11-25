@@ -167,6 +167,8 @@ class UploadLeadAudio extends LeadsEvent {
   final String? endTime;
   final String? from;
   final String? to;
+  final String? fromNumber;
+  final String? toNumber;
   final String? duration;
   final String? callDate;
   final String? callStatus;
@@ -179,6 +181,8 @@ class UploadLeadAudio extends LeadsEvent {
     this.endTime,
     this.from,
     this.to,
+    this.fromNumber,
+    this.toNumber,
     this.duration,
     this.callDate,
     this.callStatus,
@@ -193,6 +197,8 @@ class UploadLeadAudio extends LeadsEvent {
         endTime,
         from,
         to,
+        fromNumber,
+        toNumber,
         duration,
         callDate,
         callStatus,

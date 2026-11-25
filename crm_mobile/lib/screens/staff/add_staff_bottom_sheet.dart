@@ -51,7 +51,7 @@ class _AddStaffBottomSheetState extends State<AddStaffBottomSheet> {
   String? _selectedRole;
   String? _selectedManagerId;
   bool _isDefault = false;
-  bool _redirect = true;
+  // bool _redirect = true;
   
   bool _isLoadingRoles = true;
   bool _isSubmitting = false;
@@ -207,7 +207,7 @@ class _AddStaffBottomSheetState extends State<AddStaffBottomSheet> {
       'reportingTo': managerId,
       'callTarget': int.tryParse(_callTargetController.text.trim()) ?? 50,
       'callTimeTarget': _callTimeTargetController.text.trim().isEmpty ? '08:00:00' : _callTimeTargetController.text.trim(),
-      'redirect': _redirect,
+      // 'redirect': _redirect,
       'isDefault': _isDefault,
       'password': '',
     };
@@ -345,19 +345,19 @@ class _AddStaffBottomSheetState extends State<AddStaffBottomSheet> {
                           width: double.infinity,
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFFEF2F2),
+                            color: AppColors.secondary,
                             borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: const Color(0xFFFCA5A5)),
+                            border: Border.all(color: AppColors.borderEnabled),
                           ),
                           child: Row(
                             children: [
-                              const Icon(Icons.error_outline, color: Color(0xFFDC2626), size: 20),
+                              const Icon(Icons.error_outline, color: AppColors.primary, size: 20),
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Text(
                                   _serverError!,
                                   style: const TextStyle(
-                                    color: Color(0xFF991B1B),
+                                    color: AppColors.primary,
                                     fontSize: 13,
                                     fontWeight: FontWeight.w500,
                                   ),
@@ -547,12 +547,12 @@ class _AddStaffBottomSheetState extends State<AddStaffBottomSheet> {
                               fontWeight: FontWeight.w500,
                             ),
                           ),
-                          Switch.adaptive(
-                            value: _redirect,
-                            activeTrackColor: AppColors.primary,
-                            activeThumbColor: Colors.white,
-                            onChanged: (val) => setState(() => _redirect = val),
-                          ),
+                          // Switch.adaptive(
+                          //   value: _redirect,
+                          //   activeTrackColor: AppColors.primary,
+                          //   activeThumbColor: Colors.white,
+                          //   onChanged: (val) => setState(() => _redirect = val),
+                          // ),
                         ],
                       ),
                       const SizedBox(height: 24),

@@ -775,6 +775,8 @@ class LeadsBloc extends Bloc<LeadsEvent, LeadsState> {
         endTime: event.endTime,
         from: event.from,
         to: event.to,
+        fromNumber: event.fromNumber,
+        toNumber: event.toNumber,
         duration: event.duration,
         callDate: event.callDate,
         callStatus: event.callStatus,

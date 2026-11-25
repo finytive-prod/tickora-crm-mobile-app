@@ -121,12 +121,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       iconBg = const Color(0xFFFEF3C7);
     } else if (typeLower.contains('alert') || typeLower.contains('system')) {
       iconData = Icons.notifications_active_rounded;
-      iconColor = const Color(0xFFDC2626);
-      iconBg = const Color(0xFFFEE2E2);
+      iconColor = AppColors.primary;
+      iconBg = AppColors.secondary;
     } else {
       iconData = Icons.notifications_outlined;
       iconColor = AppColors.primary;
-      iconBg = const Color(0xFFFEE2E2);
+      iconBg = AppColors.secondary;
     }
 
     return InkWell(

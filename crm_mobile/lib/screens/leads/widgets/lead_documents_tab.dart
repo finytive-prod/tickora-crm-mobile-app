@@ -236,7 +236,7 @@ class LeadDocumentsTab extends StatelessWidget {
           fileColor = Colors.blue;
         } else if (lowerType.contains('pdf') || lowerName.endsWith('.pdf')) {
           fileIcon = Icons.picture_as_pdf_outlined;
-          fileColor = Colors.red;
+          fileColor = AppColors.primary;
         } else if (lowerType.contains('word') || lowerName.endsWith('.doc') || lowerName.endsWith('.docx')) {
           fileIcon = Icons.description_outlined;
           fileColor = Colors.indigo;
@@ -305,7 +305,7 @@ class LeadDocumentsTab extends StatelessWidget {
                   ),
                   if (!doc.id.startsWith('cf_'))
                     IconButton(
-                      icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 22),
+                      icon: const Icon(Icons.delete_outline_rounded, color: AppColors.primary, size: 22),
                       tooltip: 'Delete',
                       onPressed: () => _confirmDeleteAttachment(context, doc),
                     ),
@@ -326,7 +326,7 @@ class LeadDocumentsTab extends StatelessWidget {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Row(
           children: [
-            Icon(Icons.delete_outline_rounded, color: Colors.red, size: 24),
+            Icon(Icons.delete_outline_rounded, color: AppColors.primary, size: 24),
             SizedBox(width: 8),
             Text(
               'Delete Document',
@@ -345,7 +345,7 @@ class LeadDocumentsTab extends StatelessWidget {
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
+              backgroundColor: AppColors.primary,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
             onPressed: () {
@@ -382,7 +382,7 @@ class LeadDocumentsTab extends StatelessWidget {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to delete: ${failure.message}'),
-            backgroundColor: Colors.red,
+            backgroundColor: AppColors.primary,
           ),
         );
       },

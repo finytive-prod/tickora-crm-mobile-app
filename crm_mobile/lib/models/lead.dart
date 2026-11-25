@@ -139,7 +139,7 @@ class LeadStatusModel extends LeadStatus {
       return LeadStatusModel(
         id: json['id']?.toString() ?? '',
         statusName: statusNameStr,
-        color: json['color']?.toString() ?? '#6B7280',
+        color: (json['color'] ?? json['colorCode'] ?? json['color_code'] ?? '#6B7280').toString(),
         isDefault: json['isDefault'] == true || computedLevel == 1,
         isClosed: json['isClosed'] == true || computedLevel == 3,
         displayOrder: parsedDisplayOrder,
@@ -340,13 +340,21 @@ class LeadModel extends Lead {
     }
 
     trySetOwnerUserId(json['ownerUserId']);
+    trySetOwnerUserId(json['owner_user_id']);
     trySetOwnerUserId(json['ownerId']);
+    trySetOwnerUserId(json['owner_id']);
     trySetOwnerUserId(json['assignedToId']);
+    trySetOwnerUserId(json['assigned_to_id']);
     trySetOwnerUserId(json['assignedUserId']);
+    trySetOwnerUserId(json['assigned_user_id']);
     trySetOwnerUserId(json['staffId']);
+    trySetOwnerUserId(json['staff_id']);
     trySetOwnerUserId(json['userId']);
+    trySetOwnerUserId(json['user_id']);
     trySetOwnerUserId(json['assignedTo']);
+    trySetOwnerUserId(json['assigned_to']);
     trySetOwnerUserId(json['ownerUser']);
+    trySetOwnerUserId(json['owner_user']);
     trySetOwnerUserId(json['owner']);
 
     String? ownerUserName;
@@ -362,7 +370,7 @@ class LeadModel extends Lead {
           }
         }
       } else if (val is Map) {
-        final nameVal = (val['name'] ?? val['fullName'] ?? val['firstName'] ?? val['userName'] ?? val['username'])?.toString();
+        final nameVal = (val['name'] ?? val['fullName'] ?? val['firstName'] ?? val['userName'] ?? val['username'] ?? val['email'])?.toString();
         if (nameVal != null && nameVal.trim().isNotEmpty) {
           ownerUserName = nameVal.trim();
         }
@@ -370,26 +378,51 @@ class LeadModel extends Lead {
     }
 
     trySetOwnerUserName(json['ownerUserName']);
+    trySetOwnerUserName(json['owner_user_name']);
     trySetOwnerUserName(json['ownerName']);
+    trySetOwnerUserName(json['owner_name']);
     trySetOwnerUserName(json['assignedToName']);
+    trySetOwnerUserName(json['assigned_to_name']);
     trySetOwnerUserName(json['assignedToInfo']);
     trySetOwnerUserName(json['assigneeName']);
+    trySetOwnerUserName(json['assignee_name']);
     trySetOwnerUserName(json['assignee']);
     trySetOwnerUserName(json['staffName']);
+    trySetOwnerUserName(json['staff_name']);
     trySetOwnerUserName(json['staff']);
     trySetOwnerUserName(json['assignedTo']);
+    trySetOwnerUserName(json['assigned_to']);
     trySetOwnerUserName(json['ownerUser']);
+    trySetOwnerUserName(json['owner_user']);
     trySetOwnerUserName(json['owner']);
+    trySetOwnerUserName(json['ownerEmail']);
+    trySetOwnerUserName(json['owner_email']);
+    trySetOwnerUserName(json['assignedToEmail']);
+    trySetOwnerUserName(json['assigned_to_email']);
+    trySetOwnerUserName(json['ownerDisplayName']);
+    trySetOwnerUserName(json['owner_display_name']);
+    trySetOwnerUserName(json['leadOwner']);
+    trySetOwnerUserName(json['lead_owner']);
+    trySetOwnerUserName(json['assignedUser']);
+    trySetOwnerUserName(json['assigned_user']);
+    trySetOwnerUserName(json['allocatedTo']);
+    trySetOwnerUserName(json['allocated_to']);
 
     if (ownerUserName == null || ownerUserName!.isEmpty) {
       if (json['assignedTo'] is String && json['assignedTo'].toString().trim().isNotEmpty) {
         ownerUserName = json['assignedTo'].toString().trim();
+      } else if (json['assigned_to'] is String && json['assigned_to'].toString().trim().isNotEmpty) {
+        ownerUserName = json['assigned_to'].toString().trim();
       } else if (json['owner'] is String && json['owner'].toString().trim().isNotEmpty) {
         ownerUserName = json['owner'].toString().trim();
       }
     }
 
-    String? createdBy = json['createdBy']?.toString();
+    String? createdBy = (json['createdBy'] ??
+            json['created_by'] ??
+            json['creatorId'] ??
+            json['creator_id'])
+        ?.toString();
     String? createdByName;
     void trySetCreatedByName(dynamic val) {
       if (createdByName != null && createdByName!.isNotEmpty) return;
@@ -403,7 +436,7 @@ class LeadModel extends Lead {
           }
         }
       } else if (val is Map) {
-        final nameVal = (val['name'] ?? val['fullName'] ?? val['firstName'] ?? val['userName'] ?? val['username'])?.toString();
+        final nameVal = (val['name'] ?? val['fullName'] ?? val['firstName'] ?? val['userName'] ?? val['username'] ?? val['email'])?.toString();
         if (nameVal != null && nameVal.trim().isNotEmpty) {
           createdByName = nameVal.trim();
         }
@@ -411,36 +444,145 @@ class LeadModel extends Lead {
     }
 
     trySetCreatedByName(json['createdByName']);
+    trySetCreatedByName(json['created_by_name']);
     trySetCreatedByName(json['creatorName']);
+    trySetCreatedByName(json['creator_name']);
     trySetCreatedByName(json['createdByUser']);
+    trySetCreatedByName(json['created_by_user']);
     trySetCreatedByName(json['creator']);
+    trySetCreatedByName(json['createdBy']);
+    trySetCreatedByName(json['created_by']);
+    trySetCreatedByName(json['creatorEmail']);
+    trySetCreatedByName(json['creator_email']);
+    trySetCreatedByName(json['creatorDisplayName']);
+    trySetCreatedByName(json['creator_display_name']);
+    trySetCreatedByName(json['leadCreator']);
+    trySetCreatedByName(json['lead_creator']);
+    trySetCreatedByName(json['author']);
+    trySetCreatedByName(json['addedBy']);
+    trySetCreatedByName(json['added_by']);
 
-    final callStatus = json['callStatus']?.toString() ??
-        json['call_status']?.toString() ??
-        json['lastCallStatus']?.toString() ??
-        json['latestCallStatus']?.toString();
+    DateTime? parseDateTime(dynamic raw) {
+      if (raw == null) return null;
+      if (raw is DateTime) return raw;
+      if (raw is num) {
+        final val = raw.toInt();
+        if (val > 100000000000) {
+          return DateTime.fromMillisecondsSinceEpoch(val);
+        } else if (val > 1000000000) {
+          return DateTime.fromMillisecondsSinceEpoch(val * 1000);
+        }
+      }
+      final str = raw.toString().trim();
+      if (str.isEmpty || str == 'null' || str == '-') return null;
+      final numParsed = int.tryParse(str);
+      if (numParsed != null) {
+        if (numParsed > 100000000000) {
+          return DateTime.fromMillisecondsSinceEpoch(numParsed);
+        } else if (numParsed > 1000000000) {
+          return DateTime.fromMillisecondsSinceEpoch(numParsed * 1000);
+        }
+      }
+      return DateTime.tryParse(str);
+    }
+
+    final parsedCreatedAt = parseDateTime(
+      json['createdAt'] ??
+          json['created_at'] ??
+          json['createdDate'] ??
+          json['created_date'] ??
+          json['createDate'] ??
+          json['create_date'] ??
+          json['createdTime'] ??
+          json['created_time'] ??
+          json['created_on'] ??
+          json['createdOn'] ??
+          json['addedDate'] ??
+          json['added_date'] ??
+          json['addedOn'] ??
+          json['added_on'] ??
+          json['creationDate'] ??
+          json['creation_date'] ??
+          json['creationTime'] ??
+          json['creation_time'] ??
+          json['leadDate'] ??
+          json['lead_date'] ??
+          json['timestamp'] ??
+          json['date'],
+    );
+
+    final callStatus = (json['callStatus'] ??
+            json['call_status'] ??
+            json['lastCallStatus'] ??
+            json['last_call_status'] ??
+            json['latestCallStatus'] ??
+            json['latest_call_status'] ??
+            json['callState'] ??
+            json['call_state'] ??
+            json['callResult'] ??
+            json['call_result'] ??
+            json['lastCallResult'] ??
+            json['last_call_result'] ??
+            json['disposition'] ??
+            json['statusCall'])
+        ?.toString();
+
+    LeadStatus? parsedStatus;
+    if (json['status'] != null) {
+      parsedStatus = LeadStatusModel.fromJson(json['status']);
+    } else {
+      final statusNameCandidate = (json['statusName'] ??
+              json['status_name'] ??
+              json['leadStatus'] ??
+              json['leadStatusName'] ??
+              json['lead_status'] ??
+              json['lead_status_name'] ??
+              '')
+          .toString()
+          .trim();
+      final statusIdCandidate = (json['statusId'] ??
+              json['status_id'] ??
+              json['leadStatusId'] ??
+              json['lead_status_id'] ??
+              '')
+          .toString()
+          .trim();
+      final statusColorCandidate = (json['statusColor'] ??
+              json['status_color'] ??
+              json['color'] ??
+              '#6B7280')
+          .toString()
+          .trim();
+
+      if (statusNameCandidate.isNotEmpty || statusIdCandidate.isNotEmpty) {
+        parsedStatus = LeadStatus(
+          id: statusIdCandidate.isNotEmpty ? statusIdCandidate : statusNameCandidate,
+          statusName: statusNameCandidate.isNotEmpty ? statusNameCandidate : statusIdCandidate,
+          color: statusColorCandidate.isNotEmpty ? statusColorCandidate : '#6B7280',
+          isDefault: false,
+          isClosed: false,
+          displayOrder: 0,
+        );
+      }
+    }
 
     return LeadModel(
       id: json['id'] ?? '',
       leadNumber: json['leadNumber'] ?? '',
       firstName: fName,
       lastName: lName,
-      companyName: json['companyName'] ?? '',
+      companyName: json['companyName'] ?? json['company'] ?? '',
       email: json['email'] ?? '',
       phone: phone,
       alternatePhone: alternatePhone,
       source: json['source'] != null ? LeadSourceModel.fromJson(json['source']) : null,
-      status: json['status'] != null ? LeadStatusModel.fromJson(json['status']) : null,
-      priority: json['priority'],
+      status: parsedStatus,
+      priority: (json['priority'] ?? json['leadPriority'] ?? json['lead_priority'])?.toString(),
       ownerUserId: ownerUserId,
       ownerUserName: ownerUserName,
       createdBy: createdBy,
       createdByName: createdByName,
-      createdAt: json['createdAt'] != null 
-          ? DateTime.tryParse(json['createdAt'].toString()) 
-          : (json['created_at'] != null 
-              ? DateTime.tryParse(json['created_at'].toString()) 
-              : (json['createdDate'] != null ? DateTime.tryParse(json['createdDate'].toString()) : null)),
+      createdAt: parsedCreatedAt,
       callStatus: callStatus,
     );
   }

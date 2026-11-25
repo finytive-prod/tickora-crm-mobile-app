@@ -113,6 +113,73 @@ class FollowUpsRepositoryImpl implements FollowUpsRepository {
       final body = response.data;
       if (body != null && body['success'] == true && body['data'] != null) {
         FollowUpResponse followUpResponse = FollowUpResponseModel.fromJson(body['data']);
+
+        // 1. Authoritative category mapping:
+        // For whichever category is actively queried, its totalElements is the true total count.
+        if (category == 'MISSED') {
+          followUpResponse = followUpResponse.copyWith(
+            summary: FollowUpSummary(
+              today: followUpResponse.summary.today,
+              upcoming: followUpResponse.summary.upcoming,
+              missed: followUpResponse.totalElements,
+              completed: followUpResponse.summary.completed,
+            ),
+          );
+        } else if (category == 'TODAY') {
+          followUpResponse = followUpResponse.copyWith(
+            summary: FollowUpSummary(
+              today: followUpResponse.totalElements,
+              upcoming: followUpResponse.summary.upcoming,
+              missed: followUpResponse.summary.missed,
+              completed: followUpResponse.summary.completed,
+            ),
+          );
+        } else if (category == 'UPCOMING') {
+          followUpResponse = followUpResponse.copyWith(
+            summary: FollowUpSummary(
+              today: followUpResponse.summary.today,
+              upcoming: followUpResponse.totalElements,
+              missed: followUpResponse.summary.missed,
+              completed: followUpResponse.summary.completed,
+            ),
+          );
+        } else if (category == 'COMPLETED') {
+          followUpResponse = followUpResponse.copyWith(
+            summary: FollowUpSummary(
+              today: followUpResponse.summary.today,
+              upcoming: followUpResponse.summary.upcoming,
+              missed: followUpResponse.summary.missed,
+              completed: followUpResponse.totalElements,
+            ),
+          );
+        }
+
+        // 2. Fix backend summary bug:
+        // When fetching non-MISSED category (e.g. TODAY/UPCOMING), backend summary.missed
+        // often returns an unfiltered/inflated count (e.g. 14894). Query the real MISSED count.
+        if (category != 'MISSED' && (followUpResponse.summary.missed > 200 || category == 'TODAY')) {
+          try {
+            final missedRes = await apiClient.get(
+              '$_leadsBaseUrl/leads/followups',
+              queryParameters: {'category': 'MISSED', 'page': 0, 'size': 1},
+            );
+            final mData = missedRes.data;
+            if (mData != null && mData['data'] != null) {
+              final realMissed = (mData['data']['totalElements'] as num?)?.toInt();
+              if (realMissed != null) {
+                followUpResponse = followUpResponse.copyWith(
+                  summary: FollowUpSummary(
+                    today: followUpResponse.summary.today,
+                    upcoming: followUpResponse.summary.upcoming,
+                    missed: realMissed,
+                    completed: followUpResponse.summary.completed,
+                  ),
+                );
+              }
+            }
+          } catch (_) {}
+        }
+
         if (q != null && q.isNotEmpty) {
           final queryLower = q.toLowerCase();
           final filteredList = followUpResponse.followUps.where((item) {

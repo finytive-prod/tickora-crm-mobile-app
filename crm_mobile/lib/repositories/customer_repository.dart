@@ -7,7 +7,7 @@ import 'package:crm_mobile/models/customer.dart';
 import 'package:crm_mobile/core/network/api_constants.dart';
 
 abstract class CustomerRepository {
-  Future<Either<Failure, List<Customer>>> getCustomers({int page = 0, int size = 20, String? searchQuery});
+  Future<Either<Failure, CustomerListResponse>> getCustomers({int page = 0, int size = 20, String? searchQuery});
   Future<Either<Failure, Customer>> getCustomerById(String id);
   Future<Either<Failure, List<String>>> getCustomerTypes();
   Future<Either<Failure, void>> createCustomer(Map<String, dynamic> customerData);
@@ -23,16 +23,17 @@ class CustomerRepositoryImpl implements CustomerRepository {
   String get _baseUrl => ApiUrl.customerService;
 
   @override
-  Future<Either<Failure, List<Customer>>> getCustomers({int page = 0, int size = 20, String? searchQuery}) async {
+  Future<Either<Failure, CustomerListResponse>> getCustomers({int page = 0, int size = 20, String? searchQuery}) async {
     try {
       final customerBaseUrl = _baseUrl;
       final q = (searchQuery != null && searchQuery.trim().isNotEmpty) ? searchQuery.trim() : null;
 
-      // 1. Primary: Fetch directly from customer-service
+      // 1. Primary: Fetch directly from customer-service with sorting newest first
       try {
         final queryParams = <String, dynamic>{
           'page': page,
           'size': size,
+          'sort': 'createdAt,desc',
         };
         if (q != null && q.isNotEmpty) {
           queryParams['search'] = q;
@@ -45,12 +46,66 @@ class CustomerRepositoryImpl implements CustomerRepository {
         );
 
         final body = response.data;
-        if (body != null && (body['success'] == true || response.statusCode == 200) && body['data'] != null) {
-          final List<dynamic> content = body['data']['content'] ?? (body['data'] is List ? body['data'] : []);
-          final customers = content.map((json) => Customer.fromJson(json is Map<String, dynamic> ? json : {})).toList();
-          if (customers.isNotEmpty) {
-            return Right(customers);
+        if (body != null && (body['success'] == true || response.statusCode == 200)) {
+          final dynamic dataField = (body is Map && body.containsKey('data') && body['data'] != null)
+              ? body['data']
+              : body;
+          final List<dynamic> content;
+          if (dataField is List) {
+            content = dataField;
+          } else if (dataField is Map && dataField['content'] is List) {
+            content = dataField['content'];
+          } else if (dataField is Map && dataField['customers'] is List) {
+            content = dataField['customers'];
+          } else {
+            content = [];
           }
+          final customers = content
+              .where((json) => json is Map)
+              .map((json) => Customer.fromJson(Map<String, dynamic>.from(json as Map)))
+              .toList();
+
+          int? totalCount;
+          int totalPages = 1;
+
+          if (dataField is Map) {
+            final rawTotal = dataField['totalElements'] ??
+                dataField['totalCount'] ??
+                dataField['total'] ??
+                dataField['totalRecords'] ??
+                dataField['count'];
+            if (rawTotal != null) {
+              totalCount = int.tryParse(rawTotal.toString());
+            }
+            final rawPages = dataField['totalPages'] ?? dataField['pages'];
+            if (rawPages != null) {
+              totalPages = int.tryParse(rawPages.toString()) ?? 1;
+            }
+          }
+
+          if (totalCount == null && body is Map) {
+            final rawTotal = body['totalElements'] ??
+                body['totalCount'] ??
+                body['total'] ??
+                body['totalRecords'] ??
+                body['count'];
+            if (rawTotal != null) {
+              totalCount = int.tryParse(rawTotal.toString());
+            }
+            final rawPages = body['totalPages'] ?? body['pages'];
+            if (rawPages != null) {
+              totalPages = int.tryParse(rawPages.toString()) ?? 1;
+            }
+          }
+
+          totalCount ??= customers.length;
+
+          return Right(CustomerListResponse(
+            customers: customers,
+            totalCount: totalCount,
+            totalPages: totalPages,
+            currentPage: page,
+          ));
         }
       } catch (_) {}
 
@@ -72,17 +127,23 @@ class CustomerRepositoryImpl implements CustomerRepository {
       );
       
       final body = response.data;
-      if (body != null && (body['success'] == true || response.statusCode == 200) && body['data'] != null) {
+      if (body != null && (body['success'] == true || response.statusCode == 200)) {
+        final dynamic dataField = (body is Map && body.containsKey('data') && body['data'] != null)
+            ? body['data']
+            : body;
         final List<dynamic> content;
-        if (body['data'] is List) {
-          content = body['data'];
-        } else if (body['data'] is Map && body['data']['content'] is List) {
-          content = body['data']['content'];
+        if (dataField is List) {
+          content = dataField;
+        } else if (dataField is Map && dataField['content'] is List) {
+          content = dataField['content'];
         } else {
           content = [];
         }
 
-        var customers = content.map((json) => Customer.fromJson(json is Map<String, dynamic> ? json : {})).toList();
+        var customers = content
+            .where((json) => json is Map)
+            .map((json) => Customer.fromJson(Map<String, dynamic>.from(json as Map)))
+            .toList();
         if (q != null && q.isNotEmpty) {
           final queryLower = q.toLowerCase();
           customers = customers.where((c) {
@@ -93,7 +154,23 @@ class CustomerRepositoryImpl implements CustomerRepository {
             return name.contains(queryLower) || company.contains(queryLower) || phone.contains(queryLower) || email.contains(queryLower);
           }).toList();
         }
-        return Right(customers);
+
+        int? totalCount;
+        int totalPages = 1;
+        if (dataField is Map) {
+          final rawTotal = dataField['totalElements'] ?? dataField['totalCount'] ?? dataField['total'];
+          if (rawTotal != null) totalCount = int.tryParse(rawTotal.toString());
+          final rawPages = dataField['totalPages'] ?? dataField['pages'];
+          if (rawPages != null) totalPages = int.tryParse(rawPages.toString()) ?? 1;
+        }
+        totalCount ??= customers.length;
+
+        return Right(CustomerListResponse(
+          customers: customers,
+          totalCount: totalCount,
+          totalPages: totalPages,
+          currentPage: page,
+        ));
       } else {
         throw ApiException(message: body?['message'] ?? 'Failed to load customers');
       }

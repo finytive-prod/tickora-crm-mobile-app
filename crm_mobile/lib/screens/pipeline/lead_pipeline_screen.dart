@@ -137,7 +137,7 @@ class _LeadPipelineScreenState extends State<LeadPipelineScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('Only Admin and Super Admin can move a lead from Stage 3 to Stage 1.'),
-              backgroundColor: Colors.red,
+              backgroundColor: AppColors.primary,
             ),
           );
         }
@@ -188,7 +188,7 @@ class _LeadPipelineScreenState extends State<LeadPipelineScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(failure.message),
-              backgroundColor: Colors.red,
+              backgroundColor: AppColors.primary,
               duration: const Duration(seconds: 4),
             ),
           );

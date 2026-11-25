@@ -14,7 +14,7 @@ class StaffCard extends StatelessWidget {
 
   Color _avatarColor() {
     final colors = [
-      const Color(0xFFEF4444),
+      const Color(0xFF111827),
       const Color(0xFFF59E0B),
       const Color(0xFF10B981),
       const Color(0xFF3B82F6),
@@ -132,7 +132,7 @@ class StaffCard extends StatelessWidget {
                       width: 7,
                       height: 7,
                       decoration: BoxDecoration(
-                        color: staff.isActive ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                        color: staff.isActive ? const Color(0xFF10B981) : const Color(0xFF111827),
                         shape: BoxShape.circle,
                       ),
                     ),
@@ -141,7 +141,7 @@ class StaffCard extends StatelessWidget {
                       staff.isActive ? 'Active' : 'Inactive',
                       style: TextStyle(
                         fontSize: 11,
-                        color: staff.isActive ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                        color: staff.isActive ? const Color(0xFF10B981) : const Color(0xFF111827),
                         fontWeight: FontWeight.w500,
                       ),
                     ),

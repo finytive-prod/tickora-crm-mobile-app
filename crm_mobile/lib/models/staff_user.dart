@@ -2,6 +2,7 @@ class StaffUser
 {
   final String userId;
   final String name;
+  final String? email;
   final String? organizationId;
   final String? userCode;
   final String? role;
@@ -10,6 +11,7 @@ class StaffUser
   StaffUser({
     required this.userId,
     required this.name,
+    this.email,
     this.organizationId,
     this.userCode,
     this.role,
@@ -34,6 +36,13 @@ class StaffUser
           json['staffName']?.toString() ??
           '';
     }
+
+    final rawEmail = json['email']?.toString() ??
+        json['emailAddress']?.toString() ??
+        json['officialEmail']?.toString() ??
+        json['workEmail']?.toString() ??
+        (json['username']?.toString().contains('@') == true ? json['username'].toString() : null);
+
     final orgId = json['organizationId']?.toString() ??
         json['orgId']?.toString() ??
         (json['organization'] is Map ? json['organization']['id']?.toString() : null);
@@ -45,6 +54,7 @@ class StaffUser
     return StaffUser(
       userId: id.trim(),
       name: name.trim(),
+      email: rawEmail?.trim().toLowerCase(),
       organizationId: orgId?.trim().isNotEmpty == true ? orgId!.trim() : null,
       userCode: userCode?.trim(),
       role: role?.trim(),

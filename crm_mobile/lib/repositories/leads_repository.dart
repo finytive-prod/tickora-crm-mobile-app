@@ -79,6 +79,8 @@ abstract class LeadsRepository {
     String? endTime,
     String? from,
     String? to,
+    String? fromNumber,
+    String? toNumber,
     String? duration,
     String? callDate,
     String? callStatus,
@@ -164,6 +166,81 @@ class LeadsRepositoryImpl implements LeadsRepository {
     return null;
   }
 
+  List<Lead>? _extractLeadsFromResponseBody(dynamic body, int? statusCode) {
+    if (body == null) return null;
+
+    dynamic content;
+
+    if (body is List) {
+      content = body;
+    } else if (body is Map) {
+      final isSuccessful = body['success'] == true ||
+          body['statusCode'] == 200 ||
+          body['code'] == 200 ||
+          body['status'] == 200 ||
+          body['status'] == 'OK' ||
+          body['status'] == 'SUCCESS' ||
+          (statusCode != null && statusCode >= 200 && statusCode < 300);
+
+      if (body['data'] != null) {
+        final data = body['data'];
+        if (data is List) {
+          content = data;
+        } else if (data is Map && data['content'] is List) {
+          content = data['content'];
+        } else if (data is Map && data['leads'] is List) {
+          content = data['leads'];
+        }
+      } else if (body['content'] is List) {
+        content = body['content'];
+      } else if (body['leads'] is List) {
+        content = body['leads'];
+      }
+
+      if (content == null && !isSuccessful) {
+        return null;
+      }
+    }
+
+    if (content is List) {
+      return content
+          .where((item) => item is Map)
+          .map((json) => LeadModel.fromJson(Map<String, dynamic>.from(json as Map)))
+          .toList();
+    }
+    return null;
+  }
+
+  Future<List<Lead>> _enrichSummaryLeads(List<Lead> leads) async {
+    final needsEnrichment = leads.any(
+      (l) => l.createdAt == null || l.ownerUserName == null || l.ownerUserName!.isEmpty,
+    );
+    if (!needsEnrichment) return leads;
+
+    final leadsBaseUrl = _leadsBaseUrl;
+    return await Future.wait(
+      leads.map((lead) async {
+        if (lead.createdAt != null &&
+            lead.ownerUserName != null &&
+            lead.ownerUserName!.isNotEmpty &&
+            lead.createdByName != null &&
+            lead.createdByName!.isNotEmpty) {
+          return lead;
+        }
+        try {
+          final res = await apiClient.get('$leadsBaseUrl/leads/${lead.id}');
+          final b = res.data;
+          if (b != null && b['data'] != null && b['data'] is Map) {
+            final detailJson = Map<String, dynamic>.from(b['data'] as Map);
+            final fullLead = LeadModel.fromJson(detailJson);
+            return fullLead;
+          }
+        } catch (_) {}
+        return lead;
+      }),
+    );
+  }
+
   @override
   Future<Either<Failure, List<Lead>>> getLeads(
     int page,
@@ -184,8 +261,107 @@ class LeadsRepositoryImpl implements LeadsRepository {
       if (isActive != null) {
         queryParameters['isActive'] = isActive;
       }
+      if (statusId != null && statusId.isNotEmpty) {
+        queryParameters['statusId'] = statusId;
+      }
 
-      final bodyPayload = <String, dynamic>{};
+      final filterQueryParameters = Map<String, dynamic>.from(queryParameters);
+      if (filterParams != null) {
+        if (filterParams.sourceIds.isNotEmpty) {
+          filterQueryParameters['sourceId'] = filterParams.sourceIds.first;
+          filterQueryParameters['sourceIds'] = filterParams.sourceIds;
+        }
+        if (filterParams.statusIds.isNotEmpty) {
+          filterQueryParameters['statusId'] = filterParams.statusIds.first;
+          filterQueryParameters['statusIds'] = filterParams.statusIds;
+        }
+        if (filterParams.priorities.isNotEmpty) {
+          filterQueryParameters['priority'] = filterParams.priorities.first;
+          filterQueryParameters['priorities'] = filterParams.priorities;
+        }
+        if (filterParams.createdByIds.isNotEmpty) {
+          filterQueryParameters['createdBy'] = filterParams.createdByIds.first;
+          filterQueryParameters['createdByIds'] = filterParams.createdByIds;
+        }
+        if (filterParams.assignedToIds.isNotEmpty) {
+          filterQueryParameters['assignedTo'] = filterParams.assignedToIds.first;
+          filterQueryParameters['ownerUserId'] = filterParams.assignedToIds.first;
+          filterQueryParameters['assignedToIds'] = filterParams.assignedToIds;
+        }
+        if (filterParams.startDate != null && filterParams.startDate!.isNotEmpty) {
+          filterQueryParameters['startDate'] = filterParams.startDate;
+          filterQueryParameters['from'] = filterParams.startDate;
+          filterQueryParameters['fromDate'] = filterParams.startDate;
+        }
+        if (filterParams.endDate != null && filterParams.endDate!.isNotEmpty) {
+          filterQueryParameters['endDate'] = filterParams.endDate;
+          filterQueryParameters['to'] = filterParams.endDate;
+          filterQueryParameters['toDate'] = filterParams.endDate;
+        }
+      }
+
+      final hasSearch = searchQuery != null && searchQuery.trim().isNotEmpty;
+      if (hasSearch) {
+        final cleanedSearch = sanitizeLeadSearchQuery(searchQuery!);
+        if (cleanedSearch.isNotEmpty) {
+          queryParameters['search'] = cleanedSearch;
+          filterQueryParameters['search'] = cleanedSearch;
+
+          // ── Strategy 0: Dedicated Search Endpoint GET /leads/search?query=...&page=...&size=... ──
+          try {
+            final searchResponse = await apiClient.get(
+              '$leadsBaseUrl/leads/search',
+              queryParameters: {
+                'query': cleanedSearch,
+                'page': page,
+                'size': size,
+              },
+            );
+            final searchLeads = _extractLeadsFromResponseBody(
+              searchResponse.data,
+              searchResponse.statusCode,
+            );
+            if (searchLeads != null) {
+              final enriched = await _enrichSummaryLeads(searchLeads);
+              return Right(enriched);
+            }
+          } on DioException catch (dioErr) {
+            debugPrint('[LeadsRepo] GET /leads/search returned ${dioErr.response?.statusCode}, trying fallbacks');
+          } catch (e) {
+            debugPrint('[LeadsRepo] GET /leads/search failed: $e, trying fallbacks');
+          }
+        }
+      }
+
+      // ── Strategy 1: Primary fetch via GET /leads (provides complete lead details: creator, owner, date, call status) ──
+      try {
+        final getResponse = await apiClient.get(
+          '$leadsBaseUrl/leads',
+          queryParameters: filterQueryParameters,
+        );
+        final parsedLeads = _extractLeadsFromResponseBody(
+          getResponse.data,
+          getResponse.statusCode,
+        );
+        if (parsedLeads != null) {
+          final enriched = await _enrichSummaryLeads(parsedLeads);
+          return Right(enriched);
+        }
+      } on DioException catch (dioErr) {
+        debugPrint('[LeadsRepo] GET /leads returned ${dioErr.response?.statusCode}, trying filter fallback');
+      } catch (e) {
+        debugPrint('[LeadsRepo] GET /leads failed: $e, trying filter fallback');
+      }
+
+      // ── Strategy 2: Use POST /leads/filter (with body payload) ──
+      final bodyPayload = <String, dynamic>{
+        'page': page,
+        'size': size,
+        'sort': 'createdAt,desc',
+      };
+      if (isActive != null) {
+        bodyPayload['isActive'] = isActive;
+      }
       if (filterParams != null) {
         bodyPayload.addAll(filterParams.toJson());
       }
@@ -198,38 +374,65 @@ class LeadsRepositoryImpl implements LeadsRepository {
           existingStatuses.add(statusId);
         }
         bodyPayload['statusIds'] = existingStatuses;
+        bodyPayload['statusId'] = statusId;
       }
 
-      if (searchQuery != null && searchQuery.trim().isNotEmpty) {
-        final cleanedSearch = sanitizeLeadSearchQuery(searchQuery);
+      if (hasSearch) {
+        final cleanedSearch = sanitizeLeadSearchQuery(searchQuery!);
         if (cleanedSearch.isNotEmpty) {
           bodyPayload['search'] = cleanedSearch;
         }
       }
 
-      final response = await apiClient.post(
-        '$leadsBaseUrl/leads/filter',
-        queryParameters: queryParameters,
-        data: bodyPayload,
-      );
+      try {
+        final postResponse = await apiClient.post(
+          '$leadsBaseUrl/leads/filter',
+          queryParameters: queryParameters,
+          data: bodyPayload,
+        );
 
-      final body = response.data;
-      if (body != null &&
-          (body['success'] == true || body['statusCode'] == 200) &&
-          body['data'] != null) {
-        final List<dynamic> content;
-        if (body['data'] is List) {
-          content = body['data'];
-        } else if (body['data'] is Map && body['data']['content'] is List) {
-          content = body['data']['content'];
-        } else {
-          content = [];
+        final parsedLeads = _extractLeadsFromResponseBody(
+          postResponse.data,
+          postResponse.statusCode,
+        );
+        if (parsedLeads != null) {
+          final enriched = await _enrichSummaryLeads(parsedLeads);
+          return Right(enriched);
         }
-        final leads = content.map((json) => LeadModel.fromJson(json)).toList();
-        return Right(leads);
-      } else {
-        throw ApiException(message: body?['message'] ?? 'Failed to load leads');
+      } on DioException catch (dioErr) {
+        debugPrint('[LeadsRepo] POST /leads/filter returned ${dioErr.response?.statusCode}');
+      } catch (e) {
+        debugPrint('[LeadsRepo] POST /leads/filter failed: $e');
       }
+
+      // ── Strategy 3: Global search fallback ──
+      try {
+        final globalLeads = await _searchGlobalLeads(
+          query: searchQuery,
+          page: page,
+          size: size,
+        );
+        if (globalLeads != null) {
+          final enriched = await _enrichSummaryLeads(globalLeads);
+          return Right(enriched);
+        }
+      } catch (_) {}
+
+      // ── Strategy 4: Final direct GET /leads fallback ──
+      final fallbackResponse = await apiClient.get(
+        '$leadsBaseUrl/leads',
+        queryParameters: queryParameters,
+      );
+      final fallbackLeads = _extractLeadsFromResponseBody(
+        fallbackResponse.data,
+        fallbackResponse.statusCode,
+      );
+      if (fallbackLeads != null) {
+        final enriched = await _enrichSummaryLeads(fallbackLeads);
+        return Right(enriched);
+      }
+
+      throw ApiException(message: fallbackResponse.data?['message'] ?? 'Failed to load leads');
     } on Exception catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));
     }
@@ -247,7 +450,34 @@ class LeadsRepositoryImpl implements LeadsRepository {
       return getLeads(page, size, filterParams: filterParams);
     }
 
-    // 1. Primary: Use /leads/filter with search parameter for full lead details
+    final cleanedSearch = sanitizeLeadSearchQuery(qTrimmed);
+
+    // 1. Dedicated Search Endpoint: GET /leads/search?query=...&page=...&size=...
+    try {
+      final leadsBaseUrl = _leadsBaseUrl;
+      final searchResponse = await apiClient.get(
+        '$leadsBaseUrl/leads/search',
+        queryParameters: {
+          'query': cleanedSearch,
+          'page': page,
+          'size': size,
+        },
+      );
+      final searchLeads = _extractLeadsFromResponseBody(
+        searchResponse.data,
+        searchResponse.statusCode,
+      );
+      if (searchLeads != null) {
+        final enriched = await _enrichSummaryLeads(searchLeads);
+        return Right(enriched);
+      }
+    } on DioException catch (dioErr) {
+      debugPrint('[LeadsRepo] searchLeads GET /leads/search returned ${dioErr.response?.statusCode}');
+    } catch (e) {
+      debugPrint('[LeadsRepo] searchLeads GET /leads/search failed: $e');
+    }
+
+    // 2. Fallback: Use getLeads with search query and filter params
     final filterResult = await getLeads(
       page,
       size,
@@ -837,7 +1067,7 @@ class LeadsRepositoryImpl implements LeadsRepository {
       List<dynamic> listData = [];
       if (body is List) {
         listData = body;
-      } else if (body is Map<String, dynamic>) {
+      } else if (body is Map) {
         if (body['data'] is List) {
           listData = body['data'];
         } else if (body['content'] is List) {
@@ -848,7 +1078,7 @@ class LeadsRepositoryImpl implements LeadsRepository {
           final decoded = jsonDecode(body);
           if (decoded is List) {
             listData = decoded;
-          } else if (decoded is Map<String, dynamic>) {
+          } else if (decoded is Map) {
             if (decoded['data'] is List) {
               listData = decoded['data'];
             } else if (decoded['content'] is List) {
@@ -859,11 +1089,12 @@ class LeadsRepositoryImpl implements LeadsRepository {
       }
 
       final audios = listData
-          .map((json) => LeadAudioModel.fromJson(json))
+          .whereType<Map>()
+          .map((json) => LeadAudioModel.fromJson(Map<String, dynamic>.from(json)))
           .toList();
       return Right(audios);
     } on DioException catch (e) {
-      if (e.response?.statusCode == 500) {
+      if (e.response?.statusCode == 500 || e.response?.statusCode == 404) {
         return const Right([]);
       }
       return Left(ErrorHandler.mapExceptionToFailure(e));
@@ -879,22 +1110,44 @@ class LeadsRepositoryImpl implements LeadsRepository {
     try {
       final leadsBaseUrl = _leadsBaseUrl;
       final response = await apiClient.get(
-        '$leadsBaseUrl/leads/$leadId/call-logs',
+        '$leadsBaseUrl/leads/$leadId/call-history',
       );
 
       final body = response.data;
-      if (body != null && body is Map<String, dynamic>) {
-        final dataMap =
-            (body.containsKey('data') && body['data'] is Map<String, dynamic>)
-            ? body['data'] as Map<String, dynamic>
-            : body;
-        final callLogsResponse = LeadCallLogResponse.fromJson(dataMap);
-        return Right(callLogsResponse);
+      if (body != null) {
+        if (body is List) {
+          final callLogsResponse = LeadCallLogResponse.fromJson({'callHistory': body});
+          return Right(callLogsResponse);
+        } else if (body is Map) {
+          final bodyMap = Map<String, dynamic>.from(body);
+          final dataMap = (bodyMap.containsKey('data') && bodyMap['data'] is Map)
+              ? Map<String, dynamic>.from(bodyMap['data'] as Map)
+              : (bodyMap.containsKey('data') && bodyMap['data'] is List
+                  ? {'callHistory': bodyMap['data'], ...bodyMap}
+                  : bodyMap);
+          final callLogsResponse = LeadCallLogResponse.fromJson(dataMap);
+          return Right(callLogsResponse);
+        }
       }
       return const Left(ServerFailure('Invalid response format'));
     } on DioException catch (e) {
       if (e.response?.statusCode == 500 || e.response?.statusCode == 404) {
-        // Return empty response if not found or server error
+        // Fallback to /call-logs if /call-history returned 404
+        if (e.response?.statusCode == 404) {
+          try {
+            final fallbackResponse = await apiClient.get(
+              '$_leadsBaseUrl/leads/$leadId/call-history',
+            );
+            final fallbackBody = fallbackResponse.data;
+            if (fallbackBody != null) {
+              if (fallbackBody is List) {
+                return Right(LeadCallLogResponse.fromJson({'callHistory': fallbackBody}));
+              } else if (fallbackBody is Map) {
+                return Right(LeadCallLogResponse.fromJson(Map<String, dynamic>.from(fallbackBody)));
+              }
+            }
+          } catch (_) {}
+        }
         return const Right(
           LeadCallLogResponse(
             totalCalls: 0,
@@ -921,6 +1174,8 @@ class LeadsRepositoryImpl implements LeadsRepository {
     String? endTime,
     String? from,
     String? to,
+    String? fromNumber,
+    String? toNumber,
     String? duration,
     String? callDate,
     String? callStatus,
@@ -962,8 +1217,12 @@ class LeadsRepositoryImpl implements LeadsRepository {
       var effBound = bound;
       var effStartTime = startTime;
       var effEndTime = endTime;
-      var effFrom = from;
-      var effTo = to;
+      var effFrom = (fromNumber != null && fromNumber.isNotEmpty)
+          ? fromNumber
+          : from;
+      var effTo = (toNumber != null && toNumber.isNotEmpty)
+          ? toNumber
+          : to;
       var effDuration = duration;
       var effCallDate = callDate;
 
@@ -1016,8 +1275,8 @@ class LeadsRepositoryImpl implements LeadsRepository {
           effBound ??= meta['bound'];
           effStartTime ??= meta['startTime'];
           effEndTime ??= meta['endTime'];
-          effFrom ??= meta['from'];
-          effTo ??= meta['to'];
+          effFrom ??= meta['fromNumber'] ?? meta['from'];
+          effTo ??= meta['toNumber'] ?? meta['to'];
           effDuration ??= meta['duration'];
           effCallDate ??= meta['callDate'];
         } catch (e) {
@@ -1031,19 +1290,43 @@ class LeadsRepositoryImpl implements LeadsRepository {
         }
       }
 
+      String sanitizeDuration(String? d) {
+        if (d == null || d.trim().isEmpty) return '0';
+        final trimmed = d.trim();
+        if (trimmed.contains(':')) {
+          final parts = trimmed.split(':');
+          if (parts.length == 3) {
+            final h = int.tryParse(parts[0]) ?? 0;
+            final m = int.tryParse(parts[1]) ?? 0;
+            final s = int.tryParse(parts[2]) ?? 0;
+            return (h * 3600 + m * 60 + s).toString();
+          } else if (parts.length == 2) {
+            final m = int.tryParse(parts[0]) ?? 0;
+            final s = int.tryParse(parts[1]) ?? 0;
+            return (m * 60 + s).toString();
+          }
+        }
+        return (int.tryParse(trimmed) ?? 0).toString();
+      }
+
+      final formattedDuration = sanitizeDuration(effDuration);
+
+      String effectiveBound = 'OUT';
+      if (effBound != null && effBound.trim().isNotEmpty) {
+        final bUpper = effBound.trim().toUpperCase();
+        if (bUpper == 'IN' || bUpper == 'INBOUND' || bUpper == 'INCOMING') {
+          effectiveBound = 'IN';
+        } else {
+          effectiveBound = 'OUT';
+        }
+      }
+
       final effectiveFrom = (effFrom != null && effFrom.isNotEmpty)
           ? effFrom
           : 'Staff';
+      final effectiveTo = effTo ?? '';
 
-      setField('bound', effBound);
-      setField('startTime', effStartTime);
-      setField('endTime', effEndTime);
-      setField('from', effectiveFrom);
-      setField('to', effTo);
-      setField('duration', effDuration ?? '0');
-      setField('callDate', effCallDate);
-
-      final durInt = int.tryParse(effDuration ?? '0') ?? 0;
+      final durInt = int.tryParse(formattedDuration) ?? 0;
       final effectiveCallStatus = (callStatus != null && callStatus.isNotEmpty)
           ? (callStatus.toUpperCase() == 'ANSWERED' ? 'CONNECTED' : callStatus)
           : (durInt > 0
@@ -1052,7 +1335,16 @@ class LeadsRepositoryImpl implements LeadsRepository {
                       ? 'CONNECTED'
                       : 'NOT_CONNECTED'));
 
+      setField('bound', effectiveBound);
+      setField('fromNumber', effectiveFrom);
+      setField('from', effectiveFrom);
+      setField('toNumber', effectiveTo);
+      setField('to', effectiveTo);
+      setField('duration', formattedDuration);
       setField('callStatus', effectiveCallStatus);
+      setField('callDate', effCallDate);
+      setField('startTime', effStartTime);
+      setField('endTime', effEndTime);
 
       if (filePath != null &&
           filePath.isNotEmpty &&

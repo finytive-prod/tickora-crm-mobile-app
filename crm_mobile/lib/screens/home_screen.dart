@@ -287,17 +287,24 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  void changeTabByLabel(String label) {
-    final index = _navItems.indexWhere((item) =>
-        item.label == label ||
-        
-        (label == 'Call Logs' && item.label == 'Call Logs'));
+  bool changeTabByLabel(String label) {
+    final normalized = label.trim().toLowerCase().replaceAll(' ', '').replaceAll('-', '');
+    final index = _navItems.indexWhere((item) {
+      final itemNorm = (item.label ?? '').trim().toLowerCase().replaceAll(' ', '').replaceAll('-', '');
+      return itemNorm == normalized ||
+          (normalized.contains('call') && itemNorm.contains('call')) ||
+          (normalized.contains('lead') && itemNorm.contains('lead')) ||
+          (normalized.contains('follow') && itemNorm.contains('follow')) ||
+          (normalized.contains('calendar') && itemNorm.contains('calendar'));
+    });
     if (index != -1) {
       setState(() {
         _currentIndex = index;
         _activatedTabs.add(index);
       });
+      return true;
     }
+    return false;
   }
 
   void _buildTabs() {

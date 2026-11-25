@@ -20,6 +20,10 @@ import 'package:crm_mobile/blocs/leads_event.dart';
 import 'package:crm_mobile/screens/reports/reports_screen.dart';
 import 'package:crm_mobile/screens/more/block_numbers_screen.dart';
 import 'package:crm_mobile/screens/more/logs_screen.dart';
+import 'package:crm_mobile/screens/calls/calls_screen.dart';
+import 'package:crm_mobile/screens/leads/leads_screen.dart';
+import 'package:crm_mobile/screens/followups/followups_screen.dart';
+import 'package:crm_mobile/screens/calendar/calendar_screen.dart';
 import 'package:crm_mobile/core/utils/navigation_service.dart';
 
 class MoreScreen extends StatefulWidget {
@@ -109,7 +113,7 @@ class _MoreScreenState extends State<MoreScreen> {
           ),
           title: const Row(
             children: [
-              Icon(Icons.logout, color: Color(0xFFDB222A)),
+              Icon(Icons.logout, color: AppColors.primary),
               SizedBox(width: 8),
               Text('Logout', style: TextStyle(fontWeight: FontWeight.bold)),
             ],
@@ -130,7 +134,7 @@ class _MoreScreenState extends State<MoreScreen> {
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFDB222A),
+                backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
@@ -273,7 +277,7 @@ class _MoreScreenState extends State<MoreScreen> {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
                                         content: Text(failure.message),
-                                        backgroundColor: Colors.red,
+                                        backgroundColor: AppColors.primary,
                                       ),
                                     );
                                   },
@@ -316,14 +320,27 @@ class _MoreScreenState extends State<MoreScreen> {
 
   void _changeTab(BuildContext context, String label) {
     final homeState = context.findAncestorStateOfType<HomeScreenState>();
+    bool switched = false;
     if (homeState != null) {
-      homeState.changeTabByLabel(label);
+      switched = homeState.changeTabByLabel(label);
+    }
+    if (!switched && context.mounted) {
+      final norm = label.toLowerCase().replaceAll(' ', '');
+      if (norm.contains('call')) {
+        Navigator.push(context, MaterialPageRoute(builder: (_) => const CallsScreen()));
+      } else if (norm.contains('lead')) {
+        Navigator.push(context, MaterialPageRoute(builder: (_) => const LeadsScreen()));
+      } else if (norm.contains('follow')) {
+        Navigator.push(context, MaterialPageRoute(builder: (_) => const FollowUpsScreen()));
+      } else if (norm.contains('calendar')) {
+        Navigator.push(context, MaterialPageRoute(builder: (_) => const CalendarScreen()));
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    const brandColor = Color(0xFFDB222A);
+    const brandColor = AppColors.primary;
     final priv = sl<PrivilegeService>();
 
     return Scaffold(
@@ -356,14 +373,23 @@ class _MoreScreenState extends State<MoreScreen> {
                   children: [
                     Row(
                       children: [
-                        Image.asset(
-                          'assets/images/logo.webp',
-                          width: 28,
-                          height: 28,
-                          errorBuilder: (_, __, ___) => const Icon(
-                            Icons.dashboard_customize_outlined,
-                            color: Colors.white,
-                            size: 24,
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: Image.asset(
+                            'assets/images/logo.png',
+                            width: 28,
+                            height: 28,
+                            fit: BoxFit.contain,
+                            errorBuilder: (_, __, ___) => Image.asset(
+                              'assets/images/logo.webp',
+                              width: 28,
+                              height: 28,
+                              errorBuilder: (_, __, ___) => const Icon(
+                                Icons.dashboard_customize_outlined,
+                                color: Colors.white,
+                                size: 24,
+                              ),
+                            ),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -473,7 +499,7 @@ class _MoreScreenState extends State<MoreScreen> {
                     ),
                     title: 'Call logs',
                     brandColor: brandColor,
-                    onTap: () => _changeTab(context, 'Call logs'),
+                    onTap: () => _changeTab(context, 'Call Logs'),
                   ),
                 if (priv.hasPrivilege('LEAD_READ')) ...[
                   _buildMenuItem(
@@ -540,25 +566,25 @@ class _MoreScreenState extends State<MoreScreen> {
                     onTap: () => _changeTab(context, 'Calendar'),
                   ),
                 if (priv.hasPrivilege('REPORT_READ'))
-                  _buildMenuItem(
-                    icon: Icons.bar_chart_outlined,
-                    title: 'Reports',
-                    brandColor: brandColor,
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => BlocProvider<LeadsBloc>(
-                            create: (_) => sl<LeadsBloc>()
-                              ..add(FetchLeadStatuses())
-                              ..add(FetchLeadSources())
-                              ..add(const FetchStaffUsers()),
-                            child: const ReportsScreen(),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
+                  // _buildMenuItem(
+                  //   icon: Icons.bar_chart_outlined,
+                  //   title: 'Reports',
+                  //   brandColor: brandColor,
+                  //   onTap: () {
+                  //     Navigator.push(
+                  //       context,
+                  //       MaterialPageRoute(
+                  //         builder: (context) => BlocProvider<LeadsBloc>(
+                  //           create: (_) => sl<LeadsBloc>()
+                  //             ..add(FetchLeadStatuses())
+                  //             ..add(FetchLeadSources())
+                  //             ..add(const FetchStaffUsers()),
+                  //           child: const ReportsScreen(),
+                  //         ),
+                  //       ),
+                  //     );
+                  //   },
+                  // ),
 
                 
                 if (priv.isAdminOrSuperAdmin() ||

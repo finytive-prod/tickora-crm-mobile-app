@@ -31,7 +31,7 @@ class PoorInternetWidget extends StatelessWidget {
               errorBuilder: (context, error, stackTrace) => const Icon(
                 Icons.wifi_off_rounded,
                 size: 90,
-                color: Colors.redAccent,
+                color: AppColors.primary,
               ),
             ),
             const SizedBox(height: 24),

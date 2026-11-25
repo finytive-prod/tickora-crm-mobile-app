@@ -232,6 +232,16 @@ class LeadDetailModel extends LeadDetail {
     trySetOwnerUserName(json['ownerUser']);
     trySetOwnerUserName(json['owner']);
 
+    if (ownerUserName != null && ownerUserName!.contains('@')) {
+      final username = ownerUserName!.split('@').first;
+      final parts = username.split(RegExp(r'[._\-]'));
+      final formatted = parts
+          .where((p) => p.trim().isNotEmpty)
+          .map((p) => p[0].toUpperCase() + (p.length > 1 ? p.substring(1).toLowerCase() : ''))
+          .join(' ');
+      if (formatted.isNotEmpty) ownerUserName = formatted;
+    }
+
     
 
     

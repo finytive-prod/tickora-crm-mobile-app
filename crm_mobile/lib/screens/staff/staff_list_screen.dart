@@ -6,6 +6,7 @@ import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/blocs/staff_bloc.dart';
 import 'package:crm_mobile/blocs/staff_event.dart';
 import 'package:crm_mobile/blocs/staff_state.dart';
+import 'package:crm_mobile/models/staff_member.dart';
 import 'package:crm_mobile/widgets/staff_card.dart';
 import 'package:crm_mobile/widgets/spinning_logo.dart';
 import 'package:crm_mobile/screens/staff/staff_detail_screen.dart';
@@ -61,14 +62,14 @@ class _StaffListViewState extends State<_StaffListView> {
     if (!_scrollController.hasClients) return;
     final maxScroll = _scrollController.position.maxScrollExtent;
     final currentScroll = _scrollController.position.pixels;
-    if (maxScroll - currentScroll <= 200) {
+    if (maxScroll - currentScroll <= 250) {
       final bloc = context.read<StaffBloc>();
       final state = bloc.state;
       if (state is StaffLoaded && state.hasMore && !state.isLoadingMore) {
         bloc.add(
           LoadMoreStaffMembers(
             page: state.currentPage + 1,
-            status: _selectedStatus,
+            status: state.currentStatus ?? _selectedStatus,
             searchQuery: state.searchQuery,
           ),
         );
@@ -101,11 +102,15 @@ class _StaffListViewState extends State<_StaffListView> {
 
   void _openAddStaffBottomSheet() async {
     final repo = sl<SettingsRepository>();
+    StaffMember? newlyCreatedStaff;
     final result = await AddStaffBottomSheet.show(context, (data) async {
       final res = await repo.createStaffMember(data);
       return res.fold(
         (failure) => failure.message,
-        (member) => null,
+        (member) {
+          newlyCreatedStaff = member;
+          return null;
+        },
       );
     });
 
@@ -113,7 +118,23 @@ class _StaffListViewState extends State<_StaffListView> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Staff member created successfully!')),
       );
-      context.read<StaffBloc>().add(FetchStaffMembers(status: _selectedStatus));
+      _searchController.clear();
+      if (_selectedStatus != 'ACTIVE') {
+        setState(() => _selectedStatus = 'ACTIVE');
+      }
+
+      if (newlyCreatedStaff != null) {
+        context.read<StaffBloc>().add(AddNewlyCreatedStaffMember(newlyCreatedStaff!));
+        if (_scrollController.hasClients) {
+          _scrollController.animateTo(
+            0,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+          );
+        }
+      } else {
+        context.read<StaffBloc>().add(const FetchStaffMembers(status: 'ACTIVE', page: 0));
+      }
     }
   }
 
@@ -234,8 +255,8 @@ class _StaffListViewState extends State<_StaffListView> {
                     _buildVerticalDivider(),
                     _buildSummaryItem(
                       icon: Icons.person_off,
-                      iconColor: const Color(0xFFEF4444),
-                      iconBg: const Color(0xFFEF4444).withOpacity(0.1),
+                      iconColor: AppColors.primary,
+                      iconBg: AppColors.primary.withOpacity(0.1),
                       label: 'Inactive',
                       count: inactiveCount,
                     ),
@@ -319,7 +340,7 @@ class _StaffListViewState extends State<_StaffListView> {
                     );
                   }
 
-                  final bool showLoader = state.hasMore || state.isLoadingMore;
+                  final bool showLoader = state.isLoadingMore;
                   final itemCount = staffMembers.length + (showLoader ? 1 : 0);
 
                   return RefreshIndicator(

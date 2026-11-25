@@ -611,13 +611,20 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
       'notes': _notesController.text,
     };
 
-    leadData['enableReminder'] = _emailAlert || _pushNotification || _smsAlert;
-    leadData['reminderDate'] = _formatDateForApi(_reminderDateController.text);
-    leadData['reminderTime'] = _formatTimeForApi(_reminderTimeController.text);
-    leadData['repeat'] = _mapRepeatCycle(_repeatCycleController.text);
-    leadData['notifyEmail'] = _emailAlert;
-    leadData['notifySMS'] = _smsAlert;
-    leadData['notifyPush'] = _pushNotification;
+    final reminderDateStr = _formatDateForApi(_reminderDateController.text);
+    final hasReminderDate = reminderDateStr.isNotEmpty;
+    leadData['enableReminder'] = hasReminderDate && (_emailAlert || _pushNotification || _smsAlert);
+    if (hasReminderDate) {
+      leadData['reminderDate'] = reminderDateStr;
+      leadData['reminderTime'] = _formatTimeForApi(_reminderTimeController.text);
+      leadData['repeat'] = _mapRepeatCycle(_repeatCycleController.text);
+      leadData['notifyEmail'] = _emailAlert;
+      leadData['notifySMS'] = _smsAlert;
+      leadData['notifyPush'] = _pushNotification;
+    } else {
+      leadData['reminderDate'] = null;
+      leadData['reminderTime'] = null;
+    }
 
     leadData.removeWhere((key, value) => value == null);
 
@@ -752,7 +759,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
           Navigator.pop(context, true);
         } else if (state is LeadActionError) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(state.message), backgroundColor: Colors.red),
+            SnackBar(content: Text(state.message), backgroundColor: AppColors.primary),
           );
         }
       },
@@ -2322,7 +2329,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
                         child: const Icon(
                           Icons.close,
                           size: 18,
-                          color: Colors.red,
+                          color: AppColors.primary,
                         ),
                       ),
                     ],
@@ -2658,7 +2665,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
                     if (isRequired)
                       const TextSpan(
                         text: ' *',
-                        style: TextStyle(color: Colors.red),
+                        style: TextStyle(color: AppColors.primary),
                       ),
                   ],
                 ),
@@ -2697,7 +2704,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
                 const SizedBox(height: 4),
                 Text(
                   formFieldState.errorText!,
-                  style: const TextStyle(color: Colors.red, fontSize: 11),
+                  style: const TextStyle(color: AppColors.primary, fontSize: 11),
                 ),
               ],
             ],
@@ -2729,7 +2736,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
                     if (isRequired)
                       const TextSpan(
                         text: ' *',
-                        style: TextStyle(color: Colors.red),
+                        style: TextStyle(color: AppColors.primary),
                       ),
                   ],
                 ),
@@ -2756,7 +2763,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
                 const SizedBox(height: 4),
                 Text(
                   formFieldState.errorText!,
-                  style: const TextStyle(color: Colors.red, fontSize: 11),
+                  style: const TextStyle(color: AppColors.primary, fontSize: 11),
                 ),
               ],
             ],
@@ -2878,7 +2885,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
               if (isRequired)
                 const Text(
                   ' *',
-                  style: TextStyle(color: Colors.red, fontSize: 13),
+                  style: TextStyle(color: AppColors.primary, fontSize: 13),
                 ),
             ],
           ),
@@ -3066,7 +3073,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
                       child: const Icon(
                         Icons.close,
                         size: 18,
-                        color: Colors.red,
+                        color: AppColors.primary,
                       ),
                     ),
                   ],
@@ -3192,7 +3199,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
                       isDense: true,
                       contentPadding: EdgeInsets.zero,
                       hintText: label == 'Date'
-                          ? 'Select date'
+                          ? 'Select date '
                           : label == 'Time'
                           ? 'Select time'
                           : '',
@@ -3204,6 +3211,23 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
                     style: const TextStyle(fontSize: 14),
                   ),
                 ),
+                if (controller.text.isNotEmpty)
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () {
+                      setState(() {
+                        controller.clear();
+                      });
+                    },
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 8.0),
+                      child: Icon(
+                        Icons.close_rounded,
+                        size: 16,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),

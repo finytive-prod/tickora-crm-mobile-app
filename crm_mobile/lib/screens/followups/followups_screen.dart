@@ -237,10 +237,32 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
                 if (state is FollowUpsLoaded) {
                   setState(() {
                     if (_searchController.text.trim().isEmpty) {
-                      _todayCount = state.response.summary.today;
-                      _upcomingCount = state.response.summary.upcoming;
-                      _missedCount = state.response.summary.missed;
-                      _completedCount = state.response.summary.completed;
+                      final summary = state.response.summary;
+                      final total = state.response.totalElements;
+
+                      if (_selectedTab == 'Today') {
+                        _todayCount = total;
+                      } else if (summary.today > 0 || _todayCount == 0) {
+                        _todayCount = summary.today;
+                      }
+
+                      if (_selectedTab == 'Upcoming') {
+                        _upcomingCount = total;
+                      } else if (summary.upcoming > 0 || _upcomingCount == 0) {
+                        _upcomingCount = summary.upcoming;
+                      }
+
+                      if (_selectedTab == 'Missed') {
+                        _missedCount = total;
+                      } else if (summary.missed > 0 || _missedCount == 0) {
+                        _missedCount = summary.missed;
+                      }
+
+                      if (_selectedTab == 'Completed') {
+                        _completedCount = total;
+                      } else if (summary.completed > 0 || _completedCount == 0) {
+                        _completedCount = summary.completed;
+                      }
                     }
                   });
                 }
@@ -417,10 +439,16 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
     );
   }
 
+  String _formatBadgeCount(int count) {
+    if (count < 0) return '';
+    if (count > 999) return '999+';
+    return '$count';
+  }
+
   Widget _buildTabChip(String tabName, int count) {
     final isSelected = _selectedTab == tabName;
-    final activeBorderColor = const Color(0xFFEF4444);
-    final activeTextColor = const Color(0xFFEF4444);
+    final activeBorderColor = AppColors.primary;
+    final activeTextColor = AppColors.primary;
     final inactiveBorderColor = AppColors.borderEnabled;
     final inactiveTextColor = AppColors.textHint;
     
@@ -449,12 +477,14 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
               const SizedBox(width: 6),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                constraints: const BoxConstraints(minWidth: 18),
                 decoration: BoxDecoration(
                   color: isSelected ? activeBorderColor : const Color(0xFFE5E7EB),
-                  shape: BoxShape.circle,
+                  borderRadius: BorderRadius.circular(10),
                 ),
+                alignment: Alignment.center,
                 child: Text(
-                  '$count',
+                  _formatBadgeCount(count),
                   style: TextStyle(
                     color: isSelected ? Colors.white : AppColors.textPrimary,
                     fontSize: 10,
@@ -479,8 +509,8 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
     
     final priorityUpper = item.priority.toUpperCase();
     if (priorityUpper == 'HIGH') {
-      priorityBgColor = const Color(0xFFFEE2E2);
-      priorityTextColor = const Color(0xFFEF4444);
+      priorityBgColor = AppColors.secondary;
+      priorityTextColor = AppColors.primary;
     } else if (priorityUpper == 'MEDIUM') {
       priorityBgColor = const Color(0xFFFEF3C7);
       priorityTextColor = const Color(0xFFD97706);
@@ -521,7 +551,7 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
           side: BorderSide(
-            color: isMissed ? Colors.red.withOpacity(0.4) : AppColors.borderEnabled,
+            color: isMissed ? AppColors.primary.withOpacity(0.4) : AppColors.borderEnabled,
             width: isMissed ? 1.2 : 1,
           ),
         ),
@@ -669,7 +699,7 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
                       Icon(
                         isMissed ? Icons.error_outline : Icons.access_time,
                         size: 16,
-                        color: isMissed ? Colors.red : AppColors.textHint,
+                        color: isMissed ? AppColors.primary : AppColors.textHint,
                       ),
                       const SizedBox(width: 6),
                       Text(
@@ -677,7 +707,7 @@ class _FollowUpsScreenViewState extends State<FollowUpsScreenView> {
                             ? 'Overdue follow-up'
                             : (item.followUpTime.isNotEmpty ? item.followUpTime : (item.leadStatus?.statusName ?? 'No Date')),
                         style: TextStyle(
-                          color: isMissed ? Colors.red : AppColors.textPrimary,
+                          color: isMissed ? AppColors.primary : AppColors.textPrimary,
                           fontSize: 14,
                           fontWeight: isMissed ? FontWeight.bold : FontWeight.normal,
                         ),

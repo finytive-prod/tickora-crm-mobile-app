@@ -991,7 +991,7 @@ class MappedLeadDialog extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Header Bar in CRM Red Theme (#DB222A)
+          // Header Bar in CRM Theme (#111827)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             color: AppColors.primary,

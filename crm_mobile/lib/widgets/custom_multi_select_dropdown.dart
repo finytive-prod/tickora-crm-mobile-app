@@ -107,7 +107,7 @@ class _CustomMultiSelectDropdownState<T> extends State<CustomMultiSelectDropdown
                 if (widget.isRequired)
                   const TextSpan(
                     text: ' *',
-                    style: TextStyle(color: Colors.red),
+                    style: TextStyle(color: Color(0xFF111827)),
                   ),
               ],
             ),

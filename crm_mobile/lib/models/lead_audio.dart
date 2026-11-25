@@ -9,6 +9,7 @@ class LeadAudio extends Equatable {
   final int size;
   final DateTime? createdAt;
   final int durationSeconds;
+  final String? durationStr;
   final String? startTimeStr;
   final String? endTimeStr;
   final String? fromNumber;
@@ -16,6 +17,9 @@ class LeadAudio extends Equatable {
   final String? bound;
   final String? callDate;
   final String? callStatus;
+  final String? createdBy;
+  final String? owner;
+  final String? callHandledBy;
 
   const LeadAudio({
     required this.id,
@@ -26,6 +30,7 @@ class LeadAudio extends Equatable {
     required this.size,
     this.createdAt,
     this.durationSeconds = 0,
+    this.durationStr,
     this.startTimeStr,
     this.endTimeStr,
     this.fromNumber,
@@ -33,6 +38,9 @@ class LeadAudio extends Equatable {
     this.bound,
     this.callDate,
     this.callStatus,
+    this.createdBy,
+    this.owner,
+    this.callHandledBy,
   });
 
   String get displayName => originalFileName.isNotEmpty ? originalFileName : fileName;
@@ -109,6 +117,7 @@ class LeadAudio extends Equatable {
         size,
         createdAt,
         durationSeconds,
+        durationStr,
         startTimeStr,
         endTimeStr,
         fromNumber,
@@ -116,6 +125,9 @@ class LeadAudio extends Equatable {
         bound,
         callDate,
         callStatus,
+        createdBy,
+        owner,
+        callHandledBy,
       ];
 }
 
@@ -129,6 +141,7 @@ class LeadAudioModel extends LeadAudio {
     required super.size,
     super.createdAt,
     super.durationSeconds,
+    super.durationStr,
     super.startTimeStr,
     super.endTimeStr,
     super.fromNumber,
@@ -136,12 +149,17 @@ class LeadAudioModel extends LeadAudio {
     super.bound,
     super.callDate,
     super.callStatus,
+    super.createdBy,
+    super.owner,
+    super.callHandledBy,
   });
 
   factory LeadAudioModel.fromJson(Map<String, dynamic> json) {
     int parsedDur = 0;
     final rawDur = json['duration'] ?? json['durationSeconds'] ?? json['duration_seconds'];
+    String? rawDurStr;
     if (rawDur != null) {
+      rawDurStr = rawDur.toString();
       if (rawDur is num) {
         parsedDur = rawDur.toInt();
       } else {
@@ -182,6 +200,7 @@ class LeadAudioModel extends LeadAudio {
       size: (json['size'] as num?)?.toInt() ?? 0,
       createdAt: parsedCreatedAt,
       durationSeconds: parsedDur,
+      durationStr: rawDurStr,
       startTimeStr: json['startTime']?.toString() ?? json['start_time']?.toString() ?? json['startTimeStr']?.toString(),
       endTimeStr: json['endTime']?.toString() ?? json['end_time']?.toString() ?? json['endTimeStr']?.toString(),
       fromNumber: json['fromNumber']?.toString() ?? json['from_number']?.toString() ?? json['from']?.toString(),
@@ -189,6 +208,9 @@ class LeadAudioModel extends LeadAudio {
       bound: json['bound']?.toString(),
       callDate: json['callDate']?.toString() ?? json['call_date']?.toString(),
       callStatus: json['callStatus']?.toString() ?? json['call_status']?.toString() ?? json['status']?.toString(),
+      createdBy: json['createdBy']?.toString() ?? json['created_by']?.toString(),
+      owner: json['owner']?.toString() ?? json['ownerName']?.toString() ?? json['owner_name']?.toString(),
+      callHandledBy: json['callHandledBy']?.toString() ?? json['call_handled_by']?.toString() ?? json['handledBy']?.toString(),
     );
   }
 
@@ -201,7 +223,7 @@ class LeadAudioModel extends LeadAudio {
       'contentType': contentType,
       'size': size,
       'createdAt': createdAt?.toIso8601String(),
-      'duration': durationSeconds.toString(),
+      'duration': durationStr ?? durationSeconds.toString(),
       'durationSeconds': durationSeconds,
       'startTime': startTimeStr,
       'endTime': endTimeStr,
@@ -210,7 +232,9 @@ class LeadAudioModel extends LeadAudio {
       'bound': bound,
       'callDate': callDate,
       'callStatus': callStatus,
+      'createdBy': createdBy,
+      'owner': owner,
+      'callHandledBy': callHandledBy,
     };
   }
 }
-

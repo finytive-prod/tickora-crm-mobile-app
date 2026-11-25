@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -6,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crm_mobile/core/network/api_client.dart';
 import 'package:crm_mobile/core/network/api_constants.dart';
 import 'package:crm_mobile/core/services/notification_service.dart';
+import 'package:crm_mobile/core/services/secure_token_storage.dart';
 import 'package:crm_mobile/injection/injection.dart';
 import 'package:logger/logger.dart';
 
@@ -201,8 +203,33 @@ class FcmService {
         '${ApiUrl.leadService}/device-token',
       ];
 
-      if (!sl.isRegistered<ApiClient>()) return;
-      final apiClient = sl<ApiClient>();
+      String? authToken;
+      if (sl.isRegistered<SecureTokenStorage>()) {
+        authToken = await sl<SecureTokenStorage>().getAccessToken();
+      }
+      authToken ??= sl.isRegistered<SharedPreferences>()
+          ? sl<SharedPreferences>().getString('token')
+          : null;
+
+      if (authToken == null || authToken.isEmpty) {
+        logger?.d('FCM: No auth token available to register FCM device token yet.');
+        return;
+      }
+
+      // Use a standalone Dio client so background probe candidate 401s
+      // NEVER trigger AuthInterceptor session expiration or log the user out.
+      final backgroundDio = Dio(
+        BaseOptions(
+          connectTimeout: const Duration(seconds: 6),
+          receiveTimeout: const Duration(seconds: 6),
+          headers: {
+            'Authorization': 'Bearer $authToken',
+            'Content-Type': 'application/json',
+          },
+          validateStatus: (status) => true,
+        ),
+      );
+
       bool success = false;
 
       final payload = {
@@ -215,7 +242,7 @@ class FcmService {
 
       for (final url in candidateUrls) {
         try {
-          final res = await apiClient.post(
+          final res = await backgroundDio.post(
             url,
             data: payload,
           );
