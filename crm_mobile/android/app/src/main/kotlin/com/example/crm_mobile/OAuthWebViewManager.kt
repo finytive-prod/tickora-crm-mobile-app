@@ -12,6 +12,7 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.os.Build
+import android.net.Uri
 import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
@@ -146,15 +147,17 @@ object OAuthWebViewManager {
                 webView.webViewClient = object : WebViewClient() {
                     private fun checkUrl(checkUrl: String?): Boolean {
                         if (checkUrl == null || hasIntercepted) return false
-                        Log.d(TAG, "WebView loading URL: $checkUrl")
-
                         val cleanCheck = checkUrl.trim()
-                        val isCallback = cleanCheck.startsWith(redirectUri, ignoreCase = true) ||
-                                (cleanCheck.contains("/callback", ignoreCase = true) && cleanCheck.contains("code="))
+                        val target = Uri.parse(redirectUri)
+                        val candidate = Uri.parse(cleanCheck)
+                        val isCallback = candidate.scheme.equals(target.scheme, ignoreCase = true) &&
+                                candidate.host.equals(target.host, ignoreCase = true) &&
+                                candidate.port == target.port && candidate.path == target.path &&
+                                candidate.userInfo.isNullOrEmpty() && candidate.fragment == null
 
                         if (isCallback) {
                             hasIntercepted = true
-                            Log.d(TAG, "Intercepted OAuth callback URL: $cleanCheck")
+                            Log.d(TAG, "OAuth callback received")
                             showLoader()
                             dialog.dismiss()
                             onComplete(cleanCheck)
@@ -201,9 +204,6 @@ object OAuthWebViewManager {
                             webView.goBack()
                         } else {
                             dialog.dismiss()
-                            if (!hasIntercepted) {
-                                onComplete(null)
-                            }
                         }
                         true
                     } else {
@@ -211,10 +211,14 @@ object OAuthWebViewManager {
                     }
                 }
 
-                dialog.setOnCancelListener {
+                dialog.setOnDismissListener {
+                    if (activeDialog === dialog) activeDialog = null
                     if (!hasIntercepted) {
+                        hasIntercepted = true
                         onComplete(null)
                     }
+                    webView.stopLoading()
+                    webView.destroy()
                 }
 
                 dialog.show()

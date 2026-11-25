@@ -27,6 +27,13 @@ class OAuthService {
   Completer<String?>? _inFlightRefresh;
   final Set<String> _processedCodes = {};
   bool _isExchangingCode = false;
+  bool _authorizationFlowActive = false;
+  Completer<void>? _preparation;
+  Completer<void>? _closing;
+  int _authorizationGeneration = 0;
+  int _sessionGeneration = 0;
+  int? _callbackClaimedGeneration;
+  Future<void> _callbackQueue = Future<void>.value();
 
   final StreamController<OAuthCallbackResult> _callbackStreamController =
       StreamController<OAuthCallbackResult>.broadcast();
@@ -55,7 +62,7 @@ class OAuthService {
   void _initializeDeepLinkListener() {
     _linkSubscription = _appLinks.uriLinkStream.listen(
       (uri) {
-        _handleIncomingUri(uri);
+        handleAuthorizationCallback(uri);
       },
       onError: (err) {
         debugPrint('OAuth: AppLinks error: $err');
@@ -64,7 +71,7 @@ class OAuthService {
 
     _appLinks.getInitialLink().then((initialUri) {
       if (initialUri != null) {
-        _handleIncomingUri(initialUri);
+        handleAuthorizationCallback(initialUri);
       }
     }).catchError((err) {
       debugPrint('OAuth: getInitialLink error: $err');
@@ -576,11 +583,39 @@ class OAuthService {
       MethodChannel('com.example.crm_mobile/call_recording');
 
   Future<bool> startAuthorizationFlow({String? emailHint}) async {
+    final closing = _closing;
+    if (closing != null) await closing.future;
+    // Repeated taps must not overwrite the verifier for the browser already open.
+    if (_authorizationFlowActive || _isExchangingCode || _preparation != null) return true;
+    _sessionGeneration++;
+    _authorizationFlowActive = true;
+    final generation = ++_authorizationGeneration;
+    try {
+      final launched = await _startAuthorizationFlow(emailHint, generation);
+      if (!launched && generation == _authorizationGeneration) {
+        _authorizationFlowActive = false;
+      }
+      return launched;
+    } catch (_) {
+      if (generation == _authorizationGeneration) await cancelAuthorizationFlow();
+      rethrow;
+    }
+  }
+
+  Future<bool> _startAuthorizationFlow(String? emailHint, int generation) async {
     final verifier = generateCodeVerifier();
     final challenge = generateCodeChallenge(verifier);
     final state = generateState();
 
-    await _tokenStorage.savePendingPkce(codeVerifier: verifier, state: state);
+    final preparation = Completer<void>();
+    _preparation = preparation;
+    try {
+      await _tokenStorage.savePendingPkce(codeVerifier: verifier, state: state);
+      if (generation != _authorizationGeneration) return true;
+    } finally {
+      preparation.complete();
+      _preparation = null;
+    }
 
     final authUrl = buildAuthorizationUrl(
       codeChallenge: challenge,
@@ -588,7 +623,8 @@ class OAuthService {
       emailHint: emailHint,
     );
 
-    debugPrint('OAuth: Opening in-app web login: $authUrl');
+    if (generation != _authorizationGeneration) return true;
+    debugPrint('OAuth: Opening secure login');
 
     // 1. First priority: Native In-App WebView Dialog (100% inside app, reliable URL interception)
     try {
@@ -600,9 +636,12 @@ class OAuthService {
         },
       );
 
+      if (generation != _authorizationGeneration ||
+          _callbackClaimedGeneration == generation) {
+        return true;
+      }
       if (callbackUrl != null && callbackUrl.isNotEmpty) {
-        debugPrint('OAuth: Native WebView returned callback URL: $callbackUrl');
-        await _handleIncomingUri(Uri.parse(callbackUrl));
+        await handleAuthorizationCallback(Uri.parse(callbackUrl));
         return true;
       } else {
         debugPrint('OAuth: In-app login cancelled or closed by user');
@@ -615,6 +654,7 @@ class OAuthService {
       debugPrint('OAuth: Native in-app WebView exception: $e, falling back to url_launcher');
     }
 
+    if (generation != _authorizationGeneration) return true;
     // 2. Fallback: Launch inside the app using inAppBrowserView / inAppWebView
     bool launched = false;
     try {
@@ -671,13 +711,26 @@ class OAuthService {
 
   /// Explicitly closes any active in-app web browser view and clears pending PKCE.
   Future<void> closeInAppLogin() async {
+    final previous = _closing;
+    if (previous != null) return previous.future;
+    final closing = Completer<void>();
+    _closing = closing;
+    _authorizationGeneration++;
+    _authorizationFlowActive = false;
     try {
-      await _platformChannel.invokeMethod('closeOAuthWebView');
-    } catch (_) {}
-    try {
-      await closeInAppWebView();
-    } catch (_) {}
-    await _tokenStorage.clearPendingPkce();
+      final preparation = _preparation;
+      if (preparation != null) await preparation.future;
+      await _tokenStorage.clearPendingPkce();
+      try {
+        await _platformChannel.invokeMethod('closeOAuthWebView');
+      } catch (_) {}
+      try {
+        await closeInAppWebView();
+      } catch (_) {}
+    } finally {
+      closing.complete();
+      _closing = null;
+    }
   }
 
   /// Cancels in-flight authorization flow and clears pending PKCE.
@@ -689,95 +742,70 @@ class OAuthService {
   // Deep-Link Callback Handling
   // ──────────────────────────────────────────────────────────────────────────
 
-  Future<void> _handleIncomingUri(Uri uri) async {
-    final expectedUri = Uri.parse(ApiUrl.mobileRedirectUri);
+  /// Both native WebView and app-links callbacks enter the same serial queue.
+  Future<void> handleAuthorizationCallback(Uri uri) {
+    final operation = _callbackQueue.then((_) => _processAuthorizationCallback(uri));
+    _callbackQueue = operation.catchError((Object error) {
+      debugPrint('OAuth: Callback processing failed (${error.runtimeType})');
+    });
+    return operation;
+  }
 
-    final isSchemeMatch = uri.scheme.toLowerCase() == expectedUri.scheme.toLowerCase();
-    final isHostMatch = uri.host.toLowerCase() == expectedUri.host.toLowerCase();
-    final isPathMatch = uri.path.replaceAll('/', '').toLowerCase() == expectedUri.path.replaceAll('/', '').toLowerCase();
-    final isCallbackPath = uri.path.replaceAll('/', '').toLowerCase().endsWith('callback');
-    final hasOAuthParams = uri.queryParameters.containsKey('code') || uri.queryParameters.containsKey('error');
-
-    final bool isMatch = (isSchemeMatch && isHostMatch && isPathMatch) || (isCallbackPath && hasOAuthParams);
-
-    if (!isMatch) {
+  Future<void> _processAuthorizationCallback(Uri uri) async {
+    final expected = Uri.parse(ApiUrl.mobileRedirectUri);
+    if (uri.scheme.toLowerCase() != expected.scheme.toLowerCase() ||
+        uri.host.toLowerCase() != expected.host.toLowerCase() ||
+        uri.port != expected.port || uri.path != expected.path ||
+        uri.userInfo.isNotEmpty || uri.fragment.isNotEmpty) {
       return;
     }
 
-    debugPrint('OAuth: Received valid callback URI: ${uri.scheme}://${uri.host}${uri.path}');
-
-    // Automatically close the in-app browser view / dialog immediately
-    try {
-      await _platformChannel.invokeMethod('closeOAuthWebView');
-    } catch (_) {}
-    try {
-      await closeInAppWebView();
-    } catch (_) {}
+    final fingerprint = sha256.convert(utf8.encode(uri.toString())).toString();
+    // Duplicate delivery after success must be ignored before reading cleared state.
+    if (_processedCodes.contains(fingerprint)) return;
+    final generation = _authorizationGeneration;
+    final state = uri.queryParameters['state'];
+    final savedState = await _tokenStorage.getPendingState();
+    if (generation != _authorizationGeneration) return;
+    // An old initial link or mismatched callback cannot consume a newer login.
+    if (state == null || savedState == null || savedState.isEmpty || state != savedState) return;
 
     final error = uri.queryParameters['error'];
-    final errorDescription = uri.queryParameters['error_description'];
-    if (error != null && error.isNotEmpty) {
-      final msg = errorDescription?.isNotEmpty == true ? errorDescription! : 'Login error ($error)';
-      debugPrint('OAuth: Callback returned error: $msg');
-      await _tokenStorage.clearPendingPkce();
-      _callbackStreamController.add(OAuthCallbackResult.failure(msg));
-      return;
-    }
-
     final code = uri.queryParameters['code'];
-    final state = uri.queryParameters['state'];
+    if ((error == null || error.isEmpty) && (code == null || code.trim().isEmpty)) return;
+    final verifier = await _tokenStorage.getPendingVerifier();
+    if (generation != _authorizationGeneration) return;
 
-    if (code == null || code.trim().isEmpty) {
-      await _tokenStorage.clearPendingPkce();
-      _callbackStreamController.add(
-        OAuthCallbackResult.failure('Authorization code missing from callback response'),
-      );
-      return;
-    }
-
-    if (state == null || state.trim().isEmpty) {
-      await _tokenStorage.clearPendingPkce();
-      _callbackStreamController.add(
-        OAuthCallbackResult.failure('State parameter missing from callback response'),
-      );
-      return;
-    }
-
-    final savedState = await _tokenStorage.getPendingState();
-    if (savedState == null || savedState.isEmpty || savedState != state) {
-      await _tokenStorage.clearPendingPkce();
-      _callbackStreamController.add(
-        OAuthCallbackResult.failure('Invalid or expired login session state. Please try again.'),
-      );
-      return;
-    }
-
-    if (_processedCodes.contains(code) || _isExchangingCode) {
-      return;
-    }
-
-    _processedCodes.add(code);
+    _processedCodes.add(fingerprint);
+    if (_processedCodes.length > 64) _processedCodes.remove(_processedCodes.first);
     _isExchangingCode = true;
-
+    _callbackClaimedGeneration = generation;
+    OAuthCallbackResult result;
     try {
-      final savedVerifier = await _tokenStorage.getPendingVerifier();
-      if (savedVerifier == null || savedVerifier.isEmpty) {
+      // Closing the native dialog can deliver the same callback a second time.
+      try { await _platformChannel.invokeMethod('closeOAuthWebView'); } catch (_) {}
+      try { await closeInAppWebView(); } catch (_) {}
+      if (generation != _authorizationGeneration) return;
+      if (error != null && error.isNotEmpty) {
+        throw ApiException(message: 'Sign in was not completed. Please try again.');
+      }
+      if (verifier == null || verifier.isEmpty) {
         throw ApiException(message: 'PKCE code verifier not found. Please restart login.');
       }
-
-      final user = await exchangeAuthorizationCode(
-        code: code,
-        codeVerifier: savedVerifier,
-      );
-
-      _callbackStreamController.add(OAuthCallbackResult.success(user));
-    } catch (e) {
-      debugPrint('OAuth: Exchange failed: $e');
-      final msg = e is ApiException ? e.message : e.toString().replaceAll('Exception: ', '');
-      _callbackStreamController.add(OAuthCallbackResult.failure(msg));
+      final user = await exchangeAuthorizationCode(code: code!, codeVerifier: verifier);
+      result = OAuthCallbackResult.success(user);
+    } catch (error) {
+      result = OAuthCallbackResult.failure(error is ApiException
+          ? error.message : 'Unable to complete sign in. Please try again.');
     } finally {
+      if (generation == _authorizationGeneration) {
+        await _tokenStorage.clearPendingPkce();
+        _authorizationFlowActive = false;
+      }
       _isExchangingCode = false;
-      await _tokenStorage.clearPendingPkce();
+    }
+    if (generation == _authorizationGeneration && !_callbackStreamController.isClosed) {
+      _callbackStreamController.add(result);
     }
   }
 
@@ -881,15 +909,16 @@ class OAuthService {
       return await _inFlightRefresh!.future;
     }
 
-    final currentRefreshToken = await _tokenStorage.getRefreshToken();
-    if (currentRefreshToken == null || currentRefreshToken.isEmpty) {
-      debugPrint('OAuth: No refresh token available in secure storage');
-      return null;
-    }
-
-    _inFlightRefresh = Completer<String?>();
-
+    // Reserve the single flight before the first storage await.
+    final flight = Completer<String?>();
+    _inFlightRefresh = flight;
+    final generation = _sessionGeneration;
     try {
+      final currentRefreshToken = await _tokenStorage.getRefreshToken();
+      if (currentRefreshToken == null || currentRefreshToken.isEmpty) {
+        flight.complete(null);
+        return null;
+      }
       final tokenUrl = ApiUrl.oauthTokenUrl;
 
       final response = await _dio.post(
@@ -923,6 +952,10 @@ class OAuthService {
           ? tokenResponse.refreshToken
           : currentRefreshToken;
 
+      if (generation != _sessionGeneration) {
+        flight.complete(null);
+        return null;
+      }
       await _tokenStorage.saveTokens(
         accessToken: tokenResponse.accessToken,
         refreshToken: newRefreshToken,
@@ -930,11 +963,12 @@ class OAuthService {
         tokenType: tokenResponse.tokenType,
       );
 
-      _inFlightRefresh!.complete(tokenResponse.accessToken);
+      flight.complete(tokenResponse.accessToken);
       return tokenResponse.accessToken;
     } catch (e) {
       debugPrint('OAuth: Token refresh failed: $e');
-      _inFlightRefresh!.complete(null);
+      flight.complete(null);
+      if (generation != _sessionGeneration) return null;
 
       // Only clear tokens and force logout if the server explicitly confirmed
       // the refresh token is revoked or invalid (e.g. invalid_grant).
@@ -943,9 +977,12 @@ class OAuthService {
       if (e is DioException) {
         final status = e.response?.statusCode;
         final data = e.response?.data;
-        final errorStr = (data is Map ? (data['error'] ?? data['message'] ?? '') : (e.message ?? '')).toString().toLowerCase();
+        final errorStr = (data is Map ? (data['errorCode'] ?? data['error'] ?? data['message'] ?? '') : (e.message ?? '')).toString().toLowerCase();
         if ((status == 400 || status == 401) &&
-            (errorStr.contains('invalid_grant') ||
+            (errorStr.contains('invalid_refresh_token') ||
+             errorStr.contains('session_expired') ||
+             errorStr.contains('user_not_active') ||
+             errorStr.contains('invalid_grant') ||
              errorStr.contains('invalid_token') ||
              errorStr.contains('revoked') ||
              errorStr.contains('unauthorized'))) {
@@ -1069,6 +1106,7 @@ class OAuthService {
   }
 
   Future<void> logout() async {
+    _sessionGeneration++;
     try {
       final token = await _tokenStorage.getAccessToken();
       if (token != null && token.isNotEmpty) {
