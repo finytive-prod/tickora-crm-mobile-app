@@ -10,6 +10,7 @@ import 'package:crm_mobile/blocs/staff_state.dart';
 import 'package:crm_mobile/screens/staff/edit_staff_bottom_sheet.dart';
 import 'package:crm_mobile/core/services/privilege_service.dart';
 import 'package:crm_mobile/widgets/confirmation_dialog.dart';
+import 'package:crm_mobile/widgets/spinning_logo.dart';
 
 class StaffDetailScreen extends StatelessWidget {
   final StaffMember staff;
@@ -49,7 +50,7 @@ class _StaffDetailViewState extends State<_StaffDetailView> {
 
   Color _avatarColor() {
     final colors = [
-      const Color(0xFFEF4444),
+      AppColors.primary,
       const Color(0xFFF59E0B),
       const Color(0xFF10B981),
       const Color(0xFF3B82F6),
@@ -206,7 +207,7 @@ class _StaffDetailViewState extends State<_StaffDetailView> {
             context.read<StaffBloc>().add(FetchStaffDetailEvent(_staff.id));
           },
           child: _isLoading && _staff.email.isEmpty
-              ? const Center(child: CircularProgressIndicator())
+              ? const Center(child: SpinningLogo(size: 60))
               : SingleChildScrollView(
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.all(16),
@@ -278,7 +279,7 @@ class _StaffDetailViewState extends State<_StaffDetailView> {
                                   decoration: BoxDecoration(
                                     color: _staff.isActive
                                         ? const Color(0xFF10B981).withOpacity(0.12)
-                                        : const Color(0xFFEF4444).withOpacity(0.12),
+                                        : AppColors.primary.withOpacity(0.12),
                                     borderRadius: BorderRadius.circular(16),
                                   ),
                                   child: Row(
@@ -289,14 +290,14 @@ class _StaffDetailViewState extends State<_StaffDetailView> {
                                         height: 6,
                                         decoration: BoxDecoration(
                                           shape: BoxShape.circle,
-                                          color: _staff.isActive ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                                          color: _staff.isActive ? const Color(0xFF10B981) : AppColors.primary,
                                         ),
                                       ),
                                       const SizedBox(width: 5),
                                       Text(
                                         _staff.accountStatus.toUpperCase(),
                                         style: TextStyle(
-                                          color: _staff.isActive ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                                          color: _staff.isActive ? const Color(0xFF10B981) : AppColors.primary,
                                           fontSize: 11,
                                           fontWeight: FontWeight.bold,
                                         ),

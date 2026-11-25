@@ -7,9 +7,9 @@ import 'package:crm_mobile/blocs/login_bloc.dart';
 import 'package:crm_mobile/blocs/login_event.dart';
 import 'package:crm_mobile/blocs/login_state.dart';
 import 'package:crm_mobile/injection/injection.dart';
-import 'package:crm_mobile/screens/auth/forgot_password_screen.dart';
 import 'package:crm_mobile/core/services/call_recording_service.dart';
 import 'package:crm_mobile/core/utils/navigation_service.dart';
+import 'package:crm_mobile/widgets/spinning_logo.dart';
 
 class LoginScreen extends StatelessWidget {
   final bool sessionExpired;
@@ -35,66 +35,25 @@ class LoginScreenView extends StatefulWidget {
 }
 
 class _LoginScreenViewState extends State<LoginScreenView> {
-  bool _obscurePassword = true;
-  final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
-  String? _emailError;
-  String? _passwordError;
-
   @override
   void initState() {
     super.initState();
     NavigationService.isLoginScreenActive = true;
     NavigationService.isAppReady = false;
+
+    // Automatically trigger the in-app web login right after opening from splash screen,
+    // but not if redirected due to an explicit session expiration.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !widget.sessionExpired) {
+        context.read<LoginBloc>().add(const LoginOAuthInitiated());
+      }
+    });
   }
 
   @override
   void dispose() {
     NavigationService.isLoginScreenActive = false;
-    _emailController.dispose();
-    _passwordController.dispose();
     super.dispose();
-  }
-
-  void _handleLogin(BuildContext context) {
-    FocusScope.of(context).unfocus();
-    setState(() {
-      _emailError = null;
-      _passwordError = null;
-    });
-
-    final email = _emailController.text.trim();
-    final password = _passwordController.text;
-
-    bool hasError = false;
-
-    if (email.isEmpty) {
-      setState(() {
-        _emailError = 'Please enter your email address';
-      });
-      hasError = true;
-    } else if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email)) {
-      setState(() {
-        _emailError = 'Please enter a valid email address';
-      });
-      hasError = true;
-    }
-
-    if (password.isEmpty) {
-      setState(() {
-        _passwordError = 'Please enter your password';
-      });
-      hasError = true;
-    }
-
-    if (hasError) return;
-
-    context.read<LoginBloc>().add(
-          LoginButtonPressed(
-            email: email,
-            password: password,
-          ),
-        );
   }
 
   @override
@@ -117,6 +76,7 @@ class _LoginScreenViewState extends State<LoginScreenView> {
                 debugPrint('Error requesting permissions post-login: $e');
               }
               if (context.mounted) {
+                // Navigate directly inside the app to HomeScreen and clear auth stack
                 Navigator.pushAndRemoveUntil(
                   context,
                   MaterialPageRoute(builder: (context) => const HomeScreen(isFromLogin: true)),
@@ -125,43 +85,10 @@ class _LoginScreenViewState extends State<LoginScreenView> {
               }
             } else if (state is LoginFailure) {
               final msg = state.message;
-              final lowerMsg = msg.toLowerCase();
-
-              setState(() {
-                if (lowerMsg.contains('user not found') ||
-                    lowerMsg.contains('user does not exist') ||
-                    lowerMsg.contains('no user') ||
-                    lowerMsg.contains('not found') ||
-                    lowerMsg.contains('email not found') ||
-                    lowerMsg.contains('invalid email') ||
-                    lowerMsg.contains('username') ||
-                    lowerMsg.contains('account')) {
-                  _emailError = 'User not found or invalid email';
-                  _passwordError = null;
-                } else if (lowerMsg.contains('password') ||
-                    lowerMsg.contains('bad credentials') ||
-                    lowerMsg.contains('wrong password') ||
-                    lowerMsg.contains('incorrect password')) {
-                  _passwordError = 'Incorrect password';
-                  _emailError = null;
-                } else if (lowerMsg.contains('credential') ||
-                    lowerMsg.contains('unauthorized') ||
-                    lowerMsg.contains('session expired') ||
-                    lowerMsg.contains('invalid')) {
-                  _passwordError = 'Incorrect password';
-                  _emailError = null;
-                } else {
-                  _passwordError = msg.isNotEmpty ? msg : 'Invalid login details';
-                  _emailError = null;
-                }
-              });
-
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(
-                    lowerMsg.contains('session expired')
-                        ? 'Invalid email or password'
-                        : (msg.isNotEmpty ? msg : 'Invalid login details'),
+                    msg.isNotEmpty ? msg : 'Authentication failed. Please try again.',
                   ),
                   backgroundColor: AppColors.primary,
                 ),
@@ -170,247 +97,190 @@ class _LoginScreenViewState extends State<LoginScreenView> {
           },
           builder: (context, state) {
             final isLoading = state is LoginLoading || state is LoginSuccess;
-            return LayoutBuilder(
-              builder: (context, constraints) {
-                return SingleChildScrollView(
-                  physics: const ClampingScrollPhysics(),
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                    child: IntrinsicHeight(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32.0),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                    // Brand Logo and Name ("Tickora CRM")
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Image.asset(
+            final loadingMessage = state is LoginLoading
+                ? (state.message ?? 'Opening Tickora Login...')
+                : (state is LoginSuccess ? 'Welcome to Tickora!' : '');
+
+            return Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 28.0, vertical: 32.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    if (isLoading) ...[
+                      // Dynamic synchronized 3-ball orbit loader
+                      const SpinningLogo(size: 64),
+                      const SizedBox(height: 28),
+                      Text(
+                        loadingMessage,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextButton(
+                        onPressed: () {
+                          context.read<LoginBloc>().add(LoginOAuthCancelled());
+                        },
+                        child: const Text(
+                          'Cancel',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Color(0xFF64748B),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ] else ...[
+                      // Brand Logo
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(18),
+                        child: Image.asset(
                           'assets/images/logo.png',
-                          width: 44,
-                          height: 44,
+                          width: 72,
+                          height: 72,
+                          fit: BoxFit.contain,
                           errorBuilder: (context, error, stackTrace) {
                             return Image.asset(
                               'assets/images/logo.webp',
-                              width: 44,
-                              height: 44,
+                              width: 72,
+                              height: 72,
+                              fit: BoxFit.contain,
+                              errorBuilder: (context, error, stackTrace) {
+                                return const Icon(
+                                  Icons.business_center_rounded,
+                                  size: 72,
+                                  color: AppColors.primary,
+                                );
+                              },
                             );
                           },
                         ),
-                        const SizedBox(width: 10),
-                        const Text(
-                          'Tickora CRM',
-                          style: TextStyle(
-                            fontSize: 28,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black,
-                            letterSpacing: -0.5,
+                      ),
+                      const SizedBox(height: 20),
+
+                      // App Title
+                      const Text(
+                        'Tickora CRM',
+                        style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF0F172A),
+                          letterSpacing: -0.5,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+
+                      const Text(
+                        'Sign in securely with your Tickora account',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 15,
+                          color: Color(0xFF64748B),
+                          fontWeight: FontWeight.w400,
+                        ),
+                      ),
+                      const SizedBox(height: 48),
+                      if (widget.sessionExpired && state is! LoginFailure) ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(14),
+                          margin: const EdgeInsets.only(bottom: 24),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFEF2F2),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFFFECACA)),
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(Icons.info_outline, color: Color(0xFFDC2626), size: 20),
+                              SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  'Your session has expired. Please sign in again.',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Color(0xFF991B1B),
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
-                    ),
-                    const SizedBox(height: 56),
-
-                    // Email Address Label
-                    const Text(
-                      'Email Address',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF1E293B),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-
-                    // Email Field
-                    TextFormField(
-                      key: const ValueKey('login_email_input'),
-                      controller: _emailController,
-                      keyboardType: TextInputType.emailAddress,
-                      onChanged: (val) {
-                        if (_emailError != null) {
-                          setState(() {
-                            _emailError = null;
-                          });
-                        }
-                      },
-                      style: const TextStyle(fontSize: 15, color: Colors.black87),
-                      decoration: InputDecoration(
-                        hintText: 'Enter your email',
-                        hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 15),
-                        prefixIcon: const Icon(Icons.email_outlined, color: Color(0xFF94A3B8), size: 20),
-                        filled: true,
-                        fillColor: Colors.white,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                        errorText: _emailError,
-                        errorStyle: const TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w500),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(color: _emailError != null ? AppColors.primary : const Color(0xFFE2E8F0)),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(color: _emailError != null ? AppColors.primary : AppColors.primary, width: 1.5),
-                        ),
-                        errorBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
-                        ),
-                        focusedErrorBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-
-                    // Password Label
-                    const Text(
-                      'Password',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF1E293B),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-
-                    // Password Field
-                    TextFormField(
-                      key: const ValueKey('login_password_input'),
-                      controller: _passwordController,
-                      obscureText: _obscurePassword,
-                      onChanged: (val) {
-                        if (_passwordError != null) {
-                          setState(() {
-                            _passwordError = null;
-                          });
-                        }
-                      },
-                      style: const TextStyle(fontSize: 15, color: Colors.black87),
-                      decoration: InputDecoration(
-                        hintText: 'Password',
-                        hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 15),
-                        prefixIcon: const Icon(Icons.lock_outlined, color: Color(0xFF94A3B8), size: 20),
-                        filled: true,
-                        fillColor: Colors.white,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                        errorText: _passwordError,
-                        errorStyle: const TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w500),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(color: _passwordError != null ? AppColors.primary : const Color(0xFFE2E8F0)),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(color: _passwordError != null ? AppColors.primary : AppColors.primary, width: 1.5),
-                        ),
-                        errorBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
-                        ),
-                        focusedErrorBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
-                        ),
-                        suffixIcon: IconButton(
-                          icon: Icon(
-                            _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                            color: const Color(0xFF94A3B8),
-                            size: 20,
+                      // If user dismissed the in-app web login, provide a single clean Sign In button
+                      if (state is LoginFailure) ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(14),
+                          margin: const EdgeInsets.only(bottom: 24),
+                          decoration: BoxDecoration(
+                            color: AppColors.secondary,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppColors.borderEnabled),
                           ),
-                          onPressed: () {
-                            setState(() {
-                              _obscurePassword = !_obscurePassword;
-                            });
-                          },
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-
-                    // Forgot Password?
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const ForgotPasswordScreen(),
-                            ),
-                          );
-                        },
-                        style: TextButton.styleFrom(
-                          padding: EdgeInsets.zero,
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        child: const Text(
-                          'Forgot Password?',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF0F172A),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 36),
-
-                    // Red Login Button
-                    SizedBox(
-                      height: 52,
-                      child: ElevatedButton(
-                        onPressed: isLoading ? null : () => _handleLogin(context),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          elevation: 0,
-                        ),
-                        child: isLoading
-                            ? const SizedBox(
-                                width: 22,
-                                height: 22,
-                                child: CircularProgressIndicator(
-                                  color: Colors.white,
-                                  strokeWidth: 2.5,
+                          child: Row(
+                            children: [
+                              const Icon(Icons.error_outline, color: AppColors.primary, size: 20),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  state.message,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    color: AppColors.primary,
+                                    fontWeight: FontWeight.w500,
+                                  ),
                                 ),
-                              )
-                            : const Text(
-                                'Login',
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+
+                      SizedBox(
+                        width: double.infinity,
+                        height: 52,
+                        child: ElevatedButton(
+                          onPressed: () {
+                            context.read<LoginBloc>().add(const LoginOAuthInitiated());
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.login_rounded, size: 20, color: Colors.white),
+                              SizedBox(width: 10),
+                              Text(
+                                'Sign In with Tickora',
                                 style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
                                   color: Colors.white,
                                 ),
                               ),
+                            ],
+                          ),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 36),
+                    ],
                   ],
                 ),
               ),
-            ),
-          ),
-        );
-      },
-    );
+            );
           },
         ),
       ),

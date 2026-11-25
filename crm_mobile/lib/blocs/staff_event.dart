@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:crm_mobile/models/staff_member.dart';
 
 abstract class StaffEvent extends Equatable {
   const StaffEvent();
@@ -67,4 +68,13 @@ class FetchStaffDetailEvent extends StaffEvent {
 
   @override
   List<Object?> get props => [id];
+}
+
+class AddNewlyCreatedStaffMember extends StaffEvent {
+  final StaffMember staffMember;
+
+  const AddNewlyCreatedStaffMember(this.staffMember);
+
+  @override
+  List<Object?> get props => [staffMember];
 }

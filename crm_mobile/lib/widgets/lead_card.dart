@@ -75,7 +75,7 @@ class LeadCard extends StatelessWidget {
   Color _getCallStatusColor(String statusStr) {
     final s = statusStr.trim().toUpperCase();
     if (s == 'MISSED') {
-      return Colors.red;
+      return const Color(0xFFDC2626);
     }
     if (s == 'NOT_CONNECTED' || s == 'UNANSWERED' || s == 'REJECTED') {
       return Colors.orange;
@@ -89,20 +89,54 @@ class LeadCard extends StatelessWidget {
     return AppColors.textPrimary;
   }
 
+  static String formatDisplayName(String? input) {
+    if (input == null) return '';
+    final trimmed = input.trim();
+    if (trimmed.isEmpty || trimmed == '-' || trimmed.toLowerCase() == 'unassigned') {
+      return '';
+    }
+    // If it's an email address, convert to capitalized personal name
+    if (trimmed.contains('@')) {
+      final username = trimmed.split('@').first;
+      final parts = username.split(RegExp(r'[._\-]'));
+      final formatted = parts
+          .where((p) => p.trim().isNotEmpty)
+          .map((p) => p[0].toUpperCase() + (p.length > 1 ? p.substring(1).toLowerCase() : ''))
+          .join(' ');
+      if (formatted.isNotEmpty) return formatted;
+    }
+    // If it's a raw UUID, don't display raw hash
+    if (RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$').hasMatch(trimmed)) {
+      return '';
+    }
+    return trimmed;
+  }
+
   @override
   Widget build(BuildContext context) {
     final hasCompany = company.trim().isNotEmpty && company.trim() != '-';
     final hasPhone = phone.trim().isNotEmpty && phone.trim() != '-';
 
-    final hasCreator =
-        createdByName != null && createdByName!.trim().isNotEmpty;
+    final formattedCreator = formatDisplayName(createdByName);
+    final formattedAssignee = formatDisplayName(assignee);
+    final effectiveCreator = formattedCreator.isNotEmpty
+        ? formattedCreator
+        : (formattedAssignee.isNotEmpty ? formattedAssignee : '');
+    final hasCreator = effectiveCreator.isNotEmpty;
     final creatorNameStr = hasCreator
-        ? createdByName!.trim()
+        ? effectiveCreator
         : (priority.trim().isNotEmpty ? priority : '-');
-    final assigneeNameStr = assignee.trim().isNotEmpty
-        ? assignee.trim()
+
+    final effectiveAssignee = formattedAssignee.isNotEmpty
+        ? formattedAssignee
+        : (formattedCreator.isNotEmpty ? formattedCreator : '');
+    final assigneeNameStr = effectiveAssignee.isNotEmpty
+        ? effectiveAssignee
         : 'Unassigned';
     final createdAtStr = _formattedCreatedAt;
+    final rawCallStatus = (callStatus != null && callStatus!.trim().isNotEmpty)
+        ? callStatus!
+        : 'NOT_CONNECTED';
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -310,33 +344,30 @@ class LeadCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       textAlign: TextAlign.end,
                     ),
-                    if (callStatus != null &&
-                        callStatus!.trim().isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text.rich(
-                        TextSpan(
-                          text: 'Call Status: ',
-                          style: const TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
-                          ),
-                          children: [
-                            TextSpan(
-                              text: _formatCallStatus(callStatus!),
-                              style: TextStyle(
-                                color: _getCallStatusColor(callStatus!),
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
+                    const SizedBox(height: 4),
+                    Text.rich(
+                      TextSpan(
+                        text: 'Call Status: ',
+                        style: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.end,
+                        children: [
+                          TextSpan(
+                            text: _formatCallStatus(rawCallStatus),
+                            style: TextStyle(
+                              color: _getCallStatusColor(rawCallStatus),
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.end,
+                    ),
                   ],
                 ),
               ),

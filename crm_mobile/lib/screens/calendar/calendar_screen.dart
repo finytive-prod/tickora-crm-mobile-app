@@ -158,8 +158,8 @@ class _CalendarScreenViewState extends State<CalendarScreenView> {
                                       },
                                       child: Container(
                                         padding: const EdgeInsets.all(6),
-                                        decoration: BoxDecoration(color: Colors.red.withValues(alpha: 0.1), shape: BoxShape.circle),
-                                        child: const Icon(Icons.delete_outline, size: 16, color: Colors.red),
+                                        decoration: BoxDecoration(color: AppColors.primary.withValues(alpha: 0.1), shape: BoxShape.circle),
+                                        child: const Icon(Icons.delete_outline, size: 16, color: AppColors.primary),
                                       ),
                                     ),
                                   ],
@@ -262,7 +262,7 @@ class _CalendarScreenViewState extends State<CalendarScreenView> {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 8),
           decoration: BoxDecoration(
-            color: isSelected ? Colors.red : Colors.transparent,
+            color: isSelected ? AppColors.primary : Colors.transparent,
             borderRadius: BorderRadius.circular(8),
           ),
           alignment: Alignment.center,
@@ -621,7 +621,6 @@ class _CalendarScreenViewState extends State<CalendarScreenView> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.check_box, color: Colors.red, size: 18),
           const SizedBox(width: 4),
           Container(width: 8, height: 8, decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle)),
           const SizedBox(width: 4),
@@ -880,7 +879,7 @@ class _CalendarScreenViewState extends State<CalendarScreenView> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4)),
-              child: const Text('TODAY', style: TextStyle(color: Colors.red, fontSize: 10, fontWeight: FontWeight.bold)),
+              child: const Text('TODAY', style: TextStyle(color: AppColors.primary, fontSize: 10, fontWeight: FontWeight.bold)),
             ),
           ]
         ],

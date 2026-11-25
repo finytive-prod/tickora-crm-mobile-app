@@ -423,6 +423,21 @@ class MainActivity: FlutterActivity() {
                     val phone = callRecordingManager.getDevicePhoneNumber()
                     result.success(phone)
                 }
+                "openOAuthWebView" -> {
+                    val url = call.argument<String>("url") ?: ""
+                    val redirectUri = call.argument<String>("redirectUri") ?: ""
+                    if (url.isBlank()) {
+                        result.error("INVALID_ARGS", "OAuth URL cannot be empty", null)
+                        return@setMethodCallHandler
+                    }
+                    OAuthWebViewManager.open(this, url, redirectUri) { callbackUrl ->
+                        result.success(callbackUrl)
+                    }
+                }
+                "closeOAuthWebView" -> {
+                    OAuthWebViewManager.dismiss()
+                    result.success(true)
+                }
                 else -> {
                     result.notImplemented()
                 }

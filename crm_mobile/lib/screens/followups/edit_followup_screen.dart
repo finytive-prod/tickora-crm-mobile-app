@@ -202,6 +202,7 @@ class _EditFollowUpViewState extends State<EditFollowUpView> {
   }
 
   String _formatTimeForApi(String rawTime) {
+    if (rawTime.trim().isEmpty) return '';
     if (_selectedTimeObj != null) {
       final h = _selectedTimeObj!.hour.toString().padLeft(2, '0');
       final m = _selectedTimeObj!.minute.toString().padLeft(2, '0');
@@ -217,7 +218,7 @@ class _EditFollowUpViewState extends State<EditFollowUpView> {
     if (clean.contains(' ')) {
       return clean.split(' ').first;
     }
-    return clean.isEmpty ? "10:00" : clean;
+    return clean;
   }
 
   Future<void> _selectDate(BuildContext context) async {
@@ -275,7 +276,9 @@ class _EditFollowUpViewState extends State<EditFollowUpView> {
     if (_pushNotification) reminders.add("Push");
     if (_emailAlert) reminders.add("Email");
 
-    final formattedTime = _formatTimeForApi(_timeController.text);
+    final formattedTime = _timeController.text.trim().isNotEmpty
+        ? _formatTimeForApi(_timeController.text)
+        : "";
 
     final updateData = {
       "leadTask": _leadTaskController.text.trim(),
@@ -518,30 +521,48 @@ class _EditFollowUpViewState extends State<EditFollowUpView> {
                 Row(
                   children: [
                     Expanded(
-                      child: GestureDetector(
+                      child: CustomTextField(
+                        label: 'Follow-up Date',
+                        isRequired: false,
+                        readOnly: true,
                         onTap: () => _selectDate(context),
-                        child: AbsorbPointer(
-                          child: CustomTextField(
-                            label: 'Follow-up Date',
-                            isRequired: true,
-                            controller: _dateController,
-                            suffixIcon: const Icon(Icons.calendar_today, color: AppColors.textHint, size: 18),
-                          ),
-                        ),
+                        controller: _dateController,
+                        hintText: 'Select date (optional)',
+                        suffixIcon: _dateController.text.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.close_rounded, size: 18, color: AppColors.textSecondary),
+                                tooltip: 'Clear date',
+                                onPressed: () {
+                                  setState(() {
+                                    _dateController.clear();
+                                    _selectedDateObj = null;
+                                  });
+                                },
+                              )
+                            : const Icon(Icons.calendar_today, color: AppColors.textHint, size: 18),
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: GestureDetector(
+                      child: CustomTextField(
+                        label: 'Follow-up Time',
+                        isRequired: false,
+                        readOnly: true,
                         onTap: () => _selectTime(context),
-                        child: AbsorbPointer(
-                          child: CustomTextField(
-                            label: 'Follow-up Time',
-                            isRequired: true,
-                            controller: _timeController,
-                            suffixIcon: const Icon(Icons.access_time, color: AppColors.textHint, size: 18),
-                          ),
-                        ),
+                        controller: _timeController,
+                        hintText: 'Select time (optional)',
+                        suffixIcon: _timeController.text.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.close_rounded, size: 18, color: AppColors.textSecondary),
+                                tooltip: 'Clear time',
+                                onPressed: () {
+                                  setState(() {
+                                    _timeController.clear();
+                                    _selectedTimeObj = null;
+                                  });
+                                },
+                              )
+                            : const Icon(Icons.access_time, color: AppColors.textHint, size: 18),
                       ),
                     ),
                   ],

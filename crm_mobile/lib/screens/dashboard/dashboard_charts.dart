@@ -133,7 +133,7 @@ class TrendLineChart extends StatelessWidget {
                     series1: series1,
                     series2: series2,
                     labels: labels,
-                    line1Color: const Color(0xFFDB222A),
+                    line1Color: AppColors.primary,
                     line2Color: const Color(0xFF059669),
                   ),
                 ),
@@ -154,7 +154,7 @@ class TrendLineChart extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            _buildLegendItem('Leads Created', const Color(0xFFDB222A)),
+            _buildLegendItem('Leads Created', AppColors.primary),
             const SizedBox(width: 24),
             _buildLegendItem('Leads Won', const Color(0xFF059669)),
           ],
@@ -347,7 +347,7 @@ class _LineChartPainter extends CustomPainter {
 //   const PipelineBarChart({super.key, this.items = const []});
 
 //   static const List<Color> _palette = [
-//     Color(0xFFEF4444),
+//     Color(0xFF111827),
 //     Color(0xFFF97316),
 //     Color(0xFFF59E0B),
 //     Color(0xFFFF6600),

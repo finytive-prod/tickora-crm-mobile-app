@@ -409,13 +409,13 @@ class _CallsScreenState extends State<CallsScreen> with WidgetsBindingObserver {
                       children: [
                         Container(
                           padding: const EdgeInsets.all(12),
-                          decoration: const BoxDecoration(
-                            color: Color(0xFFFEF2F2),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withValues(alpha: 0.1),
                             shape: BoxShape.circle,
                           ),
                           child: const Icon(
                             Icons.error_outline_rounded,
-                            color: Color(0xFFDC2626),
+                            color: AppColors.primary,
                             size: 36,
                           ),
                         ),
@@ -965,7 +965,7 @@ class _CallsScreenState extends State<CallsScreen> with WidgetsBindingObserver {
               if (_startDate != null || _endDate != null) ...[
                 const SizedBox(width: 6),
                 IconButton(
-                  icon: const Icon(Icons.clear, color: Colors.red, size: 20),
+                  icon: const Icon(Icons.clear, color: AppColors.primary, size: 20),
                   tooltip: 'Clear Dates',
                   onPressed: () {
                     setState(() {
@@ -1278,13 +1278,13 @@ class _CallsScreenState extends State<CallsScreen> with WidgetsBindingObserver {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFEF2F2),
+                    color: AppColors.secondary,
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFFFECACA)),
+                    border: Border.all(color: AppColors.borderEnabled),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.phone_missed, color: Color(0xFFDC2626), size: 15),
+                      const Icon(Icons.phone_missed, color: AppColors.primary, size: 15),
                       const SizedBox(width: 7),
                       Expanded(
                         child: Column(
@@ -1295,14 +1295,14 @@ class _CallsScreenState extends State<CallsScreen> with WidgetsBindingObserver {
                               style: const TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.bold,
-                                color: Color(0xFFB91C1C),
+                                color: AppColors.primary,
                               ),
                             ),
                             const Text(
                               'Not Connected',
                               style: TextStyle(
                                 fontSize: 10.5,
-                                color: Color(0xFFDC2626),
+                                color: AppColors.textSecondary,
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
@@ -1615,10 +1615,10 @@ class _CallsScreenState extends State<CallsScreen> with WidgetsBindingObserver {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
-                              color: isConnected ? const Color(0xFFECFDF5) : const Color(0xFFFEF2F2),
+                              color: isConnected ? const Color(0xFFECFDF5) : AppColors.secondary,
                               borderRadius: BorderRadius.circular(4),
                               border: Border.all(
-                                color: isConnected ? const Color(0xFFA7F3D0) : const Color(0xFFFECACA),
+                                color: isConnected ? const Color(0xFFA7F3D0) : AppColors.borderEnabled,
                               ),
                             ),
                             child: Text(
@@ -1626,7 +1626,7 @@ class _CallsScreenState extends State<CallsScreen> with WidgetsBindingObserver {
                               style: TextStyle(
                                 fontSize: 9.5,
                                 fontWeight: FontWeight.bold,
-                                color: isConnected ? const Color(0xFF047857) : const Color(0xFFB91C1C),
+                                color: isConnected ? const Color(0xFF047857) : AppColors.primary,
                               ),
                             ),
                           ),

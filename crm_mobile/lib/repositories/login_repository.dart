@@ -14,8 +14,13 @@ import 'package:crm_mobile/core/services/privilege_service.dart';
 import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/models/user_profile.dart';
 
+import 'package:crm_mobile/core/services/secure_token_storage.dart';
+import 'package:crm_mobile/core/services/oauth_service.dart';
+
 abstract class LoginRepository {
   Future<Either<Failure, User>> login(String email, String password);
+  Future<Either<Failure, User>> loginWithOAuthCode(String code, String codeVerifier);
+  Future<Either<Failure, String>> refreshOAuthToken();
   Future<Either<Failure, void>> verifyMail(String email);
   Future<Either<Failure, void>> resetPassword(
     String email,
@@ -30,10 +35,14 @@ abstract class LoginRepository {
 class LoginRepositoryImpl implements LoginRepository {
   final ApiClient apiClient;
   final SharedPreferences sharedPreferences;
+  final SecureTokenStorage? secureTokenStorage;
+  final OAuthService? oauthService;
 
   LoginRepositoryImpl({
     required this.apiClient,
     required this.sharedPreferences,
+    this.secureTokenStorage,
+    this.oauthService,
   });
 
   @override
@@ -51,6 +60,17 @@ class LoginRepositoryImpl implements LoginRepository {
         final userModel = UserModel.fromJson(body['data']);
         // Save token on successful login
         await sharedPreferences.setString('token', userModel.accessToken);
+        try {
+          final storage = secureTokenStorage ?? (sl.isRegistered<SecureTokenStorage>() ? sl<SecureTokenStorage>() : null);
+          if (storage != null) {
+            await storage.saveTokens(
+              accessToken: userModel.accessToken,
+              refreshToken: '',
+              expiresIn: userModel.expiresIn > 0 ? userModel.expiresIn : 86400,
+              tokenType: userModel.tokenType.isNotEmpty ? userModel.tokenType : 'Bearer',
+            );
+          }
+        } catch (_) {}
 
         // Extract userName and email from JWT
         Map<String, dynamic> decoded = {};
@@ -237,28 +257,67 @@ class LoginRepositoryImpl implements LoginRepository {
   }
 
   @override
+  Future<Either<Failure, User>> loginWithOAuthCode(
+    String code,
+    String codeVerifier,
+  ) async {
+    try {
+      final service = oauthService ?? sl<OAuthService>();
+      final user = await service.exchangeAuthorizationCode(
+        code: code,
+        codeVerifier: codeVerifier,
+      );
+      return Right(user);
+    } catch (e) {
+      return Left(ErrorHandler.mapExceptionToFailure(e));
+    }
+  }
+
+  @override
+  Future<Either<Failure, String>> refreshOAuthToken() async {
+    try {
+      final service = oauthService ?? sl<OAuthService>();
+      final newToken = await service.refreshToken();
+      if (newToken != null && newToken.isNotEmpty) {
+        return Right(newToken);
+      }
+      return Left(ServerFailure('Failed to refresh authentication token'));
+    } catch (e) {
+      return Left(ErrorHandler.mapExceptionToFailure(e));
+    }
+  }
+
+  @override
   Future<Either<Failure, void>> logout({String? fcmToken}) async {
     try {
+      final service = oauthService ?? (sl.isRegistered<OAuthService>() ? sl<OAuthService>() : null);
+      if (service != null) {
+        await service.logout();
+      }
+
       final logoutUrl = '${ApiUrl.identityService}/auth/logout';
       String? token = fcmToken;
       if (token == null || token.isEmpty) {
         token = await FcmService.instance.getToken();
       }
 
-      final response = await apiClient.post(
-        logoutUrl,
-        data: {'fcmToken': token ?? ''},
-      );
-
-      final body = response.data;
-      if (body != null &&
-          (body['success'] == true || response.statusCode == 200)) {
-        return const Right(null);
-      } else {
-        throw ApiException(
-          message: body?['message'] ?? 'Logged out successfully',
+      try {
+        await apiClient.post(
+          logoutUrl,
+          data: {'fcmToken': token ?? ''},
         );
+      } catch (_) {}
+
+      // Clear tokens and cached privileges
+      if (secureTokenStorage != null) {
+        await secureTokenStorage!.clearTokens();
+      } else if (sl.isRegistered<SecureTokenStorage>()) {
+        await sl<SecureTokenStorage>().clearTokens();
       }
+      await sharedPreferences.remove('token');
+      await sharedPreferences.remove('cached_privileges');
+
+      return const Right(null);
     } catch (e) {
       return Left(ErrorHandler.mapExceptionToFailure(e));
     }
@@ -306,12 +365,13 @@ class LoginRepositoryImpl implements LoginRepository {
       return Left(ErrorHandler.mapExceptionToFailure(e));
     }
   }
+  
 
   @override
-  Future<Either<Failure, UserProfile>> updateProfile(String Name) async {
+  Future<Either<Failure, UserProfile>> updateProfile(String name) async {
     try {
       final profileUrl = '${ApiUrl.identityService}/auth/profile';
-      final response = await apiClient.put(profileUrl, data: {'Name': Name});
+      final response = await apiClient.put(profileUrl, data: {'Name': name});
       final body = response.data;
       if (body != null &&
           (body['success'] == true || response.statusCode == 200)) {

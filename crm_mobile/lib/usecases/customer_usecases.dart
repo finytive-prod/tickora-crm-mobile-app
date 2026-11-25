@@ -8,7 +8,7 @@ class GetCustomersUseCase {
 
   GetCustomersUseCase(this.repository);
 
-  Future<Either<Failure, List<Customer>>> call({int page = 0, int size = 20, String? searchQuery}) {
+  Future<Either<Failure, CustomerListResponse>> call({int page = 0, int size = 20, String? searchQuery}) {
     return repository.getCustomers(page: page, size: size, searchQuery: searchQuery);
   }
 }

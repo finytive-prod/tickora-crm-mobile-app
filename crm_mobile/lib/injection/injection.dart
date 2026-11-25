@@ -9,6 +9,8 @@ import 'package:crm_mobile/core/network/interceptors/logger_interceptor.dart';
 import 'package:crm_mobile/core/services/privilege_service.dart';
 import 'package:crm_mobile/core/services/fcm_service.dart';
 import 'package:crm_mobile/core/services/app_update_service.dart';
+import 'package:crm_mobile/core/services/secure_token_storage.dart';
+import 'package:crm_mobile/core/services/oauth_service.dart';
 import 'package:crm_mobile/core/utils/navigation_service.dart';
 
 // BLoC Imports
@@ -94,9 +96,22 @@ Future<void> init() async {
   final sharedPreferences = await SharedPreferences.getInstance();
   sl.registerLazySingleton(() => sharedPreferences);
   sl.registerLazySingleton(() => Logger());
+  sl.registerLazySingleton<SecureTokenStorage>(
+    () => SecureTokenStorage(sharedPreferences: sl()),
+  );
+  sl.registerLazySingleton<OAuthService>(
+    () => OAuthService(
+      tokenStorage: sl(),
+      sharedPreferences: sl(),
+    ),
+  );
 
   // Interceptors
-  sl.registerLazySingleton(() => AuthInterceptor(sl(), onSessionExpired: NavigationService.handleSessionExpired));
+  sl.registerLazySingleton(() => AuthInterceptor(
+    sl(),
+    onSessionExpired: NavigationService.handleSessionExpired,
+    oauthService: sl(),
+  ));
   sl.registerLazySingleton(() => LoggerInterceptor(sl()));
   sl.registerLazySingleton(() => ErrorInterceptor());
 
@@ -115,10 +130,15 @@ Future<void> init() async {
   sl.registerLazySingleton(() => AppUpdateService());
 
   // Auth BLoC, Usecases & Repositories
-  sl.registerFactory(() => LoginBloc(loginUseCase: sl()));
+  sl.registerFactory(() => LoginBloc(loginUseCase: sl(), oauthService: sl()));
   sl.registerLazySingleton(() => LoginUseCase(sl()));
   sl.registerLazySingleton<LoginRepository>(
-    () => LoginRepositoryImpl(apiClient: sl(), sharedPreferences: sl()),
+    () => LoginRepositoryImpl(
+      apiClient: sl(),
+      sharedPreferences: sl(),
+      secureTokenStorage: sl(),
+      oauthService: sl(),
+    ),
   );
 
   // Leads BLoC, Usecases & Repositories

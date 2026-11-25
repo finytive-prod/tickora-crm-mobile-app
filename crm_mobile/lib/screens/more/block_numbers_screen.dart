@@ -214,7 +214,7 @@ class _BlockNumbersScreenState extends State<BlockNumbersScreen> {
         const SnackBar(
           content: Text(
               'You do not have permission (BLOCKLIST_UPDATE) to edit blocked numbers.'),
-          backgroundColor: Colors.red,
+          backgroundColor: AppColors.primary,
         ),
       );
       return;
@@ -225,7 +225,7 @@ class _BlockNumbersScreenState extends State<BlockNumbersScreen> {
         const SnackBar(
           content: Text(
               'You do not have permission (BLOCKLIST_CREATE) to block numbers.'),
-          backgroundColor: Colors.red,
+          backgroundColor: AppColors.primary,
         ),
       );
       return;
@@ -707,7 +707,7 @@ class _BlockNumbersScreenState extends State<BlockNumbersScreen> {
                                             .showSnackBar(
                                           SnackBar(
                                             content: Text(fail.message),
-                                            backgroundColor: Colors.red,
+                                            backgroundColor: AppColors.primary,
                                           ),
                                         );
                                       },
@@ -744,7 +744,7 @@ class _BlockNumbersScreenState extends State<BlockNumbersScreen> {
                                             .showSnackBar(
                                           SnackBar(
                                             content: Text(fail.message),
-                                            backgroundColor: Colors.red,
+                                            backgroundColor: AppColors.primary,
                                           ),
                                         );
                                       },
@@ -799,7 +799,7 @@ class _BlockNumbersScreenState extends State<BlockNumbersScreen> {
         const SnackBar(
           content: Text(
               'You do not have permission (BLOCKLIST_DELETE) to unblock numbers.'),
-          backgroundColor: Colors.red,
+          backgroundColor: AppColors.primary,
         ),
       );
       return;
@@ -854,7 +854,7 @@ class _BlockNumbersScreenState extends State<BlockNumbersScreen> {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(fail.message),
-                      backgroundColor: Colors.red,
+                      backgroundColor: AppColors.primary,
                     ),
                   );
                 },
@@ -933,13 +933,13 @@ class _BlockNumbersScreenState extends State<BlockNumbersScreen> {
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: Colors.red.shade50,
+                        color: AppColors.secondary,
                         shape: BoxShape.circle,
                       ),
                       child: Icon(
                         Icons.lock_outline_rounded,
                         size: 48,
-                        color: Colors.red.shade400,
+                        color: AppColors.primary,
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -992,7 +992,7 @@ class _BlockNumbersScreenState extends State<BlockNumbersScreen> {
                     'Personal numbers added here will be blocked from call tracking, auto-recording uploads, and CRM call history.',
                     style: TextStyle(
                       fontSize: 12,
-                      color: Colors.red.shade900,
+                      color: AppColors.primary,
                       height: 1.35,
                     ),
                   ),
@@ -1229,7 +1229,7 @@ class _BlockNumbersScreenState extends State<BlockNumbersScreen> {
                       ),
                       decoration: BoxDecoration(
                         color: item.isActive
-                            ? Colors.red.shade50
+                            ? AppColors.secondary
                             : Colors.grey.shade100,
                         borderRadius: BorderRadius.circular(4),
                       ),

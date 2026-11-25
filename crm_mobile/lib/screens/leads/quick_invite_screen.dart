@@ -283,7 +283,7 @@ class _QuickInviteScreenState extends State<QuickInviteScreen> {
           Navigator.of(context).pop(true);
         } else if (state is LeadActionError) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(state.message), backgroundColor: Colors.red),
+            SnackBar(content: Text(state.message), backgroundColor: AppColors.primary),
           );
         }
       },

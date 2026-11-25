@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:crm_mobile/core/theme/app_colors.dart';
+import 'package:crm_mobile/widgets/spinning_logo.dart';
 import 'package:crm_mobile/injection/injection.dart';
 import 'package:crm_mobile/models/user_profile.dart';
 import 'package:crm_mobile/repositories/login_repository.dart';
@@ -149,7 +150,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
                                         content: Text(failure.message),
-                                        backgroundColor: Colors.red,
+                                        backgroundColor: AppColors.primary,
                                       ),
                                     );
                                   },
@@ -215,7 +216,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+          ? const Center(child: SpinningLogo(size: 60))
           : _errorMessage != null
               ? Center(
                   child: Padding(

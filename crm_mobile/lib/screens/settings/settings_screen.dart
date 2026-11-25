@@ -86,7 +86,7 @@ class SettingsScreen extends StatelessWidget {
                     _buildSettingCard(
                       context: context,
                       icon: Icons.admin_panel_settings_outlined,
-                      iconColor: Colors.redAccent,
+                      iconColor: AppColors.primary,
                       title: 'Roles & Permissions',
                       subtitle: 'Manage role-based access for modules such as Customer, Invoice, Payroll, and Items.',
                       destination: const RolesPermissionsScreen(),

@@ -189,7 +189,7 @@ class _ExportReportSideSheetState extends State<ExportReportSideSheet> {
     result.fold(
       (failure) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Export failed: ${failure.message}'), backgroundColor: Colors.red));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Export failed: ${failure.message}'), backgroundColor: AppColors.primary));
       },
       (filePath) async {
         if (!mounted) return;
@@ -210,12 +210,12 @@ class _ExportReportSideSheetState extends State<ExportReportSideSheet> {
           if (savedPath != null) {
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Saved to Downloads: $savedPath'), backgroundColor: Colors.green));
           } else {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to save to Downloads'), backgroundColor: Colors.red));
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to save to Downloads'), backgroundColor: AppColors.primary));
           }
         } catch (e) {
           if (!mounted) return;
           Navigator.of(context).pop();
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to save to Downloads (Permission missing?)'), backgroundColor: Colors.red));
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to save to Downloads (Permission missing?)'), backgroundColor: AppColors.primary));
         }
       },
     );

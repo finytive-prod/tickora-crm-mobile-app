@@ -282,10 +282,10 @@ class _LeadSourcesViewState extends State<LeadSourcesView> {
                                         Container(
                                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                           decoration: BoxDecoration(
-                                            color: source.active ? const Color(0xFFECFDF5) : const Color(0xFFFEF2F2),
+                                            color: source.active ? const Color(0xFFECFDF5) : AppColors.secondary,
                                             borderRadius: BorderRadius.circular(10),
                                             border: Border.all(
-                                              color: source.active ? const Color(0xFFA7F3D0) : const Color(0xFFFECACA),
+                                              color: source.active ? const Color(0xFFA7F3D0) : AppColors.borderEnabled,
                                             ),
                                           ),
                                           child: Row(
@@ -293,7 +293,7 @@ class _LeadSourcesViewState extends State<LeadSourcesView> {
                                             children: [
                                               CircleAvatar(
                                                 radius: 3,
-                                                backgroundColor: source.active ? const Color(0xFF059669) : const Color(0xFFDC2626),
+                                                backgroundColor: source.active ? const Color(0xFF059669) : AppColors.primary,
                                               ),
                                               const SizedBox(width: 4),
                                               Text(
@@ -301,7 +301,7 @@ class _LeadSourcesViewState extends State<LeadSourcesView> {
                                                 style: TextStyle(
                                                   fontSize: 10,
                                                   fontWeight: FontWeight.w600,
-                                                  color: source.active ? const Color(0xFF047857) : const Color(0xFFB91C1C),
+                                                  color: source.active ? const Color(0xFF047857) : AppColors.primary,
                                                 ),
                                               ),
                                             ],

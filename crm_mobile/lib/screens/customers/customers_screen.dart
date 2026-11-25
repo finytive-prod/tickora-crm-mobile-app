@@ -38,14 +38,39 @@ class _CustomersView extends StatefulWidget {
 
 class _CustomersViewState extends State<_CustomersView> {
   final TextEditingController _searchController = TextEditingController();
-  
+  final ScrollController _scrollController = ScrollController();
   Timer? _debounce;
 
   @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
   void dispose() {
+    _scrollController.dispose();
     _searchController.dispose();
     _debounce?.cancel();
     super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    final currentScroll = _scrollController.position.pixels;
+    if (maxScroll - currentScroll <= 250) {
+      final bloc = context.read<CustomerBloc>();
+      final state = bloc.state;
+      if (state is CustomersLoaded && state.hasMore && !state.isLoadingMore) {
+        bloc.add(
+          LoadMoreCustomers(
+            page: state.currentPage + 1,
+            searchQuery: state.searchQuery,
+          ),
+        );
+      }
+    }
   }
 
   void _onSearchChanged(String query) {
@@ -74,7 +99,7 @@ class _CustomersViewState extends State<_CustomersView> {
       listener: (context, state) {
         if (state is CustomerActionSuccess) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(state.message), backgroundColor: const Color(0xFF10B981)));
-          context.read<CustomerBloc>().add(FetchCustomers(searchQuery: _searchController.text));
+          context.read<CustomerBloc>().add(FetchCustomers(searchQuery: _searchController.text.trim(), isRefresh: true));
         } else if (state is CustomerError) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(state.message), backgroundColor: AppColors.primary));
         }
@@ -88,31 +113,61 @@ class _CustomersViewState extends State<_CustomersView> {
           icon: const Icon(Icons.arrow_back_ios, color: AppColors.textPrimary, size: 20),
           onPressed: () => Navigator.of(context).pop(),
         ),
-        title: const Text(
-          'Customers',
-          style: TextStyle(
-            color: AppColors.textPrimary,
-            fontWeight: FontWeight.bold,
-            fontSize: 20,
-          ),
+        title: BlocBuilder<CustomerBloc, CustomerState>(
+          builder: (context, state) {
+            final total = state is CustomersLoaded ? state.totalCount : null;
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Customers',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 20,
+                  ),
+                ),
+                if (total != null && total > 0)
+                  Text(
+                    'Total Customers: $total',
+                    style: const TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+              ],
+            );
+          },
         ),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh, color: AppColors.textPrimary, size: 22),
             tooltip: 'Refresh Customers',
             onPressed: () {
-              context.read<CustomerBloc>().add(FetchCustomers(searchQuery: _searchController.text.trim()));
+              context.read<CustomerBloc>().add(FetchCustomers(searchQuery: _searchController.text.trim(), isRefresh: true));
             },
           ),
           BlocBuilder<CustomerBloc, CustomerState>(
             builder: (context, state) {
               if (state is CustomersLoaded) {
-                return Text(
-                  '${state.customers.length} contacts',
-                  style: const TextStyle(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
+                final count = state.totalCount > 0 ? state.totalCount : state.customers.length;
+                return Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '$count contacts',
+                      style: const TextStyle(
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
                   ),
                 );
               }
@@ -169,32 +224,52 @@ class _CustomersViewState extends State<_CustomersView> {
                     );
                   }
 
-                  return ListView.separated(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    itemCount: customers.length,
-                    separatorBuilder: (context, index) => const SizedBox(height: 12),
-                    itemBuilder: (context, index) {
-                      final customer = customers[index];
-                      final priv = sl<PrivilegeService>();
-                      final canUpdate = priv.hasPrivilege('CUSTOMER_UPDATE');
-                      final canDelete = priv.hasPrivilege('CUSTOMER_DELETE');
-                      return CustomerCard(
-                        customer: customer,
-                        onTap: () {},
-                        onEdit: canUpdate
-                            ? () async {
-                                final result = await Navigator.push(
-                                  context,
-                                  MaterialPageRoute(builder: (context) => AddEditCustomerScreen(customer: customer)),
-                                );
-                                if (result == true && context.mounted) {
-                                  context.read<CustomerBloc>().add(FetchCustomers(searchQuery: _searchController.text));
-                                }
-                              }
-                            : null,
-                        onDelete: canDelete ? () => _handleDelete(context, customer) : null,
-                      );
+                  final bool showLoader = state.isLoadingMore || state.hasMore;
+                  final itemCount = customers.length + (showLoader ? 1 : 0);
+
+                  return RefreshIndicator(
+                    color: AppColors.primary,
+                    onRefresh: () async {
+                      context.read<CustomerBloc>().add(FetchCustomers(searchQuery: _searchController.text.trim(), isRefresh: true));
                     },
+                    child: ListView.separated(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      itemCount: itemCount,
+                      separatorBuilder: (context, index) => const SizedBox(height: 12),
+                      itemBuilder: (context, index) {
+                        if (index < customers.length) {
+                          final customer = customers[index];
+                          final priv = sl<PrivilegeService>();
+                          final canUpdate = priv.hasPrivilege('CUSTOMER_UPDATE');
+                          final canDelete = priv.hasPrivilege('CUSTOMER_DELETE');
+                          return CustomerCard(
+                            customer: customer,
+                            onTap: () {},
+                            onEdit: canUpdate
+                                ? () async {
+                                    final result = await Navigator.push(
+                                      context,
+                                      MaterialPageRoute(builder: (context) => AddEditCustomerScreen(customer: customer)),
+                                    );
+                                    if (result == true && context.mounted) {
+                                      context.read<CustomerBloc>().add(FetchCustomers(searchQuery: _searchController.text.trim(), isRefresh: true));
+                                    }
+                                  }
+                                : null,
+                            onDelete: canDelete ? () => _handleDelete(context, customer) : null,
+                          );
+                        }
+
+                        // Bottom loader indicator while fetching remaining customer data
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 16),
+                          child: Center(
+                            child: SpinningLogo(size: 36),
+                          ),
+                        );
+                      },
+                    ),
                   );
                 }
 
@@ -203,7 +278,7 @@ class _CustomersViewState extends State<_CustomersView> {
                   if (err.contains('503') || err.toLowerCase().contains('service unavailable')) {
                     return ServerError503Widget(
                       onRetry: () {
-                        context.read<CustomerBloc>().add(FetchCustomers(searchQuery: _searchController.text));
+                        context.read<CustomerBloc>().add(FetchCustomers(searchQuery: _searchController.text.trim()));
                       },
                     );
                   }
@@ -211,7 +286,7 @@ class _CustomersViewState extends State<_CustomersView> {
                     title: 'Connection Issue',
                     message: err.isEmpty ? 'Failed to load customers. Please try again.' : err,
                     onRetry: () {
-                      context.read<CustomerBloc>().add(FetchCustomers(searchQuery: _searchController.text));
+                      context.read<CustomerBloc>().add(FetchCustomers(searchQuery: _searchController.text.trim()));
                     },
                   );
                 }
@@ -230,7 +305,15 @@ class _CustomersViewState extends State<_CustomersView> {
                   MaterialPageRoute(builder: (context) => const AddEditCustomerScreen()),
                 );
                 if (result == true && context.mounted) {
-                  context.read<CustomerBloc>().add(FetchCustomers(searchQuery: _searchController.text));
+                  _searchController.clear();
+                  context.read<CustomerBloc>().add(const FetchCustomers(isRefresh: true));
+                  if (_scrollController.hasClients) {
+                    _scrollController.animateTo(
+                      0,
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeOut,
+                    );
+                  }
                 }
               },
               backgroundColor: AppColors.primary,

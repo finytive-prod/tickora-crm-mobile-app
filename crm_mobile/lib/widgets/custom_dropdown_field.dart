@@ -53,7 +53,7 @@ class CustomDropdownField<T> extends StatelessWidget {
                 if (isRequired)
                   const TextSpan(
                     text: ' *',
-                    style: TextStyle(color: Colors.red),
+                    style: TextStyle(color: Color(0xFF111827)),
                   ),
               ],
             ),

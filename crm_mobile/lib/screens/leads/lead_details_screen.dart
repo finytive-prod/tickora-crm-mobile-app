@@ -1287,7 +1287,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                         content: Text(
                           'Only Admin and Super Admin can change status from Stage 3 to Stage 1.',
                         ),
-                        backgroundColor: Colors.red,
+                        backgroundColor: AppColors.primary,
                       ),
                     );
                   }
@@ -1604,12 +1604,12 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                       ),
                       decoration: BoxDecoration(
                         color: isSelected
-                            ? const Color(0xFFFFF1F2)
+                            ? AppColors.secondary
                             : Colors.white,
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
                           color: isSelected
-                              ? const Color(0xFFFDA4AF)
+                              ? AppColors.primary
                               : AppColors.borderEnabled,
                           width: isSelected ? 1.5 : 1.0,
                         ),
@@ -1625,7 +1625,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                                   ? FontWeight.bold
                                   : FontWeight.w500,
                               color: isSelected
-                                  ? const Color(0xFFE11D48)
+                                  ? AppColors.primary
                                   : AppColors.textSecondary,
                             ),
                           ),
@@ -1637,7 +1637,7 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                             ),
                             decoration: BoxDecoration(
                               color: isSelected
-                                  ? const Color(0xFFE11D48)
+                                  ? AppColors.primary
                                   : const Color(0xFFF1F5F9),
                               shape: BoxShape.circle,
                             ),
@@ -1781,8 +1781,8 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
       catBg = const Color(0xFFFEF3C7);
       catFg = const Color(0xFFD97706);
     } else if (cat == 'Missed') {
-      catBg = const Color(0xFFFEE2E2);
-      catFg = const Color(0xFFDC2626);
+      catBg = AppColors.secondary;
+      catFg = AppColors.primary;
     } else if (cat == 'Upcoming') {
       catBg = const Color(0xFFE0F2FE);
       catFg = const Color(0xFF0284C7);
@@ -1820,12 +1820,12 @@ class _LeadDetailsViewState extends State<LeadDetailsView>
                 width: 38,
                 height: 38,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFFF1F2),
+                  color: AppColors.secondary,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Icon(
                   Icons.calendar_today_rounded,
-                  color: Color(0xFFE11D48),
+                  color: AppColors.primary,
                   size: 18,
                 ),
               ),

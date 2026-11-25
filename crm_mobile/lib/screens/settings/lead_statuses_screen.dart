@@ -124,7 +124,7 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Stage 1 status is fixed and cannot be deleted.'),
-          backgroundColor: Colors.red,
+          backgroundColor: AppColors.primary,
         ),
       );
       return;
@@ -133,7 +133,7 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Stage 3 status is managed by the system and cannot be deleted.'),
-          backgroundColor: Colors.red,
+          backgroundColor: AppColors.primary,
         ),
       );
       return;
@@ -352,7 +352,7 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(
                                       content: Text('Stage 1 status is fixed at the first position and cannot be changed.'),
-                                      backgroundColor: Colors.red,
+                                      backgroundColor: AppColors.primary,
                                     ),
                                   );
                                   return;
@@ -370,7 +370,7 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
                                             ? 'Stage 2 statuses must stay in between Stage 1 and Stage 3.'
                                             : 'Stage 3 statuses must remain at the last position.',
                                       ),
-                                      backgroundColor: Colors.red,
+                                      backgroundColor: AppColors.primary,
                                     ),
                                   );
                                   return;
@@ -412,12 +412,12 @@ class _LeadStatusesViewState extends State<LeadStatusesView> {
                                 final Color stageBg = isStage1
                                     ? const Color(0xFFEFF6FF)
                                     : isStage3
-                                        ? const Color(0xFFFEF2F2)
+                                        ? AppColors.secondary
                                         : const Color(0xFFF5F3FF);
                                 final Color stageColor = isStage1
                                     ? const Color(0xFF2563EB)
                                     : isStage3
-                                        ? const Color(0xFFDC2626)
+                                        ? AppColors.primary
                                         : const Color(0xFF7C3AED);
 
                                 final bool showStageHeader = index == 0 ||

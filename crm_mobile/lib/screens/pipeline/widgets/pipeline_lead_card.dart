@@ -220,8 +220,8 @@ class PipelineLeadCard extends StatelessWidget {
 
     final upper = priority.toUpperCase();
     if (upper == 'HIGH') {
-      bg = const Color(0xFFFEE2E2);
-      fg = const Color(0xFFEF4444);
+      bg = AppColors.secondary;
+      fg = AppColors.primary;
     } else if (upper == 'MEDIUM') {
       bg = const Color(0xFFFEF3C7);
       fg = const Color(0xFFD97706);

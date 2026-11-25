@@ -229,8 +229,8 @@ class _LeadFollowUpDetailsViewState extends State<LeadFollowUpDetailsView> {
             if (leadDetails.priority != null) {
               final priorityUpper = leadDetails.priority!.toUpperCase();
               if (priorityUpper == 'HIGH') {
-                priorityBgColor = const Color(0xFFFEE2E2);
-                priorityTextColor = const Color(0xFFEF4444);
+                priorityBgColor = AppColors.secondary;
+                priorityTextColor = AppColors.primary;
               } else if (priorityUpper == 'MEDIUM') {
                 priorityBgColor = const Color(0xFFFEF3C7);
                 priorityTextColor = const Color(0xFFD97706);
@@ -677,13 +677,13 @@ class _LeadFollowUpDetailsViewState extends State<LeadFollowUpDetailsView> {
       statusBgColor = Colors.green.shade50;
       statusTextColor = Colors.green.shade700;
     } else if (fStatus.contains('MISSED') || fStatus.contains('PENDING')) {
-      statusBgColor = Colors.red.shade50;
-      statusTextColor = Colors.red.shade700;
+      statusBgColor = AppColors.secondary;
+      statusTextColor = AppColors.primary;
     }
 
     // FollowUp Priority styling
     Color priorityColor = Colors.grey;
-    if (item.priority.toUpperCase() == 'HIGH') priorityColor = Colors.red;
+    if (item.priority.toUpperCase() == 'HIGH') priorityColor = AppColors.primary;
     if (item.priority.toUpperCase() == 'MEDIUM') priorityColor = Colors.orange;
     if (item.priority.toUpperCase() == 'LOW') priorityColor = Colors.green;
 

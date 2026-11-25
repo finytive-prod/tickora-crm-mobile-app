@@ -19,6 +19,7 @@ class CustomTextField extends StatefulWidget {
   final bool enabled;
   final bool readOnly;
   final AutovalidateMode? autovalidateMode;
+  final VoidCallback? onTap;
 
   const CustomTextField({
     super.key,
@@ -36,6 +37,7 @@ class CustomTextField extends StatefulWidget {
     this.enabled = true,
     this.readOnly = false,
     this.autovalidateMode,
+    this.onTap,
   });
 
   @override
@@ -80,7 +82,7 @@ class _CustomTextFieldState extends State<CustomTextField> {
       ...?widget.inputFormatters,
     ];
 
-    final isInteractive = widget.enabled && !widget.readOnly;
+    final isInteractive = widget.enabled && (!widget.readOnly || widget.onTap != null);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -99,7 +101,7 @@ class _CustomTextFieldState extends State<CustomTextField> {
                 if (widget.isRequired)
                   const TextSpan(
                     text: ' *',
-                    style: TextStyle(color: Colors.red),
+                    style: TextStyle(color: Color(0xFF111827)),
                   ),
               ],
             ),
@@ -112,6 +114,7 @@ class _CustomTextFieldState extends State<CustomTextField> {
           maxLines: widget.maxLines,
           enabled: widget.enabled,
           readOnly: widget.readOnly,
+          onTap: widget.onTap,
           enableInteractiveSelection: true,
           selectionControls: MaterialTextSelectionControls(),
           contextMenuBuilder: buildAdaptiveContextMenu,

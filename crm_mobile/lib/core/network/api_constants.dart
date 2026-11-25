@@ -100,4 +100,31 @@ class ApiUrl {
     }
     return '$serverOrigin/api/crm/notification-service';
   }
+
+  // ── Platform OAuth 2.0 PKCE configuration & endpoints ──
+  static String get oauthClientId {
+    try {
+      if (dotenv.isInitialized) {
+        return dotenv.env['OAUTH_CLIENT_ID'] ?? 'tickora-launcher-web';
+      }
+    } catch (_) {}
+    return 'tickora-launcher-web';
+  }
+
+  static String get mobileRedirectUri {
+    try {
+      if (dotenv.isInitialized) {
+        return dotenv.env['OAUTH_REDIRECT_URI'] ?? '$serverOrigin/callback';
+      }
+    } catch (_) {}
+    return '$serverOrigin/callback';
+  }
+
+  static String get platformLoginUrl => '$serverOrigin/api/v1/auth/login';
+  static String get oauthAuthorizeUrl => '$serverOrigin/login';
+  static String get oauthTokenUrl => '$serverOrigin/oauth2/token';
+  static String get platformMeUrl => '$serverOrigin/api/v1/platform/me';
+  static String get platformProductsAccessUrl => '$serverOrigin/api/v1/platform/products/access';
+  static String get crmPlatformSessionUrl => '$serverOrigin/api/crm/identity-service/platform/session';
+  static String get oauthLogoutUrl => '$serverOrigin/api/platform/auth/session/logout';
 }

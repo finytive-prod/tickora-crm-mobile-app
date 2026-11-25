@@ -2016,6 +2016,8 @@ class AutoCallRecordingUploader {
               endTime: meta['endTime'],
               from: meta['from'],
               to: meta['to'],
+              fromNumber: meta['fromNumber'] ?? meta['from'],
+              toNumber: meta['toNumber'] ?? meta['to'],
               duration: meta['duration'],
               callDate: meta['callDate'],
               callStatus: 'CONNECTED',
@@ -2363,6 +2365,8 @@ class AutoCallRecordingUploader {
           endTime: meta['endTime'],
           from: meta['from'],
           to: meta['to'],
+          fromNumber: meta['fromNumber'] ?? meta['from'],
+          toNumber: meta['toNumber'] ?? meta['to'],
           duration: meta['duration'],
           callDate: meta['callDate'],
           callStatus: callStatusFinal,
@@ -3016,6 +3020,8 @@ class AutoCallRecordingUploader {
           endTime: endTimeStr,
           from: fromNum,
           to: toNum,
+          fromNumber: fromNum,
+          toNumber: toNum,
           duration: durationStr,
           callDate: dateStr,
           callStatus: callStatusStr,
@@ -3461,6 +3467,8 @@ class AutoCallRecordingUploader {
 
     meta['from'] = finalFrom;
     meta['to'] = finalTo;
+    meta['fromNumber'] = finalFrom;
+    meta['toNumber'] = finalTo;
 
     return meta;
   }

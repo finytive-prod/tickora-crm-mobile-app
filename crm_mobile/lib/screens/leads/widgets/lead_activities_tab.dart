@@ -107,7 +107,7 @@ class LeadActivitiesTab extends StatelessWidget {
                         actionColor = Colors.orange;
                       } else if (log.actionType == 'DELETE') {
                         actionIcon = Icons.delete_outline;
-                        actionColor = Colors.red;
+                        actionColor = AppColors.primary;
                       }
 
                       final timeStr = log.actionAt != null

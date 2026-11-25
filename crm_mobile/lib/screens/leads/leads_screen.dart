@@ -168,48 +168,144 @@ class _LeadsScreenViewState extends State<LeadsScreenView>
   }
 
   String _resolveAssigneeName(Lead lead, List<dynamic> owners) {
-    if (lead.ownerUserName != null && lead.ownerUserName!.trim().isNotEmpty) {
-      final name = lead.ownerUserName!.trim();
-      final isUuid = RegExp(
-        r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
-      ).hasMatch(name);
-      if (!isUuid) {
-        return name;
+    var candidate = (lead.ownerUserName != null && lead.ownerUserName!.trim().isNotEmpty)
+        ? lead.ownerUserName!.trim()
+        : (lead.ownerUserId != null ? lead.ownerUserId!.trim() : '');
+
+    // Fallback: If owner is empty, try creator
+    if (candidate.isEmpty) {
+      if (lead.createdByName != null && lead.createdByName!.trim().isNotEmpty) {
+        candidate = lead.createdByName!.trim();
+      } else if (lead.createdBy != null && lead.createdBy!.trim().isNotEmpty) {
+        candidate = lead.createdBy!.trim();
       }
-      for (final staff in owners) {
-        if (staff is StaffUser && staff.userId == name) {
+    }
+
+    if (candidate.isEmpty) return 'Unassigned';
+
+    // 1. Try matching against owners
+    for (final staff in owners) {
+      if (staff is StaffUser) {
+        if (staff.userId.toLowerCase() == candidate.toLowerCase() ||
+            (staff.email != null && staff.email!.toLowerCase() == candidate.toLowerCase()) ||
+            staff.name.toLowerCase() == candidate.toLowerCase()) {
           return staff.name;
         }
       }
     }
 
-    if (lead.ownerUserId != null && lead.ownerUserId!.trim().isNotEmpty) {
-      final id = lead.ownerUserId!.trim();
-      for (final staff in owners) {
-        if (staff is StaffUser && staff.userId == id) {
+    // 2. If candidate is an email, format username to clean capitalized name
+    if (candidate.contains('@')) {
+      final username = candidate.split('@').first;
+      final parts = username.split(RegExp(r'[._\-]'));
+      final formatted = parts
+          .where((p) => p.trim().isNotEmpty)
+          .map((p) => p[0].toUpperCase() + (p.length > 1 ? p.substring(1).toLowerCase() : ''))
+          .join(' ');
+      if (formatted.isNotEmpty) return formatted;
+    }
+
+    // 3. If raw UUID without owner match, return 'Unassigned'
+    if (RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$').hasMatch(candidate)) {
+      return 'Unassigned';
+    }
+
+    return candidate;
+  }
+
+  String _resolveCreatorName(Lead lead, List<dynamic> owners) {
+    var candidate = (lead.createdByName != null && lead.createdByName!.trim().isNotEmpty)
+        ? lead.createdByName!.trim()
+        : (lead.createdBy != null ? lead.createdBy!.trim() : '');
+
+    // Fallback: If creator is empty, try owner
+    if (candidate.isEmpty) {
+      if (lead.ownerUserName != null && lead.ownerUserName!.trim().isNotEmpty) {
+        candidate = lead.ownerUserName!.trim();
+      } else if (lead.ownerUserId != null && lead.ownerUserId!.trim().isNotEmpty) {
+        candidate = lead.ownerUserId!.trim();
+      }
+    }
+
+    if (candidate.isEmpty) return '';
+
+    // 1. Try matching against owners
+    for (final staff in owners) {
+      if (staff is StaffUser) {
+        if (staff.userId.toLowerCase() == candidate.toLowerCase() ||
+            (staff.email != null && staff.email!.toLowerCase() == candidate.toLowerCase()) ||
+            staff.name.toLowerCase() == candidate.toLowerCase()) {
           return staff.name;
         }
       }
     }
 
-    final candidateIds = [
-      if (lead.ownerUserId != null) lead.ownerUserId!.trim(),
-      if (lead.ownerUserName != null) lead.ownerUserName!.trim(),
-    ];
+    // 2. If candidate is an email, format username to clean capitalized name
+    if (candidate.contains('@')) {
+      final username = candidate.split('@').first;
+      final parts = username.split(RegExp(r'[._\-]'));
+      final formatted = parts
+          .where((p) => p.trim().isNotEmpty)
+          .map((p) => p[0].toUpperCase() + (p.length > 1 ? p.substring(1).toLowerCase() : ''))
+          .join(' ');
+      if (formatted.isNotEmpty) return formatted;
+    }
 
-    for (final candidate in candidateIds) {
-      if (candidate.isEmpty) continue;
-      for (final staff in owners) {
-        if (staff is StaffUser) {
-          if (staff.userId.toLowerCase() == candidate.toLowerCase() ||
-              staff.name.toLowerCase() == candidate.toLowerCase()) {
-            return staff.name;
-          }
+    // 3. If raw UUID without match, return empty string
+    if (RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$').hasMatch(candidate)) {
+      return '';
+    }
+
+    return candidate;
+  }
+
+  LeadStatus? _resolveLeadStatus(
+    Lead lead,
+    List<dynamic> statuses, {
+    String? selectedStatusId,
+    LeadFilterParams? filterParams,
+  }) {
+    final rawStatus = lead.status;
+    final isRawStatusInvalid = rawStatus == null ||
+        rawStatus.statusName.trim().isEmpty ||
+        rawStatus.statusName.trim().toLowerCase() == 'unknown' ||
+        RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$').hasMatch(rawStatus.statusName.trim());
+
+    if (!isRawStatusInvalid && rawStatus.color != '#6B7280') {
+      return rawStatus;
+    }
+
+    final candidateId = rawStatus?.id ?? '';
+    final candidateName = rawStatus?.statusName.trim().toLowerCase() ?? '';
+
+    for (final s in statuses) {
+      if (s is LeadStatus) {
+        if ((candidateId.isNotEmpty && s.id == candidateId) ||
+            (candidateName.isNotEmpty && s.statusName.trim().toLowerCase() == candidateName) ||
+            (candidateName.isNotEmpty && s.id == candidateName)) {
+          return s;
         }
       }
     }
 
-    return 'Unassigned';
+    if (selectedStatusId != null && selectedStatusId.isNotEmpty) {
+      for (final s in statuses) {
+        if (s is LeadStatus && s.id == selectedStatusId) {
+          return s;
+        }
+      }
+    }
+
+    if (filterParams != null && filterParams.statusIds.length == 1) {
+      final filteredId = filterParams.statusIds.first;
+      for (final s in statuses) {
+        if (s is LeadStatus && s.id == filteredId) {
+          return s;
+        }
+      }
+    }
+
+    return rawStatus;
   }
 
   Color _hexToColor(String hexString) {
@@ -561,6 +657,8 @@ class _LeadsScreenViewState extends State<LeadsScreenView>
         );
       }
       final selectedIsActive = state.selectedIsActive;
+      final selectedStatusId = state.selectedStatusId;
+      final activeFilter = state.filterParams;
       final bool showLoader = state.hasMoreLeads || state.isLoadingMore;
       final totalItemCount =
           state.leads.length +
@@ -584,12 +682,25 @@ class _LeadsScreenViewState extends State<LeadsScreenView>
             final String initials =
                 (lead.firstName.isNotEmpty ? lead.firstName[0] : (displayName.isNotEmpty ? displayName[0] : 'L')) +
                 (lead.lastName.isNotEmpty ? lead.lastName[0] : '');
-            final statusColor = lead.status?.color != null
-                ? _hexToColor(lead.status!.color)
-                : Colors.grey;
+            final resolvedStatus = _resolveLeadStatus(
+              lead,
+              state.statuses,
+              selectedStatusId: selectedStatusId,
+              filterParams: activeFilter,
+            );
+            final statusColor = (resolvedStatus?.color != null && resolvedStatus!.color.isNotEmpty)
+                ? _hexToColor(resolvedStatus.color)
+                : (lead.status?.color != null ? _hexToColor(lead.status!.color) : Colors.grey);
+            final resolvedStatusName = (resolvedStatus?.statusName.trim().isNotEmpty == true &&
+                    resolvedStatus!.statusName.toLowerCase() != 'unknown')
+                ? resolvedStatus.statusName.trim()
+                : (lead.status?.statusName.trim().isNotEmpty == true &&
+                        lead.status!.statusName.toLowerCase() != 'unknown'
+                    ? lead.status!.statusName.trim()
+                    : 'Lead');
 
             Color priorityColor = Colors.grey;
-            if (lead.priority == 'HIGH') priorityColor = Colors.red;
+            if (lead.priority == 'HIGH') priorityColor = AppColors.primary;
             if (lead.priority == 'MEDIUM') priorityColor = Colors.orange;
             if (lead.priority == 'LOW') priorityColor = Colors.green;
 
@@ -616,6 +727,9 @@ class _LeadsScreenViewState extends State<LeadsScreenView>
                   final searchQuery = currentState is LeadsLoaded
                       ? currentState.searchQuery
                       : null;
+                  final currentFilter = currentState is LeadsLoaded
+                      ? currentState.filterParams
+                      : null;
 
                   context.read<LeadsBloc>().add(
                     FetchLeads(
@@ -623,6 +737,7 @@ class _LeadsScreenViewState extends State<LeadsScreenView>
                       size: 15,
                       statusId: currentStatusId,
                       isActive: currentIsActive,
+                      filterParams: currentFilter,
                       searchQuery: searchQuery,
                     ),
                   );
@@ -638,14 +753,14 @@ class _LeadsScreenViewState extends State<LeadsScreenView>
                 company: lead.companyName,
                 email: lead.email,
                 source: lead.source?.name,
-                status: lead.status?.statusName ?? 'Unknown',
+                status: resolvedStatusName,
                 statusBgColor: statusColor.withValues(alpha: 0.15),
                 statusTextColor: statusColor,
                 priority: lead.priority != null
                     ? '${lead.priority} Priority'
                     : 'No Priority',
                 priorityColor: priorityColor,
-                createdByName: lead.createdByName,
+                createdByName: _resolveCreatorName(lead, state.owners),
                 createdAt: lead.createdAt,
                 callStatus: lead.callStatus,
                 assignee: _resolveAssigneeName(lead, state.owners),

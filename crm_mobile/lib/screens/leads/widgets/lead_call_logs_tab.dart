@@ -913,9 +913,37 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
   Widget _buildAudioListItem(LeadAudio audio, LeadDetailsLoaded state) {
     final b = (audio.bound ?? '').toUpperCase();
     final isIncoming = b == 'IN' || b == 'INBOUND' || audio.callType == 'inbound';
-    final iconColor = isIncoming ? const Color(0xFF059669) : const Color(0xFFE11D48);
-    final iconBgColor = isIncoming ? const Color(0xFFD1FAE5) : const Color(0xFFFFE4E6);
-    final cardIcon = isIncoming ? Icons.call_received_rounded : Icons.call_made_rounded;
+    final audioStatus = (audio.callStatus ?? 'CONNECTED').toUpperCase();
+    final bool isAudioMissed = audioStatus == 'MISSED';
+    final bool isAudioUnanswered = audioStatus == 'UNANSWERED' || audioStatus == 'NOT_CONNECTED';
+
+    final cardIcon = isAudioMissed
+        ? Icons.phone_missed_rounded
+        : (isAudioUnanswered
+            ? Icons.call_missed_outgoing_rounded
+            : (isIncoming ? Icons.call_received_rounded : Icons.call_made_rounded));
+
+    final iconColor = isAudioMissed
+        ? const Color(0xFFDC2626)
+        : (isAudioUnanswered
+            ? const Color(0xFFD97706)
+            : (isIncoming ? const Color(0xFF059669) : AppColors.primary));
+
+    final iconBgColor = isAudioMissed
+        ? const Color(0xFFFEE2E2)
+        : (isAudioUnanswered
+            ? const Color(0xFFFEF3C7)
+            : (isIncoming ? const Color(0xFFD1FAE5) : AppColors.secondary));
+
+    final Color pillTextColor = isAudioMissed
+        ? const Color(0xFFDC2626)
+        : (isAudioUnanswered ? const Color(0xFFD97706) : const Color(0xFF059669));
+    final Color pillBgColor = isAudioMissed
+        ? const Color(0xFFFEF2F2)
+        : (isAudioUnanswered ? const Color(0xFFFFFBEB) : const Color(0xFFECFDF5));
+    final Color pillBorderColor = isAudioMissed
+        ? const Color(0xFFFECACA)
+        : (isAudioUnanswered ? const Color(0xFFFCD34D) : const Color(0xFF6EE7B7));
 
     final displayTitle = audio.originalFileName.isNotEmpty
         ? audio.originalFileName
@@ -991,15 +1019,15 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFECFDF5),
+                  color: pillBgColor,
                   borderRadius: BorderRadius.circular(5),
-                  border: Border.all(color: const Color(0xFF6EE7B7)),
+                  border: Border.all(color: pillBorderColor),
                 ),
                 child: Text(
-                  audio.callStatus?.toUpperCase() ?? 'CONNECTED',
-                  style: const TextStyle(
+                  audioStatus,
+                  style: TextStyle(
                     fontSize: 10,
-                    color: Color(0xFF059669),
+                    color: pillTextColor,
                     fontWeight: FontWeight.bold,
                     letterSpacing: 0.3,
                   ),
@@ -1334,7 +1362,7 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
                       'Missed',
                       totalMissedCount.toString(),
                       Icons.phone_missed_rounded,
-                      Colors.red,
+                      const Color(0xFFDC2626),
                     ),
                   ),
                   const SizedBox(width: 6),
@@ -1729,7 +1757,7 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
       iconColor = const Color(0xFF059669);
     } else {
       icon = Icons.call_made_rounded;
-      iconColor = const Color(0xFFE11D48);
+      iconColor = AppColors.primary;
     }
 
     final displayDateTime = _formatCallLogDisplayTime(log, cardData.timestamp);
@@ -1746,7 +1774,7 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
       statusPillText = 'MISSED';
       statusPillTextColor = const Color(0xFFDC2626);
       statusPillBgColor = const Color(0xFFFEF2F2);
-      statusPillBorderColor = const Color(0xFFFCA5A5);
+      statusPillBorderColor = const Color(0xFFFECACA);
     } else if (isUnanswered) {
       statusPillText = 'UNANSWERED';
       statusPillTextColor = const Color(0xFFD97706);
@@ -1935,8 +1963,8 @@ class _LeadCallLogsTabState extends State<LeadCallLogsTab> {
       iconColor = const Color(0xFF059669);
     } else {
       cardIcon = Icons.call_made_rounded;
-      iconBgColor = const Color(0xFFFFE4E6);
-      iconColor = const Color(0xFFE11D48);
+      iconBgColor = AppColors.secondary;
+      iconColor = AppColors.primary;
     }
 
     return Container(

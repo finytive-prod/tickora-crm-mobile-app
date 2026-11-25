@@ -40,7 +40,7 @@ class _NetworkLogsScreenState extends State<NetworkLogsScreen>
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Row(
           children: [
-            Icon(Icons.delete_outline, color: Color(0xFFDB222A)),
+            Icon(Icons.delete_outline, color: AppColors.primary),
             SizedBox(width: 8),
             Text('Clear Logs', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
           ],
@@ -77,7 +77,7 @@ class _NetworkLogsScreenState extends State<NetworkLogsScreen>
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFDB222A),
+              backgroundColor: AppColors.primary,
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
@@ -148,7 +148,7 @@ class _NetworkLogsScreenState extends State<NetworkLogsScreen>
       case 'PATCH':
         return const Color(0xFFD97706); // Amber
       case 'DELETE':
-        return const Color(0xFFDC2626); // Red
+        return AppColors.primary;
       default:
         return AppColors.textSecondary;
     }
@@ -157,7 +157,7 @@ class _NetworkLogsScreenState extends State<NetworkLogsScreen>
   Color _getStatusColor(int? statusCode, bool isPending, bool isError) {
     if (isPending) return const Color(0xFFF59E0B);
     if (isError || (statusCode != null && statusCode >= 400)) {
-      return const Color(0xFFDC2626);
+      return AppColors.primary;
     }
     if (statusCode != null && statusCode >= 200 && statusCode < 300) {
       return const Color(0xFF16A34A);
@@ -221,7 +221,7 @@ class _NetworkLogsScreenState extends State<NetworkLogsScreen>
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.delete_sweep_outlined, color: Color(0xFFDB222A)),
+            icon: const Icon(Icons.delete_sweep_outlined, color: AppColors.primary),
             tooltip: 'Clear Logs',
             onPressed: _clearLogs,
           ),
@@ -485,7 +485,7 @@ class _NetworkLogsScreenState extends State<NetworkLogsScreen>
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: item.isError ? Colors.red.withValues(alpha: 0.3) : const Color(0xFFE2E8F0),
+          color: item.isError ? AppColors.primary.withValues(alpha: 0.3) : const Color(0xFFE2E8F0),
           width: item.isError ? 1.5 : 1.0,
         ),
       ),
@@ -620,14 +620,14 @@ class _NetworkLogsScreenState extends State<NetworkLogsScreen>
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.08),
+                    color: AppColors.primary.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
                     item.errorMessage!,
                     style: const TextStyle(
                       fontSize: 11,
-                      color: Color(0xFFDC2626),
+                      color: AppColors.primary,
                       fontWeight: FontWeight.w500,
                     ),
                     maxLines: 2,
@@ -727,7 +727,7 @@ class _LogDetailModalState extends State<_LogDetailModal> with SingleTickerProvi
                                 decoration: BoxDecoration(
                                   color: (item.statusCode != null && item.statusCode! < 400)
                                       ? Colors.green.withValues(alpha: 0.12)
-                                      : Colors.red.withValues(alpha: 0.12),
+                                      : AppColors.primary.withValues(alpha: 0.12),
                                   borderRadius: BorderRadius.circular(4),
                                 ),
                                 child: Text(
@@ -737,7 +737,7 @@ class _LogDetailModalState extends State<_LogDetailModal> with SingleTickerProvi
                                     fontWeight: FontWeight.bold,
                                     color: (item.statusCode != null && item.statusCode! < 400)
                                         ? Colors.green
-                                        : Colors.red,
+                                        : AppColors.primary,
                                   ),
                                 ),
                               ),
