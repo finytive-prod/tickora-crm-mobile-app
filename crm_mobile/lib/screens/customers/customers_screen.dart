@@ -195,7 +195,7 @@ class _CustomersViewState extends State<_CustomersView> {
                 contextMenuBuilder: buildAdaptiveContextMenu,
                 onChanged: _onSearchChanged,
                 decoration: const InputDecoration(
-                  hintText: 'Search contacts...',
+                  hintText: 'Search contacts....',
                   hintStyle: TextStyle(color: AppColors.textHint, fontSize: 14),
                   prefixIcon: Icon(Icons.search, color: AppColors.textHint),
                   border: InputBorder.none,
